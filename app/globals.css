@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* —— Aire Digital · tokens Limbi (hex) —— */
+@layer base {
+  :root {
+    --limbi-bg: #f6f7f9;
+    --limbi-bg-soft: #f8fafc;
+    --limbi-surface: #ffffff;
+    --limbi-surface-soft: #f1f5f9;
+    --limbi-border: #e8eef2;
+    --limbi-text: #0f172a;
+    --limbi-text-muted: #64748b;
+    --limbi-green: #10b981;
+    --limbi-aqua: #22d3ee;
+    --limbi-blue: #60a5fa;
+    --limbi-yellow: #f59e0b;
+    --limbi-red: #ef4444;
+    --limbi-page-gradient: linear-gradient(
+      135deg,
+      #f8fafc 0%,
+      #f6f7f9 45%,
+      #ecfeff 100%
+    );
+    --limbi-shadow-card: 0 12px 40px rgba(15, 23, 42, 0.06);
+    --limbi-shadow-card-hover: 0 16px 44px rgba(15, 23, 42, 0.09);
+    --limbi-shadow-primary: 0 8px 24px rgba(16, 185, 129, 0.28);
+
+    /* shadcn semantic (HSL components) alineados con Aire Digital · modo claro */
+    --background: 220 14% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 32% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 186 94% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 92%;
+    --input: 214 32% 92%;
+    --ring: 160 72% 42%;
+    --chart-1: 160 84% 39%;
+    --chart-2: 188 94% 42%;
+    --chart-3: 213 93% 67%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 0 84% 60%;
+    --radius: 0.875rem;
+  }
+
+  /* Modo oscuro suave (no OLED): mantiene contraste sin “peso” editorial */
+  .dark {
+    --background: 222 22% 14%;
+    --foreground: 210 40% 98%;
+    --card: 222 20% 16%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 20% 16%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 160 72% 45%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 222 18% 20%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 222 16% 22%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 222 18% 22%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 16% 26%;
+    --input: 222 16% 26%;
+    --ring: 160 60% 45%;
+    --chart-1: 160 72% 45%;
+    --chart-2: 188 80% 48%;
+    --chart-3: 213 80% 65%;
+    --chart-4: 38 88% 55%;
+    --chart-5: 0 72% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply h-full scroll-smooth;
+  }
+  body {
+    @apply min-h-full bg-background font-sans text-foreground antialiased;
+    background-image: var(--limbi-page-gradient);
+    background-attachment: fixed;
+  }
+  .font-heading {
+    font-family: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .limbi-page-gradient {
+    background-image: var(--limbi-page-gradient);
+  }
+  .limbi-surface-card {
+    background-color: var(--limbi-surface);
+    border: 1px solid var(--limbi-border);
+    border-radius: 1.375rem;
+    box-shadow: var(--limbi-shadow-card);
+  }
+}

@@ -1,0 +1,1 @@
+-- Placeholder: datos de prueba cuando existan tablas (Tarea posterior).
