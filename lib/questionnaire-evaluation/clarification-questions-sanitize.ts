@@ -1,3 +1,4 @@
+import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import { clipClarificationQuestionsToScoreCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
 import type {
   ClarificationQuestion,
@@ -247,7 +248,10 @@ export function finalizeEvaluationPayload(
     withMinimum,
     data.overall_quality_score,
   );
-  const merged = { ...data, clarification_questions: capped };
+  const withSanitizedChips = capped.map((q) =>
+    mergeClarificationSuggestionChips(q, responses),
+  );
+  const merged = { ...data, clarification_questions: withSanitizedChips };
   const again = questionnaireEvaluationPayloadSchema.safeParse(merged);
   return again.success ? again.data : merged;
 }

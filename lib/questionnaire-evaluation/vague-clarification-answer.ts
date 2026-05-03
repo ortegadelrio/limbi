@@ -1,3 +1,12 @@
+import { CLARIFICATION_UNIVERSAL_SKIP_OPTIONS } from "@/lib/questionnaire-evaluation/clarification-skip-constants";
+
+function fold(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
 const VAGUE_TOKENS = new Set([
   "experiencia",
   "confianza",
@@ -33,6 +42,10 @@ function normalizeWords(s: string): string[] {
 export function isVagueClarificationAnswerText(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (t.length === 0) return true;
+  const tf = fold(t);
+  for (const o of CLARIFICATION_UNIVERSAL_SKIP_OPTIONS) {
+    if (tf === fold(o.label)) return false;
+  }
   if (t.length < 12) {
     const words = normalizeWords(t);
     if (words.length <= 1 && words[0] && VAGUE_TOKENS.has(words[0])) return true;

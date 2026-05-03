@@ -24,6 +24,7 @@ import {
   getActiveQuestionnaireEvaluation,
   insertQuestionnaireClarification,
 } from "@/lib/questionnaire-evaluation/supabase-questionnaire";
+import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import { validateClarificationAnswersAgainstQuestions } from "@/lib/questionnaire-evaluation/validate-clarification-submit";
 import { z } from "zod";
 
@@ -289,7 +290,9 @@ export async function POST(request: Request, { params }: Params) {
     critical_follow_up_questions = clipClarificationQuestionsToScoreCap(
       postRound.clarification_questions,
       postRound.overall_quality_score,
-    ).slice(0, 2);
+    )
+      .slice(0, 2)
+      .map((q) => mergeClarificationSuggestionChips(q, responses));
   }
 
   const payload: Record<string, unknown> = {

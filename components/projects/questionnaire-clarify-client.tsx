@@ -10,12 +10,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { inferClarificationTargetMasterFields } from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
+import {
+  CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+  CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+  CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+  isUniversalClarificationSkipOptionId,
+} from "@/lib/questionnaire-evaluation/clarification-skip-constants";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
 import { getClarificationQuestionCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
 import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import {
   questionnaireEvaluationPayloadSchema,
   shouldRequireClarificationScreen,
+  type ClarificationAnswer,
   type ClarificationQuestion,
 } from "@/lib/questionnaire-evaluation/schema";
 import { validateClarificationAnswersAgainstQuestions } from "@/lib/questionnaire-evaluation/validate-clarification-submit";
@@ -48,11 +56,14 @@ function answerCombinedText(
   return ft;
 }
 
+const CLAIM_LIMITS_NOT_AVAILABLE_ES =
+  "Evitar afirmaciones contundentes y no inventar evidencia en este tema hasta contar con datos reales.";
+
 function buildAnswersPayload(
   questions: ClarificationQuestion[],
   drafts: Record<string, AnswerDraft>,
   pendingInline: Record<string, string>,
-) {
+): ClarificationAnswer[] {
   return questions.map((q) => {
     const d = drafts[q.id] ?? { freeText: "" };
     let ft = d.freeText.trim();
@@ -60,11 +71,54 @@ function buildAnswersPayload(
     if (extra.length > 0) {
       ft = ft.length > 0 ? `${ft}\n\n(Aclaración adicional): ${extra}` : extra;
     }
-    const out: {
-      question_id: string;
-      selected_option_id?: string;
-      free_text?: string;
-    } = { question_id: q.id };
+
+    const oid = d.optionId;
+    if (oid === CLARIFICATION_SKIP_NOT_AVAILABLE_ID) {
+      const out: ClarificationAnswer = {
+        question_id: q.id,
+        selected_option_id: oid,
+        answer_status: "not_available_yet",
+        should_update_master: true,
+        confidence_level: "low",
+        strategic_topic: q.question_text,
+        target_master_fields: inferClarificationTargetMasterFields(q),
+        claim_limits: CLAIM_LIMITS_NOT_AVAILABLE_ES,
+      };
+      if (ft.length > 0) out.free_text = ft;
+      return out;
+    }
+    if (oid === CLARIFICATION_SKIP_CONTINUE_BASE_ID) {
+      const out: ClarificationAnswer = {
+        question_id: q.id,
+        selected_option_id: oid,
+        answer_status: "continue_with_base",
+        should_update_master: false,
+        confidence_level: "low",
+        strategic_topic: q.question_text,
+        target_master_fields: inferClarificationTargetMasterFields(q),
+        claim_limits:
+          "Continuar con la base actual; evitar promesas nuevas no sustentadas en este tema.",
+      };
+      if (ft.length > 0) out.free_text = ft;
+      return out;
+    }
+    if (oid === CLARIFICATION_SKIP_IMPROVE_LATER_ID) {
+      const out: ClarificationAnswer = {
+        question_id: q.id,
+        selected_option_id: oid,
+        answer_status: "improve_later",
+        should_update_master: true,
+        confidence_level: "low",
+        strategic_topic: q.question_text,
+        target_master_fields: inferClarificationTargetMasterFields(q),
+        claim_limits:
+          "Marcar el tema como mejorable más adelante; comunicación cautelosa hasta contar con más información.",
+      };
+      if (ft.length > 0) out.free_text = ft;
+      return out;
+    }
+
+    const out: ClarificationAnswer = { question_id: q.id };
     if (d.optionId) out.selected_option_id = d.optionId;
     if (ft.length > 0) out.free_text = ft;
     return out;
@@ -97,6 +151,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   const [followUpQuestions, setFollowUpQuestions] = useState<
     ClarificationQuestion[]
   >([]);
+  const [wizardResponses, setWizardResponses] = useState<
+    Record<string, unknown>
+  >({});
+  const [stepError, setStepError] = useState<string | null>(null);
 
   const total = questions.length;
   const current = total > 0 ? questions[step] : null;
@@ -106,6 +164,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   const load = useCallback(async () => {
     setPhase("loading");
     setError(null);
+    setStepError(null);
     try {
       const [rRes, sRes] = await Promise.all([
         fetch(`/api/projects/${projectId}/responses`, { credentials: "include" }),
@@ -166,6 +225,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         !Array.isArray(rJson.project_responses.responses)
           ? (rJson.project_responses.responses as Record<string, unknown>)
           : {};
+      setWizardResponses(responses);
 
       const finalized = finalizeEvaluationPayload(parsed.data, responses);
 
@@ -185,8 +245,8 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         clarObj.answers.length > 0;
 
       setScore(finalized.overall_quality_score);
-      const withChips = finalized.clarification_questions.map(
-        mergeClarificationSuggestionChips,
+      const withChips = finalized.clarification_questions.map((q) =>
+        mergeClarificationSuggestionChips(q, responses),
       );
       setQuestions(withChips);
 
@@ -227,6 +287,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             crit.map((x) =>
               mergeClarificationSuggestionChips(
                 x as ClarificationQuestion,
+                responses,
               ),
             ),
           );
@@ -257,6 +318,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setStepError(null);
+  }, [step, phase]);
+
   const setDraft = useCallback((qid: string, patch: Partial<AnswerDraft>) => {
     setDrafts((prev) => ({
       ...prev,
@@ -272,6 +337,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     const d = drafts[current.id] ?? { freeText: "" };
     const ft = d.freeText.trim();
     const opts = current.options ?? [];
+    if (d.optionId && isUniversalClarificationSkipOptionId(d.optionId)) {
+      return true;
+    }
     if (opts.length > 0) {
       if (d.optionId) return true;
       if (current.allow_free_text !== false && ft.length > 0) return true;
@@ -284,7 +352,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     (qs: ClarificationQuestion[], dr: Record<string, AnswerDraft>) => {
       const vagueIds: string[] = [];
       for (const q of qs) {
-        const t = answerCombinedText(q, dr[q.id]);
+        const pick = dr[q.id];
+        if (
+          pick?.optionId &&
+          isUniversalClarificationSkipOptionId(pick.optionId)
+        ) {
+          continue;
+        }
+        const t = answerCombinedText(q, pick);
         const extra = pendingInlineFollowUps[q.id]?.trim() ?? "";
         const merged = extra ? `${t} ${extra}` : t;
         if (isVagueClarificationAnswerText(merged)) vagueIds.push(q.id);
@@ -299,11 +374,13 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     const answers = buildAnswersPayload(questions, drafts, pendingInlineFollowUps);
     const v = validateClarificationAnswersAgainstQuestions(questions, answers);
     if (!v.ok) {
-      setError(v.message);
+      setStepError(v.message);
+      setError(null);
       return;
     }
     const caution = buildClientCaution(questions, drafts);
     setError(null);
+    setStepError(null);
     setPhase("saving");
     try {
       const cRes = await fetch(
@@ -341,7 +418,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         setDimensionNotes(pr.dimension_improvement_notes ?? []);
         const crit = pr.critical_follow_up_questions ?? [];
         setFollowUpQuestions(
-          crit.map((x) => mergeClarificationSuggestionChips(x)),
+          crit.map((x) =>
+            mergeClarificationSuggestionChips(x, wizardResponses),
+          ),
         );
         if (typeof pr.score_after === "number") setScore(pr.score_after);
       }
@@ -350,7 +429,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setError(e instanceof Error ? e.message : "Error al guardar.");
       setPhase("form");
     }
-  }, [buildClientCaution, drafts, pendingInlineFollowUps, projectId, questions]);
+  }, [
+    buildClientCaution,
+    drafts,
+    pendingInlineFollowUps,
+    projectId,
+    questions,
+    wizardResponses,
+  ]);
 
   const submitFollowUp = useCallback(async () => {
     const answers = buildAnswersPayload(
@@ -363,10 +449,12 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       answers,
     );
     if (!v.ok) {
-      setError(v.message);
+      setStepError(v.message);
+      setError(null);
       return;
     }
     setError(null);
+    setStepError(null);
     setPhase("saving_followup");
     try {
       const cRes = await fetch(
@@ -394,6 +482,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setPhase("form_followup");
     }
   }, [drafts, followUpQuestions, pendingInlineFollowUps, projectId]);
+
+  const skipUniversalVagueGate = useCallback(
+    (qid: string) => {
+      const oid = drafts[qid]?.optionId;
+      return Boolean(oid && isUniversalClarificationSkipOptionId(oid));
+    },
+    [drafts],
+  );
 
   const postGenerateMaster = useCallback(async () => {
     setError(null);
@@ -440,6 +536,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
 
     const combined = answerCombinedText(current, drafts[current.id]);
     if (
+      !skipUniversalVagueGate(current.id) &&
       followUpsUsed < 2 &&
       !followUpUsedIds.has(current.id) &&
       isVagueClarificationAnswerText(combined)
@@ -457,6 +554,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     followUpsUsed,
     inlineFollowDraft,
     inlineFollowUpParentId,
+    skipUniversalVagueGate,
     total,
   ]);
 
@@ -469,14 +567,18 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     }
     setDrafts(initialDrafts);
     setStep(0);
-    setQuestions(followUpQuestions.map(mergeClarificationSuggestionChips));
+    setQuestions(
+      followUpQuestions.map((q) =>
+        mergeClarificationSuggestionChips(q, wizardResponses),
+      ),
+    );
     setPendingInlineFollowUps({});
     setInlineFollowUpParentId(null);
     setInlineFollowDraft("");
     setFollowUpsUsed(0);
     setFollowUpUsedIds(new Set());
     setPhase("form_followup");
-  }, [followUpQuestions]);
+  }, [followUpQuestions, wizardResponses]);
 
   if (phase === "generating") {
     return (
@@ -516,8 +618,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           </h1>
           {sa < 80 ? (
             <p className="text-sm leading-relaxed text-limbi-muted">
-              Tu base mejoró de {sb} a {sa}. Ya podemos generar la Lectura,
-              aunque algunos puntos siguen débiles.
+              Podemos generar la Lectura con esta base, pero algunos puntos
+              quedarán marcados como débiles para evitar promesas exageradas.
+              {scoreBeforeRound !== null && scoreAfterRound !== null ? (
+                <>
+                  {" "}
+                  Tu puntuación pasó de {sb} a {sa}.
+                </>
+              ) : null}
             </p>
           ) : (
             <p className="text-sm text-limbi-muted">
@@ -549,7 +657,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                   void startFollowUpRound();
                 }}
               >
-                Mejorar 2 puntos críticos
+                Mejorar otro punto
               </Button>
             ) : null}
             <Button
@@ -641,6 +749,12 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 {step + 1} de {total}
               </p>
 
+              {stepError ? (
+                <p className="text-sm text-destructive" role="status">
+                  {stepError}
+                </p>
+              ) : null}
+
               {inlineFollowUpParentId === current.id ? (
                 <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
                   <p className="text-sm font-medium text-limbi-text">
@@ -688,9 +802,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() =>
-                              setDraft(current.id, { optionId: opt.id })
-                            }
+                            onClick={() => {
+                              setStepError(null);
+                              setDraft(current.id, { optionId: opt.id });
+                            }}
                             className={cn(
                               "rounded-full border px-3 py-1.5 text-sm transition-colors",
                               sel
@@ -782,6 +897,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                         drafts[current.id],
                       );
                       if (
+                        !skipUniversalVagueGate(current.id) &&
                         followUpsUsed < 2 &&
                         !followUpUsedIds.has(current.id) &&
                         isVagueClarificationAnswerText(combined)

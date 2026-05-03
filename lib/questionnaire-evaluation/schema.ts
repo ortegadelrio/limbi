@@ -55,6 +55,14 @@ export const clarificationAnswerSchema = z.object({
   question_id: z.string().min(1),
   selected_option_id: z.string().min(1).optional(),
   free_text: z.string().optional(),
+  answer_status: z
+    .enum(["normal", "not_available_yet", "continue_with_base", "improve_later"])
+    .optional(),
+  should_update_master: z.boolean().optional(),
+  confidence_level: z.enum(["low", "medium", "high"]).optional(),
+  strategic_topic: z.string().optional(),
+  target_master_fields: z.array(z.string()).optional(),
+  claim_limits: z.string().optional(),
 });
 
 export const questionnaireClarificationsPayloadSchema = z

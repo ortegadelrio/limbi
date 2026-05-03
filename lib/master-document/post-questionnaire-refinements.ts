@@ -1,9 +1,15 @@
+import { detectProjectChipCategory } from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
+
+const ALCOHOL_RESPONSIBLE_NOTE_ES =
+  "Comunicación responsable sobre bebidas alcohólicas: no dirigirse a menores; no implicar que el alcohol mejora la salud, el estatus, el rendimiento o el bienestar emocional; no fomentar el consumo excesivo; centrar afirmaciones en sabor, oficio, experiencia, ocasión y disfrute responsable.";
+
 /**
  * Contexto que se inyecta en el prompt del Documento Maestro (no modifica `responses` en BD).
  */
 export function buildPostQuestionnaireStrategicRefinements(
   evaluation: unknown,
   clarifications: unknown,
+  wizardResponses?: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
   if (
     !clarifications ||
@@ -48,6 +54,23 @@ export function buildPostQuestionnaireStrategicRefinements(
       ? c.client_generation_caution.trim()
       : null;
 
+  const answersArr = Array.isArray(c.answers) ? c.answers : [];
+  const not_available_yet_items = answersArr.filter(
+    (x) =>
+      x &&
+      typeof x === "object" &&
+      !Array.isArray(x) &&
+      (x as Record<string, unknown>).answer_status === "not_available_yet",
+  );
+
+  let alcohol_responsible_communication_note: string | null = null;
+  if (wizardResponses && typeof wizardResponses === "object") {
+    const cat = detectProjectChipCategory(wizardResponses);
+    if (cat === "alcohol_communication" || cat === "cocktails_beverage") {
+      alcohol_responsible_communication_note = ALCOHOL_RESPONSIBLE_NOTE_ES;
+    }
+  }
+
   return {
     source: "post_questionnaire_clarification_flow",
     clarification_submitted_at:
@@ -65,5 +88,7 @@ export function buildPostQuestionnaireStrategicRefinements(
     post_clarification_evaluation_snapshot: postRound,
     dimension_improvement_notes: dimensionNotes,
     limbic_generation_caution,
+    clarification_not_available_yet_items: not_available_yet_items,
+    alcohol_responsible_communication_note,
   };
 }

@@ -169,6 +169,7 @@ export async function POST(_request: Request, { params }: Params) {
     buildPostQuestionnaireStrategicRefinements(
       refinementBundle.evaluation,
       clarificationsForMaster,
+      responses,
     );
 
   const structured = buildMasterDocumentInput({
