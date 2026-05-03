@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LimbiLogo } from "@/components/brand/limbi-logo";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +13,13 @@ export function DashboardNav() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
+      <Link
+        href="/dashboard"
+        className="shrink-0 rounded-xl py-1 pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35 focus-visible:ring-offset-2 focus-visible:ring-offset-limbi-surface"
+        aria-label="Limbi — Ir al panel"
+      >
+        <LimbiLogo variant="wordmark" size="sm" />
+      </Link>
       <nav
         className="flex items-center gap-1 rounded-2xl border border-limbi-border bg-limbi-surface/90 p-1 shadow-sm dark:bg-limbi-surface/80"
         aria-label="Principal"

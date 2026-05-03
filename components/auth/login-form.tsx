@@ -7,8 +7,21 @@ import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { safeInternalPath } from "@/lib/auth/safe-next-path";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
-export function LoginForm() {
+export type LoginFormProps = {
+  /** Oculta el enlace a /signup; usa `onRequestSignup` para cambiar de tab en el home. */
+  embedded?: boolean;
+  onRequestSignup?: () => void;
+  submitButtonClassName?: string;
+};
+
+export function LoginForm(props: LoginFormProps = {}) {
+  const {
+    embedded = false,
+    onRequestSignup,
+    submitButtonClassName,
+  } = props;
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextRaw = searchParams.get("next");
@@ -81,15 +94,34 @@ export function LoginForm() {
           {error}
         </p>
       ) : null}
-      <Button type="submit" disabled={loading}>
+      <Button
+        type="submit"
+        disabled={loading}
+        className={cn("w-full", submitButtonClassName)}
+      >
         {loading ? "Entrando…" : "Entrar"}
       </Button>
-      <p className="text-center text-sm text-muted-foreground">
-        ¿No tienes cuenta?{" "}
-        <Link href="/signup" className="font-medium text-foreground underline">
-          Crear cuenta
-        </Link>
-      </p>
+      {embedded ? (
+        onRequestSignup ? (
+          <p className="text-center text-sm text-muted-foreground">
+            ¿No tienes cuenta?{" "}
+            <button
+              type="button"
+              className="font-medium text-foreground underline underline-offset-2"
+              onClick={onRequestSignup}
+            >
+              Crear cuenta
+            </button>
+          </p>
+        ) : null
+      ) : (
+        <p className="text-center text-sm text-muted-foreground">
+          ¿No tienes cuenta?{" "}
+          <Link href="/signup" className="font-medium text-foreground underline">
+            Crear cuenta
+          </Link>
+        </p>
+      )}
     </form>
   );
 }

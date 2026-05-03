@@ -28,7 +28,7 @@ export function LogoutButton({
       if (error) {
         console.error(error);
       }
-      window.location.assign("/login");
+      window.location.assign("/");
     } finally {
       setLoading(false);
     }

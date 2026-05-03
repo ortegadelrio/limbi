@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ProjectsList } from "@/components/projects/projects-list";
+import { Button } from "@/components/ui/button";
 import { limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +12,7 @@ export default function ProjectsPage() {
         <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-8">
           <div className="min-w-0 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-limbi-muted">
-              Limbi · Plataforma Límbica digital
+              Plataforma Límbica digital
             </p>
             <h1 className="font-heading text-3xl font-semibold tracking-tight text-limbi-text sm:text-4xl">
               Sistemas Límbicos
