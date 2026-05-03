@@ -44,8 +44,37 @@ export type ProjectResponsesRow = {
   user_id: string;
   responses: Record<string, unknown>;
   completed_steps: string[];
+  questionnaire_pre_master_evaluation?: Record<string, unknown> | null;
+  questionnaire_pre_master_evaluation_source_hash?: string | null;
+  questionnaire_clarifications?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Fila en `questionnaire_evaluations` (evaluación IA pre–maestro, versionada). */
+export type QuestionnaireEvaluationDbRow = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  source_responses_hash: string;
+  payload: Record<string, unknown>;
+  model_used: string | null;
+  prompt_version: string | null;
+  is_active: boolean;
+  superseded_at: string | null;
+  created_at: string;
+};
+
+/** Fila en `questionnaire_clarifications` (respuestas de aclaración post-cuestionario). */
+export type QuestionnaireClarificationDbRow = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  evaluation_id: string | null;
+  answers: unknown;
+  submitted_at: string;
+  generated_master_document_id: string | null;
+  created_at: string;
 };
 
 export type MasterDocumentRow = {

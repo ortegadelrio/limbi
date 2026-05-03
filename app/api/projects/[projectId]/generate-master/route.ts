@@ -5,6 +5,14 @@ import {
   jsonNotFound,
 } from "@/lib/api/route-auth";
 import { buildMasterDocumentInput } from "@/lib/master-document/build-input";
+import { buildPostQuestionnaireStrategicRefinements } from "@/lib/master-document/post-questionnaire-refinements";
+import { computeClarificationsPayloadHash } from "@/lib/questionnaire-evaluation/clarifications-hash";
+import { resolvePostQuestionnaireRefinementBundle } from "@/lib/questionnaire-evaluation/resolve-refinements-for-master";
+import {
+  getActiveQuestionnaireEvaluation,
+  getLatestQuestionnaireClarifications,
+  linkLatestPendingClarificationToMasterDocument,
+} from "@/lib/questionnaire-evaluation/supabase-questionnaire";
 import { computeSourceResponsesHash } from "@/lib/master-document/source-responses-hash";
 import { normalizeMasterDocumentBeforeValidation } from "@/lib/master-document/normalize-master-document";
 import {
@@ -91,7 +99,9 @@ export async function POST(_request: Request, { params }: Params) {
 
   const { data: pr, error: prError } = await supabase
     .from("project_responses")
-    .select("responses, completed_steps")
+    .select(
+      "responses, completed_steps, questionnaire_pre_master_evaluation, questionnaire_pre_master_evaluation_source_hash, questionnaire_clarifications",
+    )
     .eq("project_id", projectId)
     .maybeSingle();
 
@@ -107,9 +117,44 @@ export async function POST(_request: Request, { params }: Params) {
       ? (pr.responses as Record<string, unknown>)
       : {};
 
+  const sourceHash = computeSourceResponsesHash(responses);
+  const activeEvalRow = await getActiveQuestionnaireEvaluation(
+    supabase,
+    projectId,
+    { sourceResponsesHash: sourceHash },
+  );
+  const latestClarRow = activeEvalRow
+    ? await getLatestQuestionnaireClarifications(
+        supabase,
+        projectId,
+        activeEvalRow.id,
+      )
+    : null;
+
+  const legacySourceHash =
+    typeof pr?.questionnaire_pre_master_evaluation_source_hash === "string"
+      ? pr.questionnaire_pre_master_evaluation_source_hash
+      : null;
+
+  const refinementBundle = resolvePostQuestionnaireRefinementBundle({
+    currentResponsesHash: sourceHash,
+    newTableEvaluation: activeEvalRow,
+    newTableClarification: latestClarRow,
+    legacyEvaluation: pr?.questionnaire_pre_master_evaluation ?? null,
+    legacyClarifications: pr?.questionnaire_clarifications ?? null,
+    legacySourceHash,
+  });
+
+  const post_questionnaire_strategic_refinements =
+    buildPostQuestionnaireStrategicRefinements(
+      refinementBundle.evaluation,
+      refinementBundle.clarifications,
+    );
+
   const structured = buildMasterDocumentInput({
     project,
     responses,
+    post_questionnaire_strategic_refinements,
   });
   const prompt = buildMasterDocumentPrompt(structured);
 
@@ -193,11 +238,23 @@ export async function POST(_request: Request, { params }: Params) {
     return NextResponse.json(body, { status: 422 });
   }
 
-  const source_responses_hash = computeSourceResponsesHash(responses);
+  const source_responses_hash = sourceHash;
+  const source_clarifications_hash = post_questionnaire_strategic_refinements
+    ? computeClarificationsPayloadHash(
+        post_questionnaire_strategic_refinements as Record<string, unknown>,
+      )
+    : undefined;
+
   const documentToPersist: Record<string, unknown> = {
     ...processed.document,
     system_metadata: {
       source_responses_hash,
+      ...(source_clarifications_hash
+        ? {
+            source_clarifications_hash,
+            had_post_questionnaire_clarifications: true,
+          }
+        : {}),
     },
   };
 
@@ -287,6 +344,22 @@ export async function POST(_request: Request, { params }: Params) {
 
   if (eventError) {
     return NextResponse.json({ error: eventError.message }, { status: 500 });
+  }
+
+  if (refinementBundle.linkTarget) {
+    const { error: linkErr } =
+      await linkLatestPendingClarificationToMasterDocument(
+        supabase,
+        projectId,
+        refinementBundle.linkTarget.evaluationId,
+        inserted.id,
+      );
+    if (linkErr) {
+      console.error(
+        "[generate-master] linkLatestPendingClarificationToMasterDocument",
+        linkErr.message,
+      );
+    }
   }
 
   return NextResponse.json({

@@ -1496,6 +1496,32 @@ export function NewProjectWizard() {
           }
 
           if (mustCallGenerateMaster) {
+            const evalRes = await fetch(
+              `/api/projects/${pid}/evaluate-questionnaire`,
+              {
+                method: "POST",
+                credentials: "include",
+              },
+            );
+            const evalJson = (await evalRes.json().catch(() => ({}))) as {
+              requires_clarification?: unknown;
+              error?: unknown;
+            };
+            if (!evalRes.ok) {
+              throw new Error(
+                typeof evalJson.error === "string"
+                  ? evalJson.error
+                  : "No se pudo evaluar el cuestionario antes del Sistema Límbico.",
+              );
+            }
+            if (evalJson.requires_clarification === true) {
+              router.refresh();
+              router.push(
+                `/projects/${encodeURIComponent(pid)}/questionnaire-clarify`,
+              );
+              return;
+            }
+
             const genRes = await fetch(
               `/api/projects/${pid}/generate-master`,
               {

@@ -31,6 +31,8 @@ export type MasterDocumentStructuredInput = {
   evidence_context: Record<string, unknown>;
   limbic_interpretation: LimbicInterpretationResult;
   voice_context: Record<string, unknown>;
+  /** Refinamientos posteriores al cuestionario (flujo de aclaración); no sustituyen raw_responses. */
+  post_questionnaire_strategic_refinements: Record<string, unknown> | null;
   global_ai_rules: string;
   generation_instructions: MasterDocumentGenerationInstructions;
 };
@@ -38,6 +40,7 @@ export type MasterDocumentStructuredInput = {
 export type BuildMasterDocumentInputParams = {
   project: MasterDocumentProjectPayload;
   responses: Record<string, unknown>;
+  post_questionnaire_strategic_refinements?: Record<string, unknown> | null;
 };
 
 function readSubRecord(
@@ -58,6 +61,7 @@ function readSubRecord(
 export function buildMasterDocumentInput({
   project,
   responses,
+  post_questionnaire_strategic_refinements = null,
 }: BuildMasterDocumentInputParams): MasterDocumentStructuredInput {
   const raw_responses: Record<string, unknown> = {
     ...responses,
@@ -105,7 +109,7 @@ export function buildMasterDocumentInput({
   const limbic_interpretation = buildLimbicInterpretation(responses);
 
   const generation_instructions: MasterDocumentGenerationInstructions = {
-    builder_version: "5b-v1",
+    builder_version: "5c-v1",
     deliverable: "narrative_knowledge_master_json",
     output_language: "Spanish",
     json_key_language: "English",
@@ -120,6 +124,7 @@ export function buildMasterDocumentInput({
     evidence_context,
     limbic_interpretation,
     voice_context,
+    post_questionnaire_strategic_refinements,
     global_ai_rules: GLOBAL_AI_RULES,
     generation_instructions,
   };

@@ -31,7 +31,7 @@ export async function GET(_request: Request, { params }: Params) {
   const { data, error } = await supabase
     .from("project_responses")
     .select(
-      "id, project_id, user_id, responses, completed_steps, created_at, updated_at",
+      "id, project_id, user_id, responses, completed_steps, questionnaire_pre_master_evaluation, questionnaire_pre_master_evaluation_source_hash, questionnaire_clarifications, created_at, updated_at",
     )
     .eq("project_id", projectId)
     .maybeSingle();
@@ -119,7 +119,7 @@ export async function PATCH(request: Request, { params }: Params) {
         completed_steps: nextSteps,
       })
       .select(
-        "id, project_id, user_id, responses, completed_steps, created_at, updated_at",
+        "id, project_id, user_id, responses, completed_steps, questionnaire_pre_master_evaluation, questionnaire_pre_master_evaluation_source_hash, questionnaire_clarifications, created_at, updated_at",
       )
       .single();
 
@@ -138,7 +138,7 @@ export async function PATCH(request: Request, { params }: Params) {
     })
     .eq("id", existing.id)
     .select(
-      "id, project_id, user_id, responses, completed_steps, created_at, updated_at",
+      "id, project_id, user_id, responses, completed_steps, questionnaire_pre_master_evaluation, questionnaire_pre_master_evaluation_source_hash, questionnaire_clarifications, created_at, updated_at",
     )
     .single();
 

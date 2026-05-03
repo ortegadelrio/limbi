@@ -154,6 +154,12 @@ export async function POST(request: Request, { params }: Params) {
     await fetchLatestFrameworkRevisionGuidanceForProject(supabase, projectId);
   const persistentEditorialGuidance = editorialGuidanceRow?.revision_note ?? null;
 
+  /**
+   * TODO (arquitectura): cuando exista un `master_documents` activo, el contexto limpio para
+   * generación debería basarse solo en maestro + `visible_frameworks` aprobado (y notas
+   * editoriales curadas), no en `project_responses.responses` en vivo. Hoy se sigue enviando
+   * `wizard_purpose_trace` desde el cuestionario para alinear “para qué” con el wizard.
+   */
   const { data: pr, error: prError } = await supabase
     .from("project_responses")
     .select("responses")

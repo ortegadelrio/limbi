@@ -61,6 +61,8 @@ export function buildMasterDocumentPrompt(
       limbic_interpretation: input.limbic_interpretation,
       voice_context: input.voice_context,
       raw_responses_keys: Object.keys(input.raw_responses),
+      post_questionnaire_strategic_refinements:
+        input.post_questionnaire_strategic_refinements,
     },
     null,
     2,
@@ -145,6 +147,12 @@ ${input.global_ai_rules}
 
 PRODUCTION RULES (embed as Spanish strings under production_rules; include at least the following concepts — you may phrase them clearly without losing meaning)
 ${PRODUCTION_RULES_ES}
+
+POST_QUESTIONNAIRE_STRATEGIC_REFINEMENTS (WHEN NON-NULL IN STRUCTURED CONTEXT)
+- If \`post_questionnaire_strategic_refinements\` in the JSON below is **not** null, it contains **clarification answers** collected **after** the main questionnaire was submitted. Treat them as **authoritative refinements** for ambiguity resolution and prioritization.
+- **Merge** them into strategic synthesis (especially **strategic_base**, **audience_base**, **semantic_base**, **voice_base**) and into **input_quality_assessment** (Spanish) by acknowledging which gaps the clarifications closed — **without inventing facts** beyond what the user stated in the questionnaire plus this refinement block.
+- **Never contradict** stable facts implied by the original questionnaire answers (the server still holds the full raw wizard payload separately). If a clarification appears to conflict with an earlier answer, prefer the **original questionnaire** for factual claims and note the tension cautiously in **input_quality_assessment** rather than overwriting history.
+- If \`post_questionnaire_strategic_refinements\` is null, ignore this entire subsection.
 
 STRUCTURED CONTEXT (read carefully; do not fabricate fields beyond these sources)
 ${ctx}

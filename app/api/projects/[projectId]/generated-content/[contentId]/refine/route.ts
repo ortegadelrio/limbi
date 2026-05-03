@@ -261,6 +261,10 @@ export async function POST(request: Request, { params }: Params) {
   const persistentEditorialGuidance =
     editorialGuidanceRow?.revision_note ?? null;
 
+  /**
+   * TODO (arquitectura): igual que en `generate-content` — priorizar maestro + marco aprobado
+   * como contexto limpio y reducir dependencia de `project_responses` en vivo.
+   */
   const { data: pr, error: prError } = await supabase
     .from("project_responses")
     .select("responses")
