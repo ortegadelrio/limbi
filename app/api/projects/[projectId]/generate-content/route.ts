@@ -154,12 +154,6 @@ export async function POST(request: Request, { params }: Params) {
     await fetchLatestFrameworkRevisionGuidanceForProject(supabase, projectId);
   const persistentEditorialGuidance = editorialGuidanceRow?.revision_note ?? null;
 
-  /**
-   * TODO (arquitectura): cuando exista un `master_documents` activo, el contexto limpio para
-   * generación debería basarse solo en maestro + `visible_frameworks` aprobado (y notas
-   * editoriales curadas), no en `project_responses.responses` en vivo. Hoy se sigue enviando
-   * `wizard_purpose_trace` desde el cuestionario para alinear “para qué” con el wizard.
-   */
   const { data: pr, error: prError } = await supabase
     .from("project_responses")
     .select("responses")
@@ -210,6 +204,20 @@ export async function POST(request: Request, { params }: Params) {
     userNote,
     persistentEditorialGuidance,
   });
+
+  if (
+    structured.content_generation_context.generation_trace_source ===
+    "responses_fallback"
+  ) {
+    console.info(
+      "[limbi][generate-content] Strategic context used project_responses fallback",
+      {
+        project_id: projectId,
+        responses_fallback_fields:
+          structured.content_generation_context.responses_fallback_fields,
+      },
+    );
+  }
 
   let lastFailure: ContentValidationFailure | undefined;
   let model_used = "";

@@ -261,10 +261,6 @@ export async function POST(request: Request, { params }: Params) {
   const persistentEditorialGuidance =
     editorialGuidanceRow?.revision_note ?? null;
 
-  /**
-   * TODO (arquitectura): igual que en `generate-content` — priorizar maestro + marco aprobado
-   * como contexto limpio y reducir dependencia de `project_responses` en vivo.
-   */
   const { data: pr, error: prError } = await supabase
     .from("project_responses")
     .select("responses")
@@ -306,6 +302,20 @@ export async function POST(request: Request, { params }: Params) {
     refinementPreset,
     customRefinementNote,
   });
+
+  if (
+    structured.content_generation_context.generation_trace_source ===
+    "responses_fallback"
+  ) {
+    console.info(
+      "[limbi][content-refine] Strategic context used project_responses fallback",
+      {
+        project_id: projectId,
+        responses_fallback_fields:
+          structured.content_generation_context.responses_fallback_fields,
+      },
+    );
+  }
 
   let lastFailure: ContentValidationFailure | undefined;
   let model_used = "";
@@ -389,6 +399,10 @@ export async function POST(request: Request, { params }: Params) {
     hasSourceOutput: true,
     hasPersistentEditorialGuidance: persistentEditorialGuidance !== null,
     hasApprovedFrameworkSnapshot: Object.keys(framework).length > 0,
+    generation_trace_source:
+      structured.content_generation_context.generation_trace_source,
+    responses_fallback_fields:
+      structured.content_generation_context.responses_fallback_fields,
   });
 
   const requestPayload: Record<string, unknown> = {

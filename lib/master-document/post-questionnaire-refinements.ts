@@ -33,11 +33,37 @@ export function buildPostQuestionnaireStrategicRefinements(
     };
   }
 
+  const postRound =
+    c.post_round_evaluation && typeof c.post_round_evaluation === "object"
+      ? (c.post_round_evaluation as Record<string, unknown>)
+      : null;
+
+  const dimensionNotes = Array.isArray(c.dimension_improvement_notes)
+    ? c.dimension_improvement_notes.filter((x) => typeof x === "string")
+    : [];
+
+  const limbic_generation_caution =
+    typeof c.client_generation_caution === "string" &&
+    c.client_generation_caution.trim().length > 0
+      ? c.client_generation_caution.trim()
+      : null;
+
   return {
     source: "post_questionnaire_clarification_flow",
     clarification_submitted_at:
       typeof c.submitted_at === "string" ? c.submitted_at : null,
     clarification_answers: c.answers,
     pre_evaluation_snapshot: preEvaluationSnapshot,
+    score_before_clarifications:
+      typeof c.score_before_clarifications === "number"
+        ? c.score_before_clarifications
+        : null,
+    score_after_clarifications:
+      typeof c.score_after_clarifications === "number"
+        ? c.score_after_clarifications
+        : null,
+    post_clarification_evaluation_snapshot: postRound,
+    dimension_improvement_notes: dimensionNotes,
+    limbic_generation_caution,
   };
 }

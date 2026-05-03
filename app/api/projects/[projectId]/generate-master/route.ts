@@ -145,10 +145,30 @@ export async function POST(_request: Request, { params }: Params) {
     legacySourceHash,
   });
 
+  const clarificationsForMaster = (() => {
+    const jsonb = pr?.questionnaire_clarifications;
+    const slim = refinementBundle.clarifications;
+    if (jsonb && typeof jsonb === "object" && !Array.isArray(jsonb)) {
+      const j = jsonb as Record<string, unknown>;
+      if (slim && typeof slim === "object" && !Array.isArray(slim)) {
+        const s = slim as Record<string, unknown>;
+        return {
+          ...j,
+          ...s,
+          answers: Array.isArray(s.answers) ? s.answers : j.answers,
+          submitted_at:
+            typeof s.submitted_at === "string" ? s.submitted_at : j.submitted_at,
+        };
+      }
+      return jsonb;
+    }
+    return slim;
+  })();
+
   const post_questionnaire_strategic_refinements =
     buildPostQuestionnaireStrategicRefinements(
       refinementBundle.evaluation,
-      refinementBundle.clarifications,
+      clarificationsForMaster,
     );
 
   const structured = buildMasterDocumentInput({

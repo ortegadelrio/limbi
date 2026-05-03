@@ -5,6 +5,7 @@ import {
   jsonNotFound,
 } from "@/lib/api/route-auth";
 import { QUESTIONNAIRE_EVAL_PROMPT_VERSION } from "@/lib/questionnaire-evaluation/constants";
+import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
 import { parseQuestionnaireEvaluationJson } from "@/lib/questionnaire-evaluation/parse-evaluation";
 import {
   questionnaireEvaluationPayloadSchema,
@@ -98,9 +99,10 @@ export async function POST(request: Request, { params }: Params) {
     if (activeNew) {
       const cached = tryCachedEvaluation(activeNew.payload);
       if (cached.success) {
+        const evaluation = finalizeEvaluationPayload(cached.data, responses);
         return NextResponse.json({
-          evaluation: cached.data,
-          requires_clarification: shouldRequireClarificationScreen(cached.data),
+          evaluation,
+          requires_clarification: shouldRequireClarificationScreen(evaluation),
           cached: true,
           source: "questionnaire_evaluations",
         });
@@ -114,9 +116,10 @@ export async function POST(request: Request, { params }: Params) {
     ) {
       const cached = tryCachedEvaluation(pr.questionnaire_pre_master_evaluation);
       if (cached.success) {
+        const evaluation = finalizeEvaluationPayload(cached.data, responses);
         return NextResponse.json({
-          evaluation: cached.data,
-          requires_clarification: shouldRequireClarificationScreen(cached.data),
+          evaluation,
+          requires_clarification: shouldRequireClarificationScreen(evaluation),
           cached: true,
           source: "project_responses_legacy",
         });
@@ -162,6 +165,8 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
+  const evaluationToPersist = finalizeEvaluationPayload(parsed.data, responses);
+
   const { error: supersedeErr } =
     await supersedeQuestionnaireEvaluationsForProject(supabase, projectId);
   if (supersedeErr) {
@@ -173,7 +178,7 @@ export async function POST(request: Request, { params }: Params) {
       project_id: projectId,
       user_id: user.id,
       source_responses_hash: hash,
-      payload: parsed.data as Record<string, unknown>,
+      payload: evaluationToPersist as Record<string, unknown>,
       model_used,
       prompt_version: QUESTIONNAIRE_EVAL_PROMPT_VERSION,
     });
@@ -188,7 +193,7 @@ export async function POST(request: Request, { params }: Params) {
   const { error: updateError } = await supabase
     .from("project_responses")
     .update({
-      questionnaire_pre_master_evaluation: parsed.data,
+      questionnaire_pre_master_evaluation: evaluationToPersist,
       questionnaire_pre_master_evaluation_source_hash: hash,
       questionnaire_clarifications: null,
     })
@@ -199,8 +204,9 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   return NextResponse.json({
-    evaluation: parsed.data,
-    requires_clarification: shouldRequireClarificationScreen(parsed.data),
+    evaluation: evaluationToPersist,
+    requires_clarification:
+      shouldRequireClarificationScreen(evaluationToPersist),
     cached: false,
     evaluation_id: insertedEval.id,
   });

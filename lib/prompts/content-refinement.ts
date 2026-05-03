@@ -1,6 +1,7 @@
 import {
   LIMBI_BINARY_CLICHE_COPY_STANDARD,
   LIMBI_CREATIVE_STANDARD,
+  LIMBI_EDITORIAL_STRATEGIC_CANON_EN,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
   LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
@@ -177,6 +178,8 @@ ${LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD}
 
 ${LIMBI_BINARY_CLICHE_COPY_STANDARD}
 
+${LIMBI_EDITORIAL_STRATEGIC_CANON_EN}
+
 LANGUAGE AND FORMAT CONTRACT
 - This instruction prompt is in English.
 - Output MUST be valid JSON only (no markdown fences).
@@ -196,7 +199,7 @@ ${REFINEMENT_WEAK_PHRASES_EN}
 ${shortPitchExtra}
 
 SOURCE OF TRUTH (NON-NEGOTIABLE)
-- Treat **content_generation_context** in STRUCTURED REFINEMENT INPUT as the same strategic bundle used when the piece was first generated: Master Document slices, approved framework snapshot, wizard purpose trace, persistent editorial guidance.
+- Treat **content_generation_context** in STRUCTURED REFINEMENT INPUT as the same strategic bundle used when the piece was first generated: Master Document slices, approved framework snapshot, wizard purpose trace (resolved master-first with optional questionnaire fallback per \`generation_trace_source\`), persistent editorial guidance.
 - The **source_generated_content.output** is what you refine editorially — not a license to drift from the bundle above.
 
 REFINEMENT INSTRUCTIONS

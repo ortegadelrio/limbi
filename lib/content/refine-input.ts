@@ -1,11 +1,12 @@
 import { CONTENT_GENERATION_USER_NOTE_MAX } from "@/lib/content/build-input";
+import type { StrategicGenerationSource } from "@/lib/content/strategic-context-for-generation";
 import {
   buildContentGenerationInput,
   type BuildContentGenerationInputParams,
   type ContentGenerationStructuredInput,
 } from "@/lib/content/build-input";
 
-export const CONTENT_REFINEMENT_PROMPT_VERSION = "content-refinement-v1.2";
+export const CONTENT_REFINEMENT_PROMPT_VERSION = "content-refinement-v1.3";
 
 /** Máximo de `custom_refinement_note` (alineado con notas de generación). */
 export const CONTENT_REFINEMENT_CUSTOM_NOTE_MAX = CONTENT_GENERATION_USER_NOTE_MAX;
@@ -177,6 +178,8 @@ export function buildContentRefinementInputPayloadSummary(params: {
   hasSourceOutput: boolean;
   hasPersistentEditorialGuidance: boolean;
   hasApprovedFrameworkSnapshot: boolean;
+  generation_trace_source?: StrategicGenerationSource;
+  responses_fallback_fields?: readonly string[];
 }): Record<string, unknown> {
   return {
     refinement: true,
@@ -184,5 +187,11 @@ export function buildContentRefinementInputPayloadSummary(params: {
     has_persistent_editorial_guidance: params.hasPersistentEditorialGuidance,
     has_approved_framework_snapshot: params.hasApprovedFrameworkSnapshot,
     has_limbi_creative_standard: true,
+    ...(params.generation_trace_source !== undefined
+      ? { generation_trace_source: params.generation_trace_source }
+      : {}),
+    ...(params.responses_fallback_fields !== undefined
+      ? { responses_fallback_fields: [...params.responses_fallback_fields] }
+      : {}),
   };
 }

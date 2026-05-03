@@ -13,6 +13,8 @@ export const clarificationOptionSchema = z.object({
 
 export const clarificationQuestionSchema = z.object({
   id: z.string().min(1),
+  /** Qué detectó Limbi (brecha, ambigüedad o riesgo); español natural, sin slugs internos. */
+  limbi_detection: z.string().min(1).optional(),
   referenced_user_answer: z.string().min(1),
   why_it_matters: z.string().min(1),
   question_text: z.string().min(1),
@@ -55,10 +57,35 @@ export const clarificationAnswerSchema = z.object({
   free_text: z.string().optional(),
 });
 
-export const questionnaireClarificationsPayloadSchema = z.object({
-  answers: z.array(clarificationAnswerSchema).min(1),
-});
+export const questionnaireClarificationsPayloadSchema = z
+  .object({
+    answers: z.array(clarificationAnswerSchema).optional(),
+    follow_up_answers: z.array(clarificationAnswerSchema).min(1).max(2).optional(),
+    client_generation_caution: z.string().max(2000).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const nInitial = data.answers?.length ?? 0;
+    const nFollow = data.follow_up_answers?.length ?? 0;
+    if (nInitial === 0 && nFollow === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Envía answers (primera ronda) o follow_up_answers (segunda ronda), al menos una respuesta.",
+        path: ["answers"],
+      });
+    }
+    if (nInitial > 0 && nFollow > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "No envíes answers y follow_up_answers en la misma petición: usa una u otra.",
+      });
+    }
+  });
 
+export type QuestionnaireClarificationsPayload = z.infer<
+  typeof questionnaireClarificationsPayloadSchema
+>;
 export type ClarificationAnswer = z.infer<typeof clarificationAnswerSchema>;
 
 export function shouldRequireClarificationScreen(

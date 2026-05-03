@@ -1,7 +1,11 @@
 import { GLOBAL_AI_RULES } from "@/lib/ai/global-rules";
+import {
+  resolveStrategicContextForGeneration,
+  type StrategicGenerationSource,
+} from "@/lib/content/strategic-context-for-generation";
 import type { MasterDocumentProjectPayload } from "@/lib/master-document/build-input";
 
-export const CONTENT_GENERATION_PROMPT_VERSION = "content-generation-v1.9";
+export const CONTENT_GENERATION_PROMPT_VERSION = "content-generation-v2.0";
 
 export type ContentGenerationType =
   | "short_pitch"
@@ -38,6 +42,17 @@ export type ContentGenerationContextBundle = {
     strategic_base: Record<string, unknown>;
     audience_base: Record<string, unknown>;
   };
+  /** Primary narrative source for purpose traces: curated master vs live questionnaire fallback. */
+  generation_trace_source: StrategicGenerationSource;
+  /** Which fields were taken from `project_responses.responses` because the master slice was empty. */
+  responses_fallback_fields: readonly string[];
+  /**
+   * Root keys only of live `project_responses.responses` (no values) — coverage fingerprint when
+   * avoiding a full questionnaire dump in the model payload.
+   */
+  project_responses_staleness_trace: {
+    response_root_keys: readonly string[];
+  } | null;
 };
 
 export type ContentGenerationStructuredInput = {
@@ -201,24 +216,13 @@ export function buildContentGenerationInput(
   const doc = masterDocument.document;
   const fw = visibleFramework.framework;
 
-  const fromWizardIdentity = readSubRecord(responses, "project_identity");
+  const strategicResolved = resolveStrategicContextForGeneration({
+    project,
+    responses,
+    masterDocument: doc,
+  });
 
-  const project_identity: Record<string, unknown> = {
-    id: project.id,
-    user_id: project.user_id,
-    name_or_descriptor: project.name_or_descriptor,
-    name_status: project.name_status,
-    challenge_type: project.challenge_type,
-    main_challenge: project.main_challenge,
-    status: project.status,
-    ...(project.created_at !== undefined
-      ? { created_at: project.created_at }
-      : {}),
-    ...(project.updated_at !== undefined
-      ? { updated_at: project.updated_at }
-      : {}),
-    ...fromWizardIdentity,
-  };
+  const project_identity = strategicResolved.project_identity_for_generation;
 
   const persistent_editorial_guidance =
     params.persistentEditorialGuidance &&
@@ -241,17 +245,17 @@ export function buildContentGenerationInput(
 
   const from_approved_visible_framework = buildApprovedFrameworkForContent(fw);
 
-  const wizard_purpose_trace = {
-    challenge_context: readSubRecord(responses, "challenge_context"),
-    strategic_base: readSubRecord(responses, "strategic_base"),
-    audience_base: readSubRecord(responses, "audience_base"),
-  };
+  const wizard_purpose_trace = strategicResolved.wizard_purpose_trace;
 
   const content_generation_context: ContentGenerationContextBundle = {
     from_master_document,
     from_approved_visible_framework,
     persistent_editorial_guidance,
     wizard_purpose_trace,
+    generation_trace_source: strategicResolved.generation_trace_source,
+    responses_fallback_fields: strategicResolved.responses_fallback_fields,
+    project_responses_staleness_trace:
+      strategicResolved.project_responses_staleness_trace,
   };
 
   const structured: ContentGenerationStructuredInput = {
@@ -317,6 +321,10 @@ export function buildContentGenerationInput(
       recordHasContent(wizard_purpose_trace.challenge_context) ||
       recordHasContent(wizard_purpose_trace.strategic_base) ||
       recordHasContent(wizard_purpose_trace.audience_base),
+    generation_trace_source: strategicResolved.generation_trace_source,
+    responses_fallback_fields: [...strategicResolved.responses_fallback_fields],
+    has_project_responses_staleness_trace:
+      strategicResolved.project_responses_staleness_trace !== null,
     has_limbic_base: recordHasContent(m.limbic_base as Record<string, unknown>),
     has_semantic_base: recordHasContent(
       m.semantic_base as Record<string, unknown>,

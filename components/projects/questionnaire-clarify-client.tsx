@@ -10,24 +10,56 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
+import { getClarificationQuestionCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
+import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import {
   questionnaireEvaluationPayloadSchema,
   shouldRequireClarificationScreen,
   type ClarificationQuestion,
 } from "@/lib/questionnaire-evaluation/schema";
 import { validateClarificationAnswersAgainstQuestions } from "@/lib/questionnaire-evaluation/validate-clarification-submit";
+import { isVagueClarificationAnswerText } from "@/lib/questionnaire-evaluation/vague-clarification-answer";
 
 type Props = { projectId: string };
 
 type AnswerDraft = { optionId?: string; freeText: string };
 
+type Phase =
+  | "loading"
+  | "form"
+  | "saving"
+  | "after_round1"
+  | "form_followup"
+  | "saving_followup"
+  | "generating"
+  | "ready_generate";
+
+function answerCombinedText(
+  q: ClarificationQuestion,
+  d: AnswerDraft | undefined,
+): string {
+  const ft = (d?.freeText ?? "").trim();
+  const opts = q.options ?? [];
+  if (d?.optionId && opts.length > 0) {
+    const lab = opts.find((o) => o.id === d.optionId)?.label?.trim() ?? "";
+    return [lab, ft].filter(Boolean).join(" ").trim();
+  }
+  return ft;
+}
+
 function buildAnswersPayload(
   questions: ClarificationQuestion[],
   drafts: Record<string, AnswerDraft>,
+  pendingInline: Record<string, string>,
 ) {
   return questions.map((q) => {
     const d = drafts[q.id] ?? { freeText: "" };
-    const ft = d.freeText.trim();
+    let ft = d.freeText.trim();
+    const extra = (pendingInline[q.id] ?? "").trim();
+    if (extra.length > 0) {
+      ft = ft.length > 0 ? `${ft}\n\n(Aclaración adicional): ${extra}` : extra;
+    }
     const out: {
       question_id: string;
       selected_option_id?: string;
@@ -41,18 +73,35 @@ function buildAnswersPayload(
 
 export function QuestionnaireClarifyClient({ projectId }: Props) {
   const router = useRouter();
-  const [phase, setPhase] = useState<
-    "loading" | "form" | "saving" | "generating" | "ready_generate"
-  >("loading");
+  const [phase, setPhase] = useState<Phase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<ClarificationQuestion[]>([]);
   const [score, setScore] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, AnswerDraft>>({});
-  const [alreadySaved, setAlreadySaved] = useState(false);
+  const [pendingInlineFollowUps, setPendingInlineFollowUps] = useState<
+    Record<string, string>
+  >({});
+  const [inlineFollowUpParentId, setInlineFollowUpParentId] = useState<
+    string | null
+  >(null);
+  const [inlineFollowDraft, setInlineFollowDraft] = useState("");
+  const [followUpsUsed, setFollowUpsUsed] = useState(0);
+  const [followUpUsedIds, setFollowUpUsedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const [scoreBeforeRound, setScoreBeforeRound] = useState<number | null>(null);
+  const [scoreAfterRound, setScoreAfterRound] = useState<number | null>(null);
+  const [dimensionNotes, setDimensionNotes] = useState<string[]>([]);
+  const [followUpQuestions, setFollowUpQuestions] = useState<
+    ClarificationQuestion[]
+  >([]);
 
   const total = questions.length;
   const current = total > 0 ? questions[step] : null;
+
+  const suggestedCap = score !== null ? getClarificationQuestionCap(score) : 5;
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -64,6 +113,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       ]);
       const rJson = (await rRes.json().catch(() => ({}))) as {
         project_responses?: {
+          responses?: unknown;
           questionnaire_pre_master_evaluation?: unknown;
           questionnaire_clarifications?: unknown;
         } | null;
@@ -109,7 +159,17 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         );
       }
 
-      if (!shouldRequireClarificationScreen(parsed.data)) {
+      const responses: Record<string, unknown> =
+        rJson.project_responses?.responses &&
+        typeof rJson.project_responses.responses === "object" &&
+        rJson.project_responses.responses !== null &&
+        !Array.isArray(rJson.project_responses.responses)
+          ? (rJson.project_responses.responses as Record<string, unknown>)
+          : {};
+
+      const finalized = finalizeEvaluationPayload(parsed.data, responses);
+
+      if (!shouldRequireClarificationScreen(finalized)) {
         router.replace(`/projects/${projectId}`);
         return;
       }
@@ -124,21 +184,63 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         Array.isArray(clarObj.answers) &&
         clarObj.answers.length > 0;
 
-      setScore(parsed.data.overall_quality_score);
-      setQuestions(parsed.data.clarification_questions);
-      setAlreadySaved(Boolean(hasSaved));
+      setScore(finalized.overall_quality_score);
+      const withChips = finalized.clarification_questions.map(
+        mergeClarificationSuggestionChips,
+      );
+      setQuestions(withChips);
 
       const initialDrafts: Record<string, AnswerDraft> = {};
-      for (const q of parsed.data.clarification_questions) {
+      for (const q of withChips) {
         initialDrafts[q.id] = { freeText: "" };
       }
       setDrafts(initialDrafts);
+      setPendingInlineFollowUps({});
+      setInlineFollowUpParentId(null);
+      setInlineFollowDraft("");
+      setFollowUpsUsed(0);
+      setFollowUpUsedIds(new Set());
       setStep(0);
 
-      if (hasSaved && !sJson.active_master_document) {
-        setPhase("ready_generate");
+      if (hasSaved && clarObj) {
+        const sb =
+          typeof clarObj.score_before_clarifications === "number"
+            ? clarObj.score_before_clarifications
+            : finalized.overall_quality_score;
+        const sa =
+          typeof clarObj.score_after_clarifications === "number"
+            ? clarObj.score_after_clarifications
+            : sb;
+        setScoreBeforeRound(sb);
+        setScoreAfterRound(sa);
+        setDimensionNotes(
+          Array.isArray(clarObj.dimension_improvement_notes)
+            ? (clarObj.dimension_improvement_notes as string[])
+            : [],
+        );
+        const crit = clarObj.critical_follow_up_questions;
+        const followDone = Boolean(clarObj.follow_up_round_completed_at);
+        if (followDone || !Array.isArray(crit) || crit.length === 0) {
+          setFollowUpQuestions([]);
+        } else {
+          setFollowUpQuestions(
+            crit.map((x) =>
+              mergeClarificationSuggestionChips(
+                x as ClarificationQuestion,
+              ),
+            ),
+          );
+        }
+
+        if (sJson.active_master_document) {
+          router.replace(`/projects/${projectId}`);
+          return;
+        }
+
+        setPhase("after_round1");
         return;
       }
+
       if (hasSaved && sJson.active_master_document) {
         router.replace(`/projects/${projectId}`);
         return;
@@ -164,6 +266,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
 
   const canAdvance = useMemo(() => {
     if (!current) return false;
+    if (inlineFollowUpParentId === current.id) {
+      return inlineFollowDraft.trim().length > 0;
+    }
     const d = drafts[current.id] ?? { freeText: "" };
     const ft = d.freeText.trim();
     const opts = current.options ?? [];
@@ -173,18 +278,33 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       return false;
     }
     return ft.length > 0;
-  }, [current, drafts]);
+  }, [current, drafts, inlineFollowDraft, inlineFollowUpParentId]);
 
-  const submitAll = useCallback(async () => {
-    const answers = buildAnswersPayload(questions, drafts);
+  const buildClientCaution = useCallback(
+    (qs: ClarificationQuestion[], dr: Record<string, AnswerDraft>) => {
+      const vagueIds: string[] = [];
+      for (const q of qs) {
+        const t = answerCombinedText(q, dr[q.id]);
+        const extra = pendingInlineFollowUps[q.id]?.trim() ?? "";
+        const merged = extra ? `${t} ${extra}` : t;
+        if (isVagueClarificationAnswerText(merged)) vagueIds.push(q.id);
+      }
+      if (vagueIds.length === 0) return undefined;
+      return `Algunas aclaraciones siguen siendo muy genéricas (${vagueIds.length} tema(s)). La Lectura Límbica incorporará lo dicho con prudencia y sin tratarlo como evidencia verificada.`;
+    },
+    [pendingInlineFollowUps],
+  );
+
+  const submitRound1 = useCallback(async () => {
+    const answers = buildAnswersPayload(questions, drafts, pendingInlineFollowUps);
     const v = validateClarificationAnswersAgainstQuestions(questions, answers);
     if (!v.ok) {
       setError(v.message);
       return;
     }
+    const caution = buildClientCaution(questions, drafts);
     setError(null);
     setPhase("saving");
-    let clarificationsSaved = false;
     try {
       const cRes = await fetch(
         `/api/projects/${projectId}/questionnaire-clarifications`,
@@ -192,10 +312,19 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify({
+            answers,
+            ...(caution ? { client_generation_caution: caution } : {}),
+          }),
         },
       );
       const cJson = (await cRes.json().catch(() => ({}))) as {
+        post_round?: {
+          score_before?: number;
+          score_after?: number;
+          dimension_improvement_notes?: string[];
+          critical_follow_up_questions?: ClarificationQuestion[];
+        };
         error?: unknown;
       };
       if (!cRes.ok) {
@@ -205,32 +334,66 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             : "No se pudieron guardar las aclaraciones.",
         );
       }
-      clarificationsSaved = true;
-      setAlreadySaved(true);
-
-      setPhase("generating");
-      const gRes = await fetch(`/api/projects/${projectId}/generate-master`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const gJson = (await gRes.json().catch(() => ({}))) as {
-        error?: unknown;
-      };
-      if (!gRes.ok) {
-        throw new Error(
-          typeof gJson.error === "string"
-            ? gJson.error
-            : "No se pudo generar la Lectura Límbica.",
+      const pr = cJson.post_round;
+      if (pr) {
+        setScoreBeforeRound(pr.score_before ?? null);
+        setScoreAfterRound(pr.score_after ?? null);
+        setDimensionNotes(pr.dimension_improvement_notes ?? []);
+        const crit = pr.critical_follow_up_questions ?? [];
+        setFollowUpQuestions(
+          crit.map((x) => mergeClarificationSuggestionChips(x)),
         );
+        if (typeof pr.score_after === "number") setScore(pr.score_after);
       }
-
-      router.refresh();
-      router.replace(`/projects/${projectId}`);
+      setPhase("after_round1");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al guardar.");
-      setPhase(clarificationsSaved ? "ready_generate" : "form");
+      setPhase("form");
     }
-  }, [drafts, projectId, questions, router]);
+  }, [buildClientCaution, drafts, pendingInlineFollowUps, projectId, questions]);
+
+  const submitFollowUp = useCallback(async () => {
+    const answers = buildAnswersPayload(
+      followUpQuestions,
+      drafts,
+      pendingInlineFollowUps,
+    );
+    const v = validateClarificationAnswersAgainstQuestions(
+      followUpQuestions,
+      answers,
+    );
+    if (!v.ok) {
+      setError(v.message);
+      return;
+    }
+    setError(null);
+    setPhase("saving_followup");
+    try {
+      const cRes = await fetch(
+        `/api/projects/${projectId}/questionnaire-clarifications`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ follow_up_answers: answers }),
+        },
+      );
+      const cJson = (await cRes.json().catch(() => ({}))) as {
+        error?: unknown;
+      };
+      if (!cRes.ok) {
+        throw new Error(
+          typeof cJson.error === "string"
+            ? cJson.error
+            : "No se pudieron guardar las mejoras.",
+        );
+      }
+      setPhase("after_round1");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al guardar.");
+      setPhase("form_followup");
+    }
+  }, [drafts, followUpQuestions, pendingInlineFollowUps, projectId]);
 
   const postGenerateMaster = useCallback(async () => {
     setError(null);
@@ -258,6 +421,63 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     }
   }, [projectId, router]);
 
+  const advanceStep = useCallback(() => {
+    if (!current) return;
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      if (t.length === 0) return;
+      setPendingInlineFollowUps((prev) => ({
+        ...prev,
+        [current.id]: t,
+      }));
+      setFollowUpsUsed((n) => n + 1);
+      setFollowUpUsedIds((s) => new Set(s).add(current.id));
+      setInlineFollowUpParentId(null);
+      setInlineFollowDraft("");
+      setStep((s) => Math.min(total - 1, s + 1));
+      return;
+    }
+
+    const combined = answerCombinedText(current, drafts[current.id]);
+    if (
+      followUpsUsed < 2 &&
+      !followUpUsedIds.has(current.id) &&
+      isVagueClarificationAnswerText(combined)
+    ) {
+      setInlineFollowUpParentId(current.id);
+      setInlineFollowDraft("");
+      return;
+    }
+
+    setStep((s) => Math.min(total - 1, s + 1));
+  }, [
+    current,
+    drafts,
+    followUpUsedIds,
+    followUpsUsed,
+    inlineFollowDraft,
+    inlineFollowUpParentId,
+    total,
+  ]);
+
+  const startFollowUpRound = useCallback(() => {
+    if (followUpQuestions.length === 0) return;
+    setError(null);
+    const initialDrafts: Record<string, AnswerDraft> = {};
+    for (const q of followUpQuestions) {
+      initialDrafts[q.id] = { freeText: "" };
+    }
+    setDrafts(initialDrafts);
+    setStep(0);
+    setQuestions(followUpQuestions.map(mergeClarificationSuggestionChips));
+    setPendingInlineFollowUps({});
+    setInlineFollowUpParentId(null);
+    setInlineFollowDraft("");
+    setFollowUpsUsed(0);
+    setFollowUpUsedIds(new Set());
+    setPhase("form_followup");
+  }, [followUpQuestions]);
+
   if (phase === "generating") {
     return (
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 px-4 py-16">
@@ -277,8 +497,70 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       <div className="mx-auto flex max-w-lg flex-col items-center gap-4 px-4 py-16">
         <Loader2 className="size-10 animate-spin text-limbi-green" aria-hidden />
         <p className="text-center text-sm text-limbi-muted">
-          Limbi revisa tu cuestionario antes de la Lectura Límbica…
+          Preparando aclaraciones…
         </p>
+      </div>
+    );
+  }
+
+  if (phase === "after_round1") {
+    const sb = scoreBeforeRound ?? score ?? 0;
+    const sa = scoreAfterRound ?? score ?? sb;
+    const canImprove = followUpQuestions.length > 0 && sa < 80;
+
+    return (
+      <div className="mx-auto max-w-lg space-y-6 px-4 py-10">
+        <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+          <h1 className="font-heading text-xl font-semibold text-limbi-text">
+            Afinemos tu Sistema Límbico
+          </h1>
+          {sa < 80 ? (
+            <p className="text-sm leading-relaxed text-limbi-muted">
+              Tu base mejoró de {sb} a {sa}. Ya podemos generar la Lectura,
+              aunque algunos puntos siguen débiles.
+            </p>
+          ) : (
+            <p className="text-sm text-limbi-muted">
+              Tu base alcanzó {sa}/100. Puedes generar la Lectura Límbica.
+            </p>
+          )}
+
+          {dimensionNotes.length > 0 ? (
+            <ul className="list-inside list-disc space-y-2 text-sm text-limbi-text">
+              {dimensionNotes.map((note, i) => (
+                <li key={i}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {canImprove ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => {
+                  void startFollowUpRound();
+                }}
+              >
+                Mejorar 2 puntos críticos
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              className={cn("rounded-xl", limbiPrimaryButtonClass)}
+              onClick={() => void postGenerateMaster()}
+            >
+              Generar con esta base
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -291,8 +573,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             Aclaraciones guardadas
           </h1>
           <p className="text-sm leading-relaxed text-limbi-muted">
-            Ya incorporamos tus refinamientos estratégicos. Falta generar la
-            Lectura Límbica con el contexto completo.
+            Ya incorporamos tus refinamientos. Puedes generar la Lectura Límbica.
           </p>
           {error ? (
             <p className="text-sm text-destructive" role="alert">
@@ -311,33 +592,41 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     );
   }
 
-  if (phase === "form" || phase === "saving") {
+  if (
+    phase === "form" ||
+    phase === "saving" ||
+    phase === "form_followup" ||
+    phase === "saving_followup"
+  ) {
+    const saving = phase === "saving" || phase === "saving_followup";
+    const isFollowUpForm = phase === "form_followup";
+
     return (
       <div className="mx-auto max-w-lg space-y-6 px-4 py-10">
-        <div className={cn(limbiDocumentCardClass, "space-y-5 p-6 sm:p-8")}>
-          <header className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-limbi-muted">
-              Refinamiento estratégico
-            </p>
+        <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+          <header className="space-y-2">
             <h1 className="font-heading text-xl font-semibold text-limbi-text">
-              Afinemos unos puntos antes del Sistema Límbico
+              Afinemos tu Sistema Límbico
             </h1>
+            <p className="text-sm text-limbi-muted">
+              Encontré algunos puntos que pueden hacer más precisa la Lectura.
+            </p>
             {score !== null ? (
-              <p className="text-sm text-limbi-muted">
-                Calidad global del cuestionario (0–100):{" "}
-                <span className="font-semibold text-limbi-text">{score}</span>.
-                Con estas respuestas Limbi podrá alinear mejor la Lectura Límbica
-                sin reescribir tu cuestionario original.
-              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-limbi-muted">
+                <span>
+                  Base actual:{" "}
+                  <span className="font-semibold text-limbi-text">
+                    {score}/100
+                  </span>
+                </span>
+                <span>
+                  Preguntas sugeridas:{" "}
+                  <span className="font-semibold text-limbi-text">{total}</span>
+                  <span className="text-limbi-muted"> / máx. {suggestedCap}</span>
+                </span>
+              </div>
             ) : null}
           </header>
-
-          {alreadySaved ? (
-            <p className="text-sm text-limbi-muted">
-              Ya habías guardado aclaraciones. Puedes revisar y volver a enviar
-              si ajustas algo.
-            </p>
-          ) : null}
 
           {error ? (
             <p className="text-sm text-destructive" role="alert">
@@ -348,69 +637,98 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           {current ? (
             <div className="space-y-4">
               <p className="text-xs text-limbi-muted">
-                Pregunta {step + 1} de {total}
-              </p>
-              <blockquote className="rounded-xl border border-limbi-border/80 bg-limbi-bg-soft/80 px-3 py-2 text-sm italic text-limbi-text">
-                «{current.referenced_user_answer}»
-              </blockquote>
-              <p className="text-sm text-limbi-muted">{current.why_it_matters}</p>
-              <p className="text-base font-medium text-limbi-text">
-                {current.question_text}
+                {isFollowUpForm ? "Mejora crítica " : ""}
+                {step + 1} de {total}
               </p>
 
-              {current.options && current.options.length > 0 ? (
-                <div className="space-y-2" role="radiogroup" aria-label="Opciones">
-                  {current.options.map((opt) => {
-                    const sel =
-                      (drafts[current.id]?.optionId ?? "") === opt.id;
-                    return (
-                      <label
-                        key={opt.id}
-                        className={cn(
-                          "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors",
-                          sel
-                            ? "border-limbi-green/50 bg-limbi-green/[0.07]"
-                            : "border-limbi-border hover:bg-limbi-bg-soft/80",
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name={`q-${current.id}`}
-                          className="mt-1"
-                          checked={sel}
-                          onChange={() =>
-                            setDraft(current.id, { optionId: opt.id })
-                          }
-                        />
-                        <span className="text-limbi-text">{opt.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : null}
-
-              {current.allow_free_text !== false ? (
-                <div className="space-y-2">
-                  <label
-                    htmlFor={`ft-${current.id}`}
-                    className="text-sm font-medium text-limbi-text"
-                  >
-                    {current.options && current.options.length > 0
-                      ? "Detalle opcional (texto libre)"
-                      : "Tu respuesta"}
-                  </label>
+              {inlineFollowUpParentId === current.id ? (
+                <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
+                  <p className="text-sm font-medium text-limbi-text">
+                    Limbi necesita un matiz más concreto
+                  </p>
+                  <p className="text-xs text-limbi-muted">
+                    Tu respuesta anterior era muy genérica para esta pregunta.
+                  </p>
                   <Textarea
-                    id={`ft-${current.id}`}
                     rows={3}
-                    value={drafts[current.id]?.freeText ?? ""}
-                    onChange={(e) =>
-                      setDraft(current.id, { freeText: e.target.value })
-                    }
-                    placeholder="Escribe aquí si quieres precisar algo más…"
+                    value={inlineFollowDraft}
+                    onChange={(e) => setInlineFollowDraft(e.target.value)}
+                    placeholder="Ej.: años en colegios X, testimonio de la coordinadora, rutina que observaste…"
                     className="resize-none rounded-xl border-limbi-border"
                   />
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  {current.limbi_detection ? (
+                    <p className="text-sm text-limbi-text">{current.limbi_detection}</p>
+                  ) : null}
+                  <details className="text-xs text-limbi-muted">
+                    <summary className="cursor-pointer font-medium text-limbi-text">
+                      Ver contexto de tu cuestionario
+                    </summary>
+                    <blockquote className="mt-2 rounded-lg border border-limbi-border/60 bg-limbi-bg-soft/60 px-2 py-1.5 italic">
+                      «{current.referenced_user_answer}»
+                    </blockquote>
+                    <p className="mt-1">{current.why_it_matters}</p>
+                  </details>
+                  <p className="text-base font-medium text-limbi-text">
+                    {current.question_text}
+                  </p>
+
+                  {current.options && current.options.length > 0 ? (
+                    <div
+                      className="flex flex-wrap gap-2"
+                      role="group"
+                      aria-label="Opciones sugeridas"
+                    >
+                      {current.options.map((opt) => {
+                        const sel =
+                          (drafts[current.id]?.optionId ?? "") === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              setDraft(current.id, { optionId: opt.id })
+                            }
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                              sel
+                                ? "border-limbi-green/60 bg-limbi-green/[0.12] text-limbi-text"
+                                : "border-limbi-border text-limbi-muted hover:bg-limbi-bg-soft/80",
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {current.allow_free_text !== false ? (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor={`ft-${current.id}`}
+                        className="text-sm font-medium text-limbi-text"
+                      >
+                        {current.options && current.options.length > 0
+                          ? "Detalle (opcional)"
+                          : "Tu respuesta"}
+                      </label>
+                      <Textarea
+                        id={`ft-${current.id}`}
+                        rows={3}
+                        value={drafts[current.id]?.freeText ?? ""}
+                        onChange={(e) =>
+                          setDraft(current.id, { freeText: e.target.value })
+                        }
+                        placeholder="Sé concreto: hechos, prioridades, ejemplos breves…"
+                        className="resize-none rounded-xl border-limbi-border"
+                      />
+                    </div>
+                  ) : null}
+                </>
+              )}
 
               <div className="flex flex-wrap justify-between gap-2 pt-2">
                 <Button
@@ -418,8 +736,12 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                   variant="outline"
                   size="sm"
                   className="rounded-xl"
-                  disabled={step === 0 || phase !== "form"}
-                  onClick={() => setStep((s) => Math.max(0, s - 1))}
+                  disabled={step === 0 || saving}
+                  onClick={() => {
+                    setInlineFollowUpParentId(null);
+                    setInlineFollowDraft("");
+                    setStep((s) => Math.max(0, s - 1));
+                  }}
                 >
                   Anterior
                 </Button>
@@ -428,32 +750,65 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                     type="button"
                     size="sm"
                     className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || phase !== "form"}
-                    onClick={() =>
-                      canAdvance ? setStep((s) => Math.min(total - 1, s + 1)) : undefined
-                    }
+                    disabled={!canAdvance || saving}
+                    onClick={() => advanceStep()}
                   >
-                    Siguiente
+                    {inlineFollowUpParentId === current.id ? "Listo" : "Siguiente"}
                   </Button>
                 ) : (
                   <Button
                     type="button"
                     size="sm"
                     className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || phase !== "form"}
-                    onClick={() => void submitAll()}
+                    disabled={!canAdvance || saving}
+                    onClick={() => {
+                      if (inlineFollowUpParentId === current.id) {
+                        const t = inlineFollowDraft.trim();
+                        if (t.length === 0) return;
+                        setPendingInlineFollowUps((prev) => ({
+                          ...prev,
+                          [current.id]: t,
+                        }));
+                        setFollowUpsUsed((n) => n + 1);
+                        setFollowUpUsedIds((s) => new Set(s).add(current.id));
+                        setInlineFollowUpParentId(null);
+                        setInlineFollowDraft("");
+                        if (isFollowUpForm) void submitFollowUp();
+                        else void submitRound1();
+                        return;
+                      }
+                      const combined = answerCombinedText(
+                        current,
+                        drafts[current.id],
+                      );
+                      if (
+                        followUpsUsed < 2 &&
+                        !followUpUsedIds.has(current.id) &&
+                        isVagueClarificationAnswerText(combined)
+                      ) {
+                        setInlineFollowUpParentId(current.id);
+                        setInlineFollowDraft("");
+                        return;
+                      }
+                      if (isFollowUpForm) void submitFollowUp();
+                      else void submitRound1();
+                    }}
                   >
-                    Guardar y generar Lectura Límbica
+                    {inlineFollowUpParentId === current.id
+                      ? "Listo y enviar"
+                      : isFollowUpForm
+                        ? "Guardar mejoras"
+                        : "Continuar"}
                   </Button>
                 )}
               </div>
             </div>
           ) : null}
 
-          {phase === "saving" && !error ? (
+          {saving && !error ? (
             <p className="flex items-center gap-2 text-sm text-limbi-muted">
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Guardando aclaraciones…
+              Guardando…
             </p>
           ) : null}
         </div>

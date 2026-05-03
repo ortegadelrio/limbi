@@ -1,6 +1,7 @@
 import {
   LIMBI_BINARY_CLICHE_COPY_STANDARD,
   LIMBI_CREATIVE_STANDARD,
+  LIMBI_EDITORIAL_STRATEGIC_CANON_EN,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
   LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
@@ -75,7 +76,7 @@ const QUALITY_RULES_ES = [
   "No inventes cifras, clientes, premios, testimonios, resultados ni impacto.",
   "No menciones símbolos o activos del wizard de forma literal salvo que el proyecto trate realmente de ese tema según identidad y evidencia.",
   "Si falta evidencia en el contexto, no simules pruebas ni datos; evita afirmaciones de prueba y centra la intención en percepción, claridad o invitación creíble.",
-  "Deriva cada pieza de content_generation_context: from_master_document (identidad, bases estratégicas, evidencia, voz, semántica, producción, límbico, IQA, memoria si aplica), from_approved_visible_framework (marco aprobado completo en el bundle) y wizard_purpose_trace (reto declarado, transformación, acción deseada del cuestionario — intención, no evidencia); no contradigas production_rules, guardrails, evidence_base ni las reglas globales.",
+  "Deriva cada pieza de content_generation_context: from_master_document (identidad, bases estratégicas, evidencia, voz, semántica, producción, límbico, IQA, memoria si aplica), from_approved_visible_framework (marco aprobado completo en el bundle) y wizard_purpose_trace (intención y trazas de “para qué”: prioridad Documento Maestro; si falta un recorte, puede completarse desde el cuestionario en vivo — intención, no evidencia); no contradigas production_rules, guardrails, evidence_base ni las reglas globales.",
   "Si content_generation_context.persistent_editorial_guidance tiene texto, respétalo como criterio creativo transversal en todos los tipos de contenido salvo conflicto con evidencia, production_rules, guardrails o GLOBAL_AI_RULES — en ese caso prevalecen las fuentes duras.",
   "Riesgos, amenazas, objeciones, tensiones negativas y percepciones problemáticas del marco o del documento maestro: úsalos solo como criterio interno (qué evitar, cómo neutralizar, tono); no los copies ni los encabeces en títulos, pitches, captions, ideas ni frases gráficas salvo brief explícito de crisis o reputación.",
   "Criterio editorial: desalentar fórmulas muy usadas («no es solo… es…», «más que… es…», «se trata de…», «conectando el futuro…», «futuro del sector», «colaboración auténtica», «oportunidades de crecimiento real», etc.) cuando suenen genéricas; prioriza concreción y oficio. No es regla bloqueante: una comparación puede quedarse si es precisa y original.",
@@ -353,6 +354,8 @@ ${LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD}
 
 ${LIMBI_BINARY_CLICHE_COPY_STANDARD}
 
+${LIMBI_EDITORIAL_STRATEGIC_CANON_EN}
+
 LANGUAGE AND FORMAT CONTRACT
 - This instruction prompt is in English.
 - Output MUST be valid JSON only (no markdown fences).
@@ -376,6 +379,8 @@ ${QUALITY_RULES_ES}
 
 STRUCTURED CONTEXT (read carefully; do not fabricate beyond these sources)
 - Primary narrative bundle: **content_generation_context** (from_master_document + from_approved_visible_framework + wizard_purpose_trace + persistent_editorial_guidance when present). Use the full bundle for every item; do not treat unused sections as optional decoration.
+- **Strategic trace resolution:** \`content_generation_context.generation_trace_source\` is **"${input.content_generation_context.generation_trace_source}"**. If **"responses_fallback"**, some slices in \`wizard_purpose_trace\` and/or \`project_identity\` were completed from live questionnaire data because the Master Document slice was empty — still treat **from_master_document** strategic bases, evidence, voice, rules and the **approved framework** as authoritative for synthesis; wizard fields are **intent traces**, not proof.
+- **Questionnaire fingerprint:** when \`project_responses_staleness_trace\` is present, it lists **root keys only** of the live questionnaire row (no raw answers) for coverage awareness — do not infer facts from key names alone.
 ${ctx}
 ${userNoteSection}
 ${feedbackBlock}

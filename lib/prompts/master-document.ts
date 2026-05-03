@@ -1,5 +1,6 @@
 import {
   LIMBI_CREATIVE_STANDARD,
+  LIMBI_EDITORIAL_STRATEGIC_CANON_EN,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
 } from "@/lib/ai/limbi-creative-standard";
@@ -76,6 +77,8 @@ ${LIMBI_PURPOSE_AND_OUTCOME_STANDARD}
 
 ${LIMBI_SYMBOLIC_INTERPRETATION_STANDARD}
 
+${LIMBI_EDITORIAL_STRATEGIC_CANON_EN}
+
 LANGUAGE AND FORMAT CONTRACT
 - The USER-FACING prompt you are reading is written in English.
 - Output MUST be valid JSON.
@@ -151,6 +154,8 @@ ${PRODUCTION_RULES_ES}
 POST_QUESTIONNAIRE_STRATEGIC_REFINEMENTS (WHEN NON-NULL IN STRUCTURED CONTEXT)
 - If \`post_questionnaire_strategic_refinements\` in the JSON below is **not** null, it contains **clarification answers** collected **after** the main questionnaire was submitted. Treat them as **authoritative refinements** for ambiguity resolution and prioritization.
 - **Merge** them into strategic synthesis (especially **strategic_base**, **audience_base**, **semantic_base**, **voice_base**) and into **input_quality_assessment** (Spanish) by acknowledging which gaps the clarifications closed — **without inventing facts** beyond what the user stated in the questionnaire plus this refinement block.
+- If \`post_questionnaire_strategic_refinements.post_clarification_evaluation_snapshot\` is present, use it together with \`score_before_clarifications\` / \`score_after_clarifications\` and \`dimension_improvement_notes\` (Spanish strings) to explain **honestly** what improved and what remains weak.
+- If \`post_questionnaire_strategic_refinements.limbic_generation_caution\` is a non-empty string, treat it as a **mandatory editorial caution**: one or more clarification answers stayed intentionally vague; reflect that in **input_quality_assessment** and do **not** treat those areas as resolved proof or hard facts.
 - **Never contradict** stable facts implied by the original questionnaire answers (the server still holds the full raw wizard payload separately). If a clarification appears to conflict with an earlier answer, prefer the **original questionnaire** for factual claims and note the tension cautiously in **input_quality_assessment** rather than overwriting history.
 - If \`post_questionnaire_strategic_refinements\` is null, ignore this entire subsection.
 
