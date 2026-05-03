@@ -1,6 +1,8 @@
 import {
+  LIMBI_BINARY_CLICHE_COPY_STANDARD,
   LIMBI_CREATIVE_STANDARD,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
+  LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
 } from "@/lib/ai/limbi-creative-standard";
 import type { VisibleFrameworkStructuredInput } from "@/lib/framework/build-input";
@@ -81,6 +83,20 @@ NON-NEGOTIABLES — NO INVENTION
 DIFFERENTIATION
 - Clearly separate **risks** (risk_map), **strategic opportunities** (narrative_strategy + content_strategy_opportunities), and **recommendations** (strategic_recommendations).
 - **content_strategy_opportunities** are **strategic territories and roles** — not captions, not final posts, not graphic taglines, not finished copy.
+
+STRATEGIC NEGATIVE MATERIAL VS OUTWARD MESSAGE CORE (CRITICAL)
+- **risk_map**, **conflict_map**, and **strategic_diagnosis** (including **communication_problem**) may name tensions, risks, objections, credibility concerns and evidence gaps honestly in Spanish — that is legitimate internal diagnosis.
+- **executive_summary**, **narrative_strategy.narrative_promise**, **message_architecture.main_message**, **message_architecture.supporting_messages**, and angles inside **content_strategy_opportunities** must read as **forward-building strategic direction**: what the brand **stands for**, what it **invites** the audience toward, what **clarity or movement** it adds — **not** as a recycle of risk_map lines as the primary public-facing promise (e.g. do not let the narrative promise **lead** with “el riesgo de que…”, “el problema es que…”, or a feared misperception copied from diagnosis).
+- Keep **diagnostic honesty** in diagnostic sections and **constructive / neutralizing posture** in promise, main message and executive summary; do not collapse them into a single negative headline.
+- **content_strategy_opportunities** must not default to “crisis copy” or defensive venting unless the STRUCTURED INPUT clearly implies an explicit crisis or reputational posture the user is pursuing (rare).
+- For any field that functions like **recommended public message** or **narrative promise**, apply the same discipline as in creative outputs:
+${LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD}
+
+EDITORIAL PREFERENCE — TEMPLATE CONTRASTS (OUTWARD / MESSAGE-CORE FIELDS ONLY; NOT A HARD BAN)
+- **strategic_diagnosis**, **risk_map**, **conflict_map** and similar diagnostic sections may use clear analytical language; stylistic pressure below applies mainly to **message-core** fields, not to honest diagnosis.
+- In **executive_summary**, **narrative_strategy.narrative_promise**, **message_architecture.main_message**, **message_architecture.supporting_messages**, and **recommended_angles** / role lines inside **content_strategy_opportunities** that read like **headline copy**, **prefer** **direct, specific, mature Spanish**. **Treat** tired shells (“no es solo… es…”, “más que X, es Y”, “se trata de…” as filler, “conectando el futuro…”, “futuro del sector”, “colaboración auténtica”, “oportunidades de crecimiento real”, etc.) as **weak when generic** — not as absolute prohibitions. A contrast may remain if it is **original, necessary, and non-template**.
+- This is **editorial guidance for the model**, not a validator: do not assume the framework is invalid because one phrase matches a pattern.
+${LIMBI_BINARY_CLICHE_COPY_STANDARD}
 
 SYMBOLISM AND VISIBILITY (consistent with LIMBI symbolic standard above)
 - Rely on **conceptual territories**, **semantic_base**, and **production_rules**. Do not use raw symbolic wizard selections as visible metaphors unless project_identity or evidence_base proves literal relevance.

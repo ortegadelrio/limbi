@@ -1,6 +1,8 @@
 import {
+  LIMBI_BINARY_CLICHE_COPY_STANDARD,
   LIMBI_CREATIVE_STANDARD,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
+  LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
 } from "@/lib/ai/limbi-creative-standard";
 import type { ContentGenerationStructuredInput } from "@/lib/content/build-input";
@@ -22,6 +24,8 @@ You are a **senior creative editor** — **not** a paraphrasing tool, **not** a 
 - **Do** improve clarity, tone, tension, specificity, rhythm and memorability according to the refinement instructions — with **editorial judgment**, not automatic rewording.
 - **Avoid** awkward constructions, **grammar mistakes** (watch article/noun agreement, e.g. *el/la* + noun), inflated titles, empty slogans, and generic marketing filler.
 - **Respect** persistent_editorial_guidance inside content_generation_context (terminology swaps, naming, tone) — same rules as initial generation; never override evidence_base, production_rules, guardrails, or GLOBAL_AI_RULES.
+- **Strategic negative material** (risks, threats, objections, feared perceptions): if the **source** piece surfaced any of that as literal public copy, **remove or rewrite** it in the refined output so visible strings follow the STRATEGIC NEGATIVE MATERIAL standard — do not **reintroduce** or sharpen negative framing unless the refinement brief explicitly requests crisis / reputational / defensive copy.
+- **Template contrasts / weak formula phrases** (see EDITORIAL STANDARD block): if the **source** **sounds generic** because it leans on “no es solo… es…”, “más que X, es Y”, “se trata de…”, “conectando el futuro…”, etc., **prefer** rewriting with **more specificity and editorial maturity** while preserving strategic intent. **Do not** add new lazy scaffolds; a contrast may remain **only** if it is **clearly earned** — this is **guidance**, not a hard filter on save.
 - **Keep** the same \`content_type\` and the **same number of items** as the source output unless the source is malformed (it should not be): mirror the source item count exactly.
 - Output **only** valid JSON — no markdown fences, no commentary outside JSON, no meta-explanation of what you changed.
 `.trim();
@@ -55,6 +59,7 @@ EDITORIAL QUALITY — AVOID WEAK / GENERIC MARKETING (especially after emotional
   - vague “category villain” language without a **specific** diagnosis from this project (name the failure mode in concrete terms from the framework instead of empty labels)
 - **“Creación personalizada”** (or similar) only if it is **grounded** in a concrete mechanism from the framework — otherwise prefer plain Spanish that names the move (what changes for the brand or audience).
 - **Titles and grammar**: read every **title** aloud mentally; fix **article + noun** agreement and any **“Del / Desde el …”** fragments that are not idiomatic Spanish.
+- **Editorial scan (soft):** if **title**, **pitch**, **caption**, **idea_title**, **idea_description**, **phrase**, or headline-like strings **hinge** on a **predictable** “no es / no solo / más que … es …” scaffold or other **stock** formula from the EDITORIAL STANDARD block, **prefer** **one direct, specific claim**; you may **keep** a contrast if it reads **sharp and non-interchangeable** for this project.
 `.trim();
 
 const REFINEMENT_SHORT_PITCH_TITLE_EN = `
@@ -168,6 +173,10 @@ ${LIMBI_PURPOSE_AND_OUTCOME_STANDARD}
 
 ${LIMBI_SYMBOLIC_INTERPRETATION_STANDARD}
 
+${LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD}
+
+${LIMBI_BINARY_CLICHE_COPY_STANDARD}
+
 LANGUAGE AND FORMAT CONTRACT
 - This instruction prompt is in English.
 - Output MUST be valid JSON only (no markdown fences).
@@ -202,6 +211,7 @@ ${feedbackBlock}
 TASK
 - Return a **full new JSON object** of the same shape as a fresh generation for this \`content_type\`, with **exactly** \`${String(structured.quantity)}\` items.
 - Preserve each item’s **strategic role** (what problem or move that slot was serving) while applying the refinement.
+- The **EDITORIAL STANDARD** on template / binary phrases is **craft guidance** — improve weak lines when you notice them, but **do not** treat pattern matches as mandatory rejection of the whole output.
 - Do not change \`content_type\`. Do not add root keys beyond \`content_type\` and \`items\`.
 
 ${buildContentGenerationOutputShapeBlock(structured)}
@@ -210,5 +220,7 @@ FINAL CHECK
 - Same item count as source (\`${String(structured.quantity)}\`).
 - If any line could apply unchanged to an unrelated SaaS brand, rewrite before output.
 - Re-read every **title** and headline-like string for **natural Spanish** and **agreement**.
+- Strip or rewrite any **literal risk / threat / objection / feared-perception** phrasing echoed from the strategic bundle or from the source output; refined copy must stay **public-ready** and **constructive** by default.
+- If any visible string **sounds template-driven** because of binary-contrast or weak formula phrasing, **prefer** a **clearer, more specific** rewrite; **do not** treat pattern matches as automatic failure.
 `;
 }

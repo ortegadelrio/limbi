@@ -25,6 +25,42 @@ LIMBI CREATIVE STANDARD (NON-NEGOTIABLE)
 - If evidence is weak or unavailable, do not simulate proof.
 - Respect evidence_base, production_rules, voice_base, semantic_base, guardrails, what_to_avoid, content_strategy_opportunities and GLOBAL_AI_RULES.
 - If structured input includes project-level editorial refinement (e.g. **persistent_editorial_guidance** in content generation, or **revision_context** when regenerating the visible framework), treat it as creative direction when applicable, without overriding the Master Document or evidence restrictions.
+- Strategic negative material (risks, threats, objections, negative tensions, weaknesses, problematic perceptions) must inform judgment; it must not become verbatim public-facing creative copy unless the brief explicitly requests crisis / reputational / defensive counter-argument copy (see LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD when that block is included in the prompt).
+- Prefer **specific, direct, mature** Spanish over **predictable template contrasts** (“no es solo… es…”, “más que X, es Y”); such structures are fine **only** when they are truly precise, original, and editorially earned — not as the default scaffold (see LIMBI_BINARY_CLICHE_COPY_STANDARD when that block is included in the prompt).
+`.trim();
+
+/**
+ * Riesgos y material sensible: inteligencia interna, no copy literal en piezas creativas públicas.
+ * Incluir en prompts de Piezas narrativas (generación y refinamiento) y, donde aplique, alinear Marco visible.
+ */
+export const LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD = `
+LIMBI STRATEGIC NEGATIVE MATERIAL — INTERNAL INTELLIGENCE, NOT VISIBLE CREATIVE COPY (NON-NEGOTIABLE)
+- Structured inputs may include **risks, threats, objections, negative tensions, weaknesses, problematic perceptions, credibility concerns** (e.g. risk maps, conflict maps, diagnosis, IQA notes, guardrails, what_to_avoid).
+- Treat ALL of that as **internal strategic intelligence** only: what to avoid, what to anticipate, tone and claim limits, how to sharpen promise, how to stay credible, how to reduce naive communication — **not** as phrases to paste into user-facing creative fields.
+- In **titles, pitches, captions, content ideas, graphic phrases, headlines, hooks, body copy, CTAs, idea titles/descriptions, slogans, or any production-ready creative string** produced by this task:
+  - **Do not** quote, closely paraphrase, or **lead** with those negative diagnoses (avoid patterns like: “el problema es que…”, “el riesgo es que…”, “podrían percibirnos como…”, “la amenaza…”, “la debilidad…”, “a veces se percibe como…” when that mirrors an internal risk line).
+  - **Do not** teach the audience the **negative frame** first; write the **constructive, neutralizing, aspirational, or clarifying** message that the strategy aims to establish instead.
+- **Exception (rare):** explicit negative or defensive wording is allowed **only** if the user has clearly requested **crisis handling, reputational response, direct counter-argumentation, or defensive external communication**. Default assumption: **no** such intent — keep negatives internal.
+- **Do** use the intelligence **implicitly**: stronger guardrails, sharper positive claim, better invitation, more credible positioning — **without** surfacing internal fears as the headline story.
+- If friction must be acknowledged, do it with **forward motion** (clarity, benefit, credible invitation) — not by ventilating internal risk language as copy.
+`.trim();
+
+/**
+ * Criterio editorial (prompts): desalentar fórmulas binarias y frases plantilla; no es regla técnica bloqueante.
+ */
+export const LIMBI_BINARY_CLICHE_COPY_STANDARD = `
+LIMBI EDITORIAL STANDARD — TEMPLATE CONTRASTS & WEAK FORMULA PHRASES (QUALITY GUIDANCE, NOT A HARD BAN)
+- This block is **editorial guidance for the model**. It is **not** a machine validator: **do not** treat these patterns as absolute prohibitions, and **never** assume output must be rejected or repaired in a loop solely because one phrase matches a shape below.
+- **Prefer** concrete, specific, strategic Spanish. **Treat as warning signs of weak craft** when they appear in a **predictable, generic, or decorative** way — especially as the **spine** of a line or whole caption/pitch.
+- Patterns that often read as **junior or interchangeable** (Spanish; non-exhaustive):
+  - “no solo…, sino…” / “no es solo…, es…” / “X no es Y, es Z” / “X es más que Y, es Z” / “más que…, es…” / “más allá de…, es…”
+  - “Más que un evento, es una experiencia” (and similar “more than X, it is Y” event tropes)
+  - “Se trata de…” as a vague opener
+  - “Conectando el futuro de…”, “futuro del sector”, “colaboración auténtica”, “oportunidades de crecimiento real” (and close variants) when they are **filler** with no project-specific substance
+- **When a contrast or “no es solo” structure may stay:** only if it is **really original**, **necessary**, **clarifies a strategic tension** that cannot be said more simply, **does not sound like stock copy**, is **not the main gimmick** of the whole text, and would **not** read the same with another brand’s name swapped in.
+- **Principle:** comparisons are allowed; **lazy** formula contrast is not the default. If a line could be rewritten **more directly** without losing meaning, prefer the direct version.
+- **Weak → stronger (direction, not to copy):** “Perrenque Creativo no solo ofrece charlas, sino una plataforma…” → name who gathers, what activates, what the industry gains in plain Spanish.
+- **Weak → stronger:** “El Congreso no es solo un evento; es una comunidad en crecimiento.” → name the encounter, learning, and opportunities in **specific** terms.
 `.trim();
 
 export const LIMBI_SYMBOLIC_INTERPRETATION_STANDARD = `

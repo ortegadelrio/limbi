@@ -1,6 +1,8 @@
 import {
+  LIMBI_BINARY_CLICHE_COPY_STANDARD,
   LIMBI_CREATIVE_STANDARD,
   LIMBI_PURPOSE_AND_OUTCOME_STANDARD,
+  LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD,
   LIMBI_SYMBOLIC_INTERPRETATION_STANDARD,
 } from "@/lib/ai/limbi-creative-standard";
 import type { ContentGenerationStructuredInput } from "@/lib/content/build-input";
@@ -33,12 +35,13 @@ GRAPHIC_PHRASES (content_type: graphic_phrases) — SHARP VISUAL HEADLINES, NOT 
 - Each **phrase** must carry **clear tension or benefit** tied to the project’s strategic **“para qué”**: what the communication helps the audience **change, understand, decide or stop doing** — anchored in the framework + wizard purpose trace, not in vague inspiration.
 - **Avoid generic pairings** such as “strategy and creativity”, “humanity and technology”, “emotion and intelligence”, “reason and heart”, unless the line adds a **distinctive, situation-specific angle** (who is stuck, what is at stake, what flips).
 - **Avoid soft template claims** such as “humanized communication”, “real results”, “content with soul”, “innovative platform”, “strategic power”, “connects X and Y” — unless you **twist them into a sharper, non-generic idea** grounded in this project’s diagnosis or conflict.
-- **Prefer** lines that express **tension**, a **before/after**, a **decision**, a **warning**, or a **clear strategic belief** drawn from conflict_map, narrative_strategy, message_architecture or audience friction.
+- **Prefer** lines that express **tension**, a **before/after**, a **decision**, a **clear strategic belief or stake** drawn from your reading of conflict_map, narrative_strategy, message_architecture or audience friction — **without** restating internal **risk_map** or negative-perception lines as visible headline copy (see STRATEGIC NEGATIVE MATERIAL standard).
 - The best lines should feel like something **Limbi (this project) believes**, not something **any AI / content / marketing SaaS** could paste on a homepage.
 - **Do not** build lines by merely **combining two positive abstract words** (e.g. “humanidad + innovación”) with no situational bite.
 - **Avoid generic visual metaphors** — gears, bridges, code lines with “human context”, clouds of ideas, sunrise horizons, hands joining cogs — **unless** the approved framework explicitly names or justifies that visual territory with project-specific substance.
 - Each **phrase** must feel like a **sharp visual headline** or poster line rooted in this project's **conceptual territory** from the approved framework — not a soft SaaS slogan or generic AI-platform copy.
 - **Avoid** generic AI-platform / transformation / inspiration language unless a **verbatim** line in from_approved_visible_framework forces that exact wording (extremely rare). Default-avoid patterns include (non-exhaustive): "transforma el conocimiento", "poder estratégico", "más allá de la automatización", "humanidad en cada línea de código", "comunicación que conecta", "no sólo transmite", "ruido digital", "claridad estratégica", "nuevo horizonte", "plataforma innovadora", "solución visualizada", "con un solo clic", "transforma el caos", "descubre [brand]", "comunicación con inteligencia y humanidad", "puente entre intelecto y emoción" — unless the framework text literally anchors them.
+- **Avoid** leaning the whole **phrase** (or supporting fields) on tired **binary-contrast scaffolds** (“no es solo… es…”, “más que X, es Y”, etc.) **unless** the line clearly passes the **earned / specific / non-template** test in the EDITORIAL STANDARD block below — default toward **direct** Spanish.
 - **Official naming** from persistent_editorial_guidance (e.g. a preferred platform name) is **allowed and encouraged** where relevant — it is **not** “generic innovation language”; use it when it names **this** product/method, not as a substitute for a point of view.
 - **intention**, **visual_context** and **usage_note** must reinforce the same strategic bite as **phrase** (no generic filler that contradicts a sharp phrase).
 - Do not lean on abstract pairings (reason vs emotion, mind vs heart) unless the approved framework explicitly builds that tension with project-specific substance.
@@ -52,6 +55,7 @@ For **phrase** (and ensure **intention** / **visual_context** / **usage_note** d
 - Does it connect to this project’s **“para qué”** (result, movement, perception shift) from the framework or wizard purpose trace?
 - Does it avoid **generic inspiration** (two positive abstractions glued together)?
 - Does it feel specific to **this** narrative territory — not interchangeable tech poetry?
+- Does **phrase** (or **intention** / **usage_note**) lean on a **predictable** “no es / no solo / más que … es …” scaffold? If it reads **generic**, prefer rewriting into **direct, specific** Spanish; if the contrast is **truly earned**, you may keep it.
 If any answer is weak, **rewrite** before output.
 `.trim();
 
@@ -61,6 +65,7 @@ RETRY — graphic_phrases (extra strict)
 - Apply persistent_editorial_guidance terminology rules if present: you must **use the preferred term** wherever the platform/method/product concept appears; do not dodge with generic paraphrases alone.
 - **Mandatory:** include the **preferred term at least once** in a visible string (**phrase**, **intention**, **usage_note**, or **visual_context**). Use the **exact preferred wording** from the guidance (same words in order; punctuation may vary slightly). Putting it once in **usage_note** or **intention** is acceptable if the headline stays sharper.
 - Re-run the **SELF-CHECK** on every item: no SaaS-generic pairings, no “humanized / soul / real results / strategy+creativity” fluff, no stock visual metaphors (gears, bridges, code+humanity, idea clouds, horizons) unless the framework literally supports them.
+- If a line leaned on a **lazy** binary template, tighten it into **direct strategic Spanish**; if a contrast was **editorially necessary and specific**, you may retain it.
 - Keep lines shorter, bolder, and anchored in framework tensions — not generic "innovation / trust / transformation" poetry.
 `.trim();
 
@@ -72,6 +77,8 @@ const QUALITY_RULES_ES = [
   "Si falta evidencia en el contexto, no simules pruebas ni datos; evita afirmaciones de prueba y centra la intención en percepción, claridad o invitación creíble.",
   "Deriva cada pieza de content_generation_context: from_master_document (identidad, bases estratégicas, evidencia, voz, semántica, producción, límbico, IQA, memoria si aplica), from_approved_visible_framework (marco aprobado completo en el bundle) y wizard_purpose_trace (reto declarado, transformación, acción deseada del cuestionario — intención, no evidencia); no contradigas production_rules, guardrails, evidence_base ni las reglas globales.",
   "Si content_generation_context.persistent_editorial_guidance tiene texto, respétalo como criterio creativo transversal en todos los tipos de contenido salvo conflicto con evidencia, production_rules, guardrails o GLOBAL_AI_RULES — en ese caso prevalecen las fuentes duras.",
+  "Riesgos, amenazas, objeciones, tensiones negativas y percepciones problemáticas del marco o del documento maestro: úsalos solo como criterio interno (qué evitar, cómo neutralizar, tono); no los copies ni los encabeces en títulos, pitches, captions, ideas ni frases gráficas salvo brief explícito de crisis o reputación.",
+  "Criterio editorial: desalentar fórmulas muy usadas («no es solo… es…», «más que… es…», «se trata de…», «conectando el futuro…», «futuro del sector», «colaboración auténtica», «oportunidades de crecimiento real», etc.) cuando suenen genéricas; prioriza concreción y oficio. No es regla bloqueante: una comparación puede quedarse si es precisa y original.",
 ].join("\n");
 
 const PURPOSE_DRIVEN_CONTENT_EN = `
@@ -83,19 +90,21 @@ PURPOSE-DRIVEN CONTENT (“PARA QUÉ”, NOT ONLY “QUÉ”)
 - **Better pattern**: what becomes **different** for the brand or audience when this works — e.g. moving from scattered content to **intentional** communication — **without** melodrama or invented metrics.
 
 BY content_type (layer on top of type-specific rules below)
-- **short_pitch**: must explain **what** is being communicated, **for whom**, and **why it matters** (strategic “para qué”) — already required in SHORT_PITCH rules; do not weaken into pure description.
-- **captions**: each caption needs a **reason to connect** (stakes, benefit, tension, or invitation tied to the framework’s outcome) — not a neutral catalogue of what the project is.
-- **content_ideas**: each idea must state **what strategic result** it could help produce (clarity, trust, reconsideration, action, perception shift, etc.) — not only a format or topic title.
-- **graphic_phrases**: lines must imply **benefit, tension, or movement** aligned with the “para qué”, not decorative inspiration (see GRAPHIC_PHRASES rules).
+- **short_pitch**: must explain **what** is being communicated, **for whom**, and **why it matters** (strategic “para qué”) — already required in SHORT_PITCH rules; do not weaken into pure description. **Prefer** not to let **title** or **pitch** **hinge** on a generic “no es / no solo / más que … es …” scaffold; use a contrast **only** if it is sharp, specific, and non-interchangeable (see EDITORIAL STANDARD block).
+- **captions**: each caption needs a **reason to connect** (stakes, benefit, tension, or invitation tied to the framework’s outcome) — not a neutral catalogue of what the project is. **Prefer** one **clear, specific** line over a whole caption built as a **stock** “más que X, Y” tagline.
+- **content_ideas**: each idea must state **what strategic result** it could help produce (clarity, trust, reconsideration, action, perception shift, etc.) — not only a format or topic title. **Prefer** that **idea_title** / **idea_description** not be **mostly** boilerplate “no es Y, es Z” / “no es solo… es…”; direct framing is the default.
+- **graphic_phrases**: lines must imply **benefit, tension, or movement** aligned with the “para qué”, not decorative inspiration (see GRAPHIC_PHRASES rules). **Default** away from **lazy** binary-contrast gimmicks; keep a contrast only if it **earns** its place (see EDITORIAL STANDARD block).
 `.trim();
 
 const DERIVATION_RULES_EN = `
 STRATEGIC DERIVATION (NON-NEGOTIABLE)
 - The generated content MUST clearly derive from **content_generation_context.from_approved_visible_framework** (executive summary, diagnosis, audience, conflict map, risk map, narrative strategy, message architecture, content_strategy_opportunities, success_signals, strategic_recommendations, guardrails, what_to_avoid) AND from **content_generation_context.from_master_document** (project_identity, strategic_base, audience_base, evidence_base, voice_base, semantic_base, production_rules, limbic_base, input_quality_assessment, memory when present), AND from **content_generation_context.wizard_purpose_trace** when it contains user-declared purpose fields (challenge, transformation, desired action, etc.).
-- You MUST actively use: project identity, communication territory, central tensions / conflicts, narrative promise, audience definition, risk map, message architecture (main and supporting angles where useful), guardrails, what_to_avoid, evidence discipline, voice and semantic signals — woven into the prose, not as labels.
+- You MUST actively use: project identity, communication territory, central tensions / conflicts, narrative promise, audience definition, message architecture (main and supporting angles where useful), guardrails, what_to_avoid, evidence discipline, voice and semantic signals — woven into the prose as **constructive public meaning**, not as internal labels.
+- **risk_map** and other **negative diagnostic strings**: use them to **calibrate** what to avoid, how sharp or soft to be, and what positive or neutralizing story to tell — **never** as literal quoted objections, threats, or “perception risk” sentences inside titles, pitches, captions, ideas, or graphic phrases (unless explicit crisis/reputation brief per STRATEGIC NEGATIVE MATERIAL standard).
 - Do NOT produce generic marketing language, empty hype, or copy that could apply unchanged to any other brand.
 - Do NOT use placeholder or brochure phrases such as (non-exhaustive): "nuestra solución", "nuestro servicio", "descubre la diferencia", "te ayudamos a crecer", "tu compañero de confianza", "simplicidad que empodera", "transforma la manera", "valor añadido", "soluciones innovadoras" — unless the EXACT wording is explicitly justified by a verbatim quote inside from_approved_visible_framework (extremely rare). Default: never use them.
 - Avoid generic brochure language, empty motivational slogans, and abstract promises with no situational context from this project.
+- **Treat** overused **binary-contrast taglines** (“no es Y, es Z”, “no solo… es…”, “más que X, es Y”) as **weak when they are the backbone** of an item; prefer **specific** craft unless the line is clearly **non-generic** (see EDITORIAL STANDARD block).
 `.trim();
 
 const USER_FACING_QUALITY_EN = `
@@ -108,11 +117,13 @@ USER-FACING CONTENT QUALITY RULES
 - Use natural Spanish.
 - Do not use snake_case, slugs or internal labels in user-facing strings.
 - Each item must articulate a strategic intention clearly linked to the approved framework (what perception, decision or emotion it seeks to move).
+- **Never** surface internal risk / threat / objection language as the **visible** hook or lead; express the **intended public story** that neutralizes those concerns without teaching the reader the negative frame first.
+- **Prefer** **direct, mature** Spanish over **predictable** binary-contrast copy (“X no es Y, es Z”, “no es solo… es…”, “más que X, es Y”, “no hacemos X, hacemos Y”). A contrast may remain **only** if it is **original, necessary, and non-template** for this project (see EDITORIAL STANDARD block — guidance, not a hard filter).
 `.trim();
 
 const SHORT_PITCH_MENTAL_MODEL_EN = `
 MANDATORY MENTAL MODEL FOR EVERY short_pitch ITEM
-"This is not a slogan. This is a strategic pitch. It must explain the communication challenge, the audience movement and the narrative promise in concrete language."
+"This is not a slogan. This is a strategic pitch. It must explain what is being moved for the audience and the narrative promise in concrete, public-ready language — informed by internal diagnosis and risks, but **without** repeating negative-perception or threat lines as the visible story."
 Write as if briefing a leadership team — not as if writing a billboard.
 `.trim();
 
@@ -124,13 +135,13 @@ ${SHORT_PITCH_MENTAL_MODEL_EN}
 TITLE ("title")
 - Must function as a SPECIFIC strategic headline (what situation or move this pitch addresses), NOT an empty slogan or motivational poster line.
 - FORBIDDEN title patterns (do not mimic this vibe): "Despierta el valor oculto", "Claridad transformadora", "Impulso sin presiones", "Tu camino al éxito", "Conecta con lo que importa", or any similar abstract two–four word "hero" headline with no situational anchor.
-- Prefer plain, concrete framing drawn from diagnosis, conflict, audience or message architecture in **from_approved_visible_framework** (e.g. who is stuck, what is misunderstood, what must shift) — still in natural Spanish, not jargon labels.
+- Prefer plain, concrete framing drawn from **constructive** strategic territory in **from_approved_visible_framework** (audience, promise, territory, message architecture) — still in natural Spanish, not jargon labels. **Do not** headline with internal **risk** or **feared perception** wording (e.g. leading with how the brand might be misread).
 
 PITCH ("pitch") — MUST ANSWER IN PLAIN LANGUAGE (can be one tight paragraph of a few short sentences)
 1) What is being communicated (substance from message_architecture / narrative promise / territory — not hype).
 2) For whom (audience from snapshot / identity — who must hear this).
-3) What tension or communication problem it resolves (from diagnosis, conflict_map, risk_map or audience friction — name the problem concretely).
-4) What perception or action change it seeks (from narrative promise / expected action — concrete, not "inspire" or "empower" in the abstract).
+3) What strategic **move or clarity** this communication delivers — informed by diagnosis, conflict_map, risk_map and audience friction **internally**, but **without** repeating risks, threats, or negative-perception lines as literal public copy (no “el riesgo es…”, “el problema es que…”, “podrían vernos como…” unless explicit crisis/reputation brief).
+4) What perception or action change it seeks (from narrative promise / expected action — concrete, forward-building, not "inspire" or "empower" in the abstract).
 
 The pitch must read like a brief strategic explanation: clear, human, usable — NOT like an inspirational advertisement, NOT like a tagline stack, NOT like generic "transform / clarity / trust / energy" poetry.
 
@@ -141,6 +152,11 @@ BANNED VOCABULARY (default: never use these strings; do not "ground" them with f
 - valor auténtico, guía confiable, transforma la manera, desafíos en oportunidades, beneficios tangibles, liderazgo transformacional, solución integral, experiencia memorable, conexión emocional, propósito de marca, propuesta diferenciadora
 - plus earlier brochure list in DERIVATION_RULES
 
+EDITORIAL PREFERENCE — BINARY / TEMPLATE PHRASES (short_pitch — **title**, **pitch**, **strategic_intention**, **best_use**)
+- **Avoid by default** (treat as **signals of weak craft** when generic) structures such as: “no solo…, sino…”, “no es solo…, es…”, “X no es Y, es Z”, “X es más que Y, es Z”, “más que…, es…”, “más allá de…, es…”, “se trata de…” (vague), “conectando el futuro de…”, “futuro del sector”, “colaboración auténtica”, “oportunidades de crecimiento real”, “Más que un evento, es una experiencia”, “Más que comunicar, conectamos”, etc.
+- **Prefer** stating **substance** (quién, qué convoca, qué cambia, qué oportunidad) in **direct** Spanish. **Do not** treat this list as an absolute ban: a comparison may **survive** if it is **really original**, **clarifies a strategic tension**, **does not sound like stock copy**, is **not the only trick** holding the text up, and passes a **swap-the-brand-name** test.
+- **This is editorial quality guidance for the model, not a technical validator** — output must not be assumed invalid solely because one phrase matches a pattern above.
+
 FIELD REMINDERS (Spanish values; English keys)
 - "strategic_intention": which perception, decision or emotion moves — tied explicitly to framework tensions/audience (no abstract self-help).
 - "best_use": concrete deployment (stakeholder, moment, channel class) — not "anywhere" or "all channels".
@@ -149,6 +165,7 @@ FIELD REMINDERS (Spanish values; English keys)
 const SHORT_PITCH_RETRY_REINFORCEMENT_EN = `
 RETRY — short_pitch (extra strict on this attempt)
 - No slogans, no brochure language, no motivational filler, no generic transformation language.
+- **Tighten** **title** and **pitch**: if they lean on **lazy** “no es / no solo / más que … es …” or other **template** phrasing, prefer **direct, specific** strategic Spanish — keep a contrast **only** if it clearly **earns** its place per the EDITORIAL STANDARD block.
 - Explain the communication challenge, audience movement and narrative promise in concrete language from content_generation_context.from_approved_visible_framework (diagnosis, conflicts, audience, message_architecture, narrative_strategy).
 - Rewrite every field from scratch; do not paraphrase the rejected wording.
 `.trim();
@@ -332,6 +349,10 @@ ${LIMBI_PURPOSE_AND_OUTCOME_STANDARD}
 
 ${LIMBI_SYMBOLIC_INTERPRETATION_STANDARD}
 
+${LIMBI_STRATEGIC_NEGATIVE_MATERIAL_STANDARD}
+
+${LIMBI_BINARY_CLICHE_COPY_STANDARD}
+
 LANGUAGE AND FORMAT CONTRACT
 - This instruction prompt is in English.
 - Output MUST be valid JSON only (no markdown fences).
@@ -363,6 +384,8 @@ ${graphicPhrasesRetryExtra}
 TASK
 - Generate exactly ${String(input.quantity)} content pieces of type "${input.content_type}".
 - Anchor every piece in **content_generation_context** (master + approved framework + wizard purpose trace + persistent editorial guidance when present). Generic marketing that ignores those sources is a failure.
+- Use negative strategic material (risks, objections, bad perceptions) **only as silent intelligence**; every visible string must read as **public-ready** constructive or neutralizing narrative — not as a dump of internal fears.
+- The **EDITORIAL STANDARD** block on template / binary phrases is **craft guidance for you** — **not** a hard technical rule: valid JSON must not be treated as failed **only** because a line matches a listed pattern.
 - Respect guardrails and what_to_avoid inside from_approved_visible_framework; do not contradict production_rules in from_master_document.
 ${shortPitchExtra}
 ${graphicPhrasesExtra}
@@ -373,5 +396,6 @@ FINAL CHECK
 - "content_type" at root MUST be exactly "${input.content_type}".
 - Re-read each item: if it could apply unchanged to another unrelated brand, rewrite mentally before output — it must be project-specific.
 - Re-read each item: if it only describes **what** the project is or does with no trace of **why this communication matters** (strategic “para qué” / outcome / movement), rewrite before output.
+- Optional editorial pass: if a line **hinges** on a **predictable** “no es / no solo / más que … es …” scaffold or other **template** phrase from the EDITORIAL STANDARD block and reads **generic**, prefer a **more direct** rewrite; **do not** treat this as a mandatory rejection rule.
 `;
 }
