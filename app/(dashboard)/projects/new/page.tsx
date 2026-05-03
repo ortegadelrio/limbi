@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { NewProjectWizard } from "@/components/onboarding/new-project-wizard";
+import { ProjectIntakeEntry } from "@/components/onboarding/project-intake-entry";
 import {
   SystemContextHeader,
   SystemContextHeaderLink,
@@ -105,7 +105,7 @@ export default async function NewProjectPage({ searchParams }: Props) {
           </div>
         }
       >
-        <NewProjectWizard />
+        <ProjectIntakeEntry />
       </Suspense>
     </div>
   );

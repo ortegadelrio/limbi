@@ -1,6 +1,7 @@
 import { GLOBAL_AI_RULES } from "@/lib/ai/global-rules";
 import { buildLimbicInterpretation } from "@/lib/interpretation";
 import type { LimbicInterpretationResult } from "@/lib/interpretation/types";
+import { stripInternalResponseKeys } from "@/lib/master-document/responses-public";
 
 /** Fila `projects` mínima compatible con GET /api/projects/:id */
 export type MasterDocumentProjectPayload = {
@@ -63,11 +64,12 @@ export function buildMasterDocumentInput({
   responses,
   post_questionnaire_strategic_refinements = null,
 }: BuildMasterDocumentInputParams): MasterDocumentStructuredInput {
+  const publicResponses = stripInternalResponseKeys(responses);
   const raw_responses: Record<string, unknown> = {
-    ...responses,
+    ...publicResponses,
   };
 
-  const fromWizardIdentity = readSubRecord(responses, "project_identity");
+  const fromWizardIdentity = readSubRecord(publicResponses, "project_identity");
 
   const project_identity: Record<string, unknown> = {
     id: project.id,
@@ -86,8 +88,8 @@ export function buildMasterDocumentInput({
     ...fromWizardIdentity,
   };
 
-  const strategic_base = readSubRecord(responses, "strategic_base");
-  const challenge_context = readSubRecord(responses, "challenge_context");
+  const strategic_base = readSubRecord(publicResponses, "strategic_base");
+  const challenge_context = readSubRecord(publicResponses, "challenge_context");
   const strategic_context: Record<string, unknown> = {
     strategic_base,
     challenge_context,
@@ -97,16 +99,16 @@ export function buildMasterDocumentInput({
     },
   };
 
-  const audience_context = readSubRecord(responses, "audience_base");
+  const audience_context = readSubRecord(publicResponses, "audience_base");
 
-  const evidence_context = readSubRecord(responses, "evidence_base");
+  const evidence_context = readSubRecord(publicResponses, "evidence_base");
 
   const voice_context: Record<string, unknown> = {
-    voice_base: readSubRecord(responses, "voice_base"),
-    review: readSubRecord(responses, "review"),
+    voice_base: readSubRecord(publicResponses, "voice_base"),
+    review: readSubRecord(publicResponses, "review"),
   };
 
-  const limbic_interpretation = buildLimbicInterpretation(responses);
+  const limbic_interpretation = buildLimbicInterpretation(publicResponses);
 
   const generation_instructions: MasterDocumentGenerationInstructions = {
     builder_version: "5c-v1",

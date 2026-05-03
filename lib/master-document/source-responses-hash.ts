@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { stripInternalResponseKeys } from "@/lib/master-document/responses-public";
 
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || typeof value !== "object") {
@@ -22,6 +23,6 @@ function sortKeysDeep(value: unknown): unknown {
 export function computeSourceResponsesHash(
   responses: Record<string, unknown>,
 ): string {
-  const canonical = JSON.stringify(sortKeysDeep(responses));
+  const canonical = JSON.stringify(sortKeysDeep(stripInternalResponseKeys(responses)));
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
