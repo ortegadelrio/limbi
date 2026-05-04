@@ -47,10 +47,9 @@ import { buildStrategicInterviewPilotSummary } from "@/lib/intake/strategic-inte
 import {
   buildClarificationSyntheticExtraction,
   buildClarificationTurnContent,
-  detectDeterministicClarificationIntent,
-  detectEvidenceUncertaintyWithoutMetaQuestion,
   traceForLlmProcessing,
 } from "@/lib/intake/guided-intake-clarification";
+import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
 import {
   buildAudienceConfirmMergeAndExtraction,
   buildAudienceDeclineInvertRepromptTurnContent,
@@ -60,9 +59,6 @@ import {
   buildAudienceSecondaryInvertOfferTurnContent,
   buildStrategicValidationSyntheticExtraction,
   buildStrategicValidationTurnContent,
-  classifyPendingAudienceUserReply,
-  detectDeterministicStrategicValidationIntent,
-  detectReturnToAudienceTopicIntent,
   stripAudienceRecommendationPending,
   swapPendingPrimarySecondary,
 } from "@/lib/intake/guided-intake-strategic-validation";
@@ -377,14 +373,18 @@ export async function POST(request: Request, { params }: Params) {
 
     let wantsFollowUp = false;
     let shouldNotAdvance = false;
-    let skipMainLlmFlow = false;
+
+    const engineTurn = resolveGuidedIntakeTurn({
+      userText: userTextRaw,
+      miniStep,
+      trace: traceFromDb,
+    });
 
     const pendingAudience = traceFromDb.audience_recommendation_pending;
-    if (miniStep === "audience" && pendingAudience?.version === 1) {
-      skipMainLlmFlow = true;
-      const reply = classifyPendingAudienceUserReply(userTextRaw, pendingAudience);
+    if (engineTurn.notes_for_route.branch === "pending_audience_confirmation") {
+      const replyKind = engineTurn.notes_for_route.pendingAudienceReplyKind!;
 
-      if (reply.kind === "restart_strategic_audience") {
+      if (replyKind === "restart_strategic_audience") {
         mergedWithoutTrace = baseResponses;
         const cleared = stripAudienceRecommendationPending(traceFromDb);
         const content = buildStrategicValidationTurnContent({
@@ -425,7 +425,7 @@ export async function POST(request: Request, { params }: Params) {
           "assistant",
           extraction.interviewer_message.slice(0, 500),
         );
-      } else if (reply.kind === "explicit_unclear") {
+      } else if (replyKind === "explicit_unclear") {
         const ex = buildAudienceExplicitUnclearWhilePendingExtraction({
           strategicBase: sbSnap,
         });
@@ -452,10 +452,10 @@ export async function POST(request: Request, { params }: Params) {
                 projectChallengeType,
                 otherChallenge,
               );
-      } else if (reply.kind === "confirm") {
-        const pendingForMerge = reply.swapPrimarySecondary
-          ? swapPendingPrimarySecondary(pendingAudience)
-          : pendingAudience;
+      } else if (replyKind === "confirm") {
+        const pendingForMerge = engineTurn.notes_for_route.swapPrimarySecondary
+          ? swapPendingPrimarySecondary(pendingAudience!)
+          : pendingAudience!;
         const { mergedResponses: mr, extraction: ex } =
           buildAudienceConfirmMergeAndExtraction(baseResponses, pendingForMerge);
         mergedWithoutTrace = mr;
@@ -479,9 +479,9 @@ export async function POST(request: Request, { params }: Params) {
                 projectChallengeType,
                 otherChallenge,
               );
-      } else if (reply.kind === "secondary_emphasis_invert_prompt") {
+      } else if (replyKind === "secondary_emphasis_invert_prompt") {
         mergedWithoutTrace = baseResponses;
-        const amb = buildAudienceSecondaryInvertOfferTurnContent(pendingAudience);
+        const amb = buildAudienceSecondaryInvertOfferTurnContent(pendingAudience!);
         extraction = buildStrategicValidationSyntheticExtraction(amb);
         shouldNotAdvance = true;
         wantsFollowUp = false;
@@ -501,9 +501,9 @@ export async function POST(request: Request, { params }: Params) {
           "assistant",
           extraction.interviewer_message.slice(0, 500),
         );
-      } else if (reply.kind === "decline_invert_reprompt") {
+      } else if (replyKind === "decline_invert_reprompt") {
         mergedWithoutTrace = baseResponses;
-        const amb = buildAudienceDeclineInvertRepromptTurnContent(pendingAudience);
+        const amb = buildAudienceDeclineInvertRepromptTurnContent(pendingAudience!);
         extraction = buildStrategicValidationSyntheticExtraction(amb);
         shouldNotAdvance = true;
         wantsFollowUp = false;
@@ -523,9 +523,9 @@ export async function POST(request: Request, { params }: Params) {
           "assistant",
           extraction.interviewer_message.slice(0, 500),
         );
-      } else if (reply.kind === "reject_priority") {
+      } else if (replyKind === "reject_priority") {
         mergedWithoutTrace = baseResponses;
-        const amb = buildAudienceRejectPriorityTurnContent(pendingAudience);
+        const amb = buildAudienceRejectPriorityTurnContent(pendingAudience!);
         extraction = buildStrategicValidationSyntheticExtraction(amb);
         shouldNotAdvance = true;
         wantsFollowUp = false;
@@ -544,7 +544,7 @@ export async function POST(request: Request, { params }: Params) {
       } else {
         mergedWithoutTrace = baseResponses;
         const amb = buildAudiencePendingAmbiguousTurnContent({
-          pending: pendingAudience,
+          pending: pendingAudience!,
           challengeType: projectChallengeType,
           otherChallenge,
         });
@@ -570,12 +570,7 @@ export async function POST(request: Request, { params }: Params) {
       }
     }
 
-    if (
-      !skipMainLlmFlow &&
-      miniStep === "evidence" &&
-      detectReturnToAudienceTopicIntent(userTextRaw)
-    ) {
-      skipMainLlmFlow = true;
+    if (engineTurn.notes_for_route.branch === "evidence_return_to_audience") {
       mergedWithoutTrace = baseResponses;
       const content = buildStrategicValidationTurnContent({
         miniStep: "audience",
@@ -619,12 +614,7 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    if (
-      !skipMainLlmFlow &&
-      miniStep === "evidence" &&
-      detectEvidenceUncertaintyWithoutMetaQuestion(userTextRaw)
-    ) {
-      skipMainLlmFlow = true;
+    if (engineTurn.notes_for_route.branch === "evidence_uncertainty_advance") {
       extraction = buildEvidenceUncertaintyDeterministicExtraction({
         strategicBase: sbSnap,
       });
@@ -657,7 +647,7 @@ export async function POST(request: Request, { params }: Params) {
     const offeringHint =
       typeof sbSnap.offering_type === "string" ? sbSnap.offering_type : null;
 
-    if (!skipMainLlmFlow) {
+    if (!engineTurn.skip_llm_extraction) {
       const system = buildStrategicInterviewSystemPrompt({
         challengeType: projectChallengeType,
         offeringTypeHint: offeringHint,
@@ -765,20 +755,9 @@ export async function POST(request: Request, { params }: Params) {
         );
       };
 
-      const deterministicStrategicValidation =
-        traceFromDb.phase !== "follow_up" &&
-        detectDeterministicStrategicValidationIntent(userTextRaw, {
-          miniStep,
-        });
-
-      const deterministicClarification =
-        !deterministicStrategicValidation &&
-        traceFromDb.phase !== "follow_up" &&
-        detectDeterministicClarificationIntent(userTextRaw);
-
-      if (deterministicStrategicValidation) {
+      if (engineTurn.notes_for_route.branch === "deterministic_strategic_validation") {
         applyStrategicValidationTurn();
-      } else if (deterministicClarification) {
+      } else if (engineTurn.notes_for_route.branch === "deterministic_clarification") {
         applyClarificationTurn();
       } else {
         let resolved: Awaited<ReturnType<typeof resolveGuidedIntakeExtraction>>;
