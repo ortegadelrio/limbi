@@ -1,0 +1,218 @@
+import { describe, expect, it } from "vitest";
+import { deepMergeResponses } from "@/lib/utils/deep-merge";
+import {
+  buildSyntheticExtractionForChip,
+  computeTraceAfterStrategicLlmExtraction,
+  initialTrace,
+  type LimbicInterviewTraceV1,
+} from "@/lib/intake/orchestrator";
+import { interviewerCopyContainsGenericPhrases } from "@/lib/intake/limbi-interviewer-copy";
+import {
+  applyStrategicInterviewExtraction,
+  collectSatisfiedWizardIndices,
+  GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
+} from "@/lib/intake/strategic-interview-apply";
+import {
+  audienceIsCommittedForPilotSummary,
+  buildStrategicInterviewPilotSummary,
+} from "@/lib/intake/strategic-interview-summary";
+
+function traceAtAudience(): LimbicInterviewTraceV1 {
+  return {
+    ...initialTrace(),
+    mini_step: "audience",
+    phase: "main",
+    follow_up_used: false,
+    turns: [],
+  };
+}
+
+describe("computeTraceAfterStrategicLlmExtraction", () => {
+  it("does not advance mini_step when needs_follow_up is true", () => {
+    const trace = traceAtAudience();
+    const { nextTrace, wantsFollowUp } = computeTraceAfterStrategicLlmExtraction({
+      trace,
+      extraction: {
+        needs_follow_up: true,
+        follow_up_question: "¿A quién convencemos primero: adolescentes o padres?",
+      },
+    });
+    expect(wantsFollowUp).toBe(true);
+    expect(nextTrace.phase).toBe("follow_up");
+    expect(nextTrace.mini_step).toBe("audience");
+  });
+
+  it("advances one mini_step after follow-up phase answer (no follow-up)", () => {
+    const trace: LimbicInterviewTraceV1 = {
+      ...traceAtAudience(),
+      phase: "follow_up",
+      follow_up_used: true,
+    };
+    const { nextTrace, wantsFollowUp } = computeTraceAfterStrategicLlmExtraction({
+      trace,
+      extraction: { needs_follow_up: false, follow_up_question: null },
+    });
+    expect(wantsFollowUp).toBe(false);
+    expect(nextTrace.phase).toBe("main");
+    expect(nextTrace.mini_step).toBe("evidence");
+    expect(nextTrace.follow_up_used).toBe(false);
+  });
+});
+
+describe("collectSatisfiedWizardIndices (audience skip)", () => {
+  it("does not mark wizard audience when audience_pending limitation is present", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "Descripción larga suficiente",
+        offering_type: "service",
+        problem_category: "lack_clarity",
+        problem_description_optional: "Situación concreta descrita aquí",
+        transformation_type: "understand_better",
+        transformation_to: "Resultado concreto suficiente",
+        guided_intake_limitations_optional: [
+          "guided_intake:not_available_yet",
+          GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
+        ],
+      },
+      audience_base: { audience_type: "end_consumers" },
+      evidence_base: { evidence_types: ["survey"] },
+    };
+    expect(collectSatisfiedWizardIndices(merged)).not.toContain(6);
+  });
+});
+
+describe("chip no_information + audience step limitation", () => {
+  it("merges synthetic skip then audience_pending blocks wizard step 6", () => {
+    const extraction = buildSyntheticExtractionForChip("no_information", []);
+    let merged = applyStrategicInterviewExtraction({}, extraction).mergedResponses;
+    const sb = merged.strategic_base as Record<string, unknown>;
+    const lim = Array.isArray(sb.guided_intake_limitations_optional)
+      ? ([
+          ...(sb.guided_intake_limitations_optional as string[]),
+        ] as string[])
+      : [];
+    merged = deepMergeResponses(merged, {
+      strategic_base: {
+        ...sb,
+        guided_intake_limitations_optional: [
+          ...lim,
+          GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
+        ],
+      },
+    });
+    expect(lim).toContain("guided_intake:not_available_yet");
+    const lim2 = (merged.strategic_base as Record<string, unknown>)
+      .guided_intake_limitations_optional as string[];
+    expect(lim2).toContain(GUIDED_INTAKE_AUDIENCE_PENDING_LIM);
+
+    const mergedAsIfPriorStepsDone = deepMergeResponses(merged, {
+      strategic_base: {
+        simple_description: "Descripción larga suficiente",
+        offering_type: "service",
+        problem_category: "lack_clarity",
+        problem_description_optional: "Problema concreto suficiente",
+        transformation_type: "understand_better",
+        transformation_to: "Beneficio concreto suficiente",
+        guided_intake_limitations_optional: lim2,
+      },
+      audience_base: { audience_type: "end_consumers" },
+      evidence_base: { evidence_types: ["survey"] },
+    });
+    expect(collectSatisfiedWizardIndices(mergedAsIfPriorStepsDone)).not.toContain(6);
+  });
+});
+
+describe("buildStrategicInterviewPilotSummary", () => {
+  it("does not use consumidores finales when audience is missing", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "Un servicio de apoyo logístico para viajes",
+        offering_type: "service",
+        problem_category: "lack_trust",
+        problem_description_optional: "Personas que dudan antes de reservar",
+        transformation_type: "decide_confidently",
+        transformation_to: "Reservar con información clara y respaldo",
+      },
+      audience_base: {},
+      evidence_base: { evidence_types: ["no_clear_evidence"] },
+    };
+    const summary = buildStrategicInterviewPilotSummary(
+      merged,
+      "service",
+      false,
+      {},
+    );
+    expect(summary.body.toLowerCase()).not.toContain("consumidor");
+    expect(audienceIsCommittedForPilotSummary(merged, {})).toBe(false);
+  });
+
+  it("teen travel style: modular body and pending audience copy", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description:
+          "Un servicio que ayuda a organizar itinerarios de viaje con más sentido y acompañamiento para grupos jóvenes",
+        offering_type: "service",
+        problem_category: "lack_trust",
+        problem_description_optional:
+          "Adolescentes que viajan sin la supervisión directa de sus padres",
+        transformation_type: "decide_confidently",
+        transformation_to:
+          "Pueden vivir la experiencia con autonomía, con protocolos y respaldo operativo de la agencia para que las familias confíen",
+      },
+      audience_base: {},
+      evidence_base: { evidence_types: ["no_clear_evidence"] },
+    };
+    const summary = buildStrategicInterviewPilotSummary(
+      merged,
+      "service",
+      false,
+      {
+        "strategic_base.simple_description": 0.9,
+        "strategic_base.problem_category": 0.85,
+        "strategic_base.transformation_type": 0.88,
+      },
+    );
+    expect(summary.body).toMatch(/viaje|itinerario|adolescente/i);
+    expect(summary.weakLine).toMatch(
+      /Todavía falta precisar quién debe convencerse primero la comunicación/i,
+    );
+    expect(summary.body.toLowerCase()).not.toContain("consumidor");
+  });
+
+  it("does not treat end_consumers as committed when confidence is low", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "x".repeat(20),
+        offering_type: "service",
+        problem_category: "lack_clarity",
+        problem_description_optional: "Problema concreto suficiente",
+        transformation_type: "understand_better",
+        transformation_to: "y".repeat(14),
+      },
+      audience_base: { audience_type: "end_consumers" },
+      evidence_base: { evidence_types: ["survey"] },
+    };
+    expect(
+      audienceIsCommittedForPilotSummary(merged, {
+        "audience_base.audience_type": 0.4,
+      }),
+    ).toBe(false);
+    const s = buildStrategicInterviewPilotSummary(merged, "service", false, {
+      "audience_base.audience_type": 0.4,
+    });
+    expect(s.body.toLowerCase()).not.toContain("consumidor");
+  });
+});
+
+describe("interviewerCopyContainsGenericPhrases", () => {
+  it("flags stock praise / vague follow-up scaffolding", () => {
+    expect(interviewerCopyContainsGenericPhrases("Suena muy útil para tu caso.")).toBe(
+      true,
+    );
+    expect(
+      interviewerCopyContainsGenericPhrases(
+        "Entiendo esto: hay dos decisores en tensión. Me falta precisar cuál priorizas.",
+      ),
+    ).toBe(false);
+  });
+});

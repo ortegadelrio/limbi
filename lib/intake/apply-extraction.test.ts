@@ -14,7 +14,9 @@ function baseExtraction(
     answer_status: "clear",
     target_response_paths: [],
     internal_notes: "",
+    interviewer_message: "",
     public_copy_allowed: false,
+    user_intent: "answer",
     ...overrides,
   };
 }

@@ -5,21 +5,68 @@ import {
   jsonUnauthorized,
   jsonNotFound,
 } from "@/lib/api/route-auth";
-import { applyOfferingPilotExtraction } from "@/lib/intake/apply-extraction";
-import { parseIntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { isGuidedIntakePilotEnabled } from "@/lib/intake/guided-intake-flag";
 import {
+  GUIDED_CHALLENGE_PICKS,
+  questionForMiniStep,
+  type GuidedMiniStepId,
+} from "@/lib/intake/guided-interview-flow";
+
+const CHALLENGE_TYPE_PICK_ENUM = [
+  "product",
+  "service",
+  "brand",
+  "event",
+  "project_venture",
+  "corporate_communication",
+  "personal_brand",
+] as const;
+import {
+  advanceMiniStepFrom,
   appendTurn,
-  buildOfferingPilotSystemPrompt,
-  buildOfferingPilotUserPrompt,
+  buildStrategicInterviewSystemPrompt,
+  buildStrategicInterviewUserPrompt,
   buildSyntheticExtractionForChip,
+  coerceLegacyTraceForStrategicInterview,
+  computeTraceAfterStrategicLlmExtraction,
   initialTrace,
   LIMBIC_INTERVIEW_TRACE_KEY,
   readInterviewTrace,
   type LimbicInterviewTraceV1,
 } from "@/lib/intake/orchestrator";
-import { buildOfferingPilotSummary } from "@/lib/intake/offering-pilot-summary";
 import type { PilotEscapeChipId } from "@/lib/intake/question-bank";
+import {
+  applyStrategicInterviewExtraction,
+  buildEvidenceUncertaintyDeterministicExtraction,
+  collectSatisfiedWizardIndices,
+  evidenceBaseNoClearPatch,
+  GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
+  responsesWithAudienceWizardFieldsCleared,
+} from "@/lib/intake/strategic-interview-apply";
+import { buildStrategicInterviewPilotSummary } from "@/lib/intake/strategic-interview-summary";
+import {
+  buildClarificationSyntheticExtraction,
+  buildClarificationTurnContent,
+  detectDeterministicClarificationIntent,
+  detectEvidenceUncertaintyWithoutMetaQuestion,
+  traceForLlmProcessing,
+} from "@/lib/intake/guided-intake-clarification";
+import {
+  buildAudienceConfirmMergeAndExtraction,
+  buildAudienceDeclineInvertRepromptTurnContent,
+  buildAudienceExplicitUnclearWhilePendingExtraction,
+  buildAudiencePendingAmbiguousTurnContent,
+  buildAudienceRejectPriorityTurnContent,
+  buildAudienceSecondaryInvertOfferTurnContent,
+  buildStrategicValidationSyntheticExtraction,
+  buildStrategicValidationTurnContent,
+  classifyPendingAudienceUserReply,
+  detectDeterministicStrategicValidationIntent,
+  detectReturnToAudienceTopicIntent,
+  stripAudienceRecommendationPending,
+  swapPendingPrimarySecondary,
+} from "@/lib/intake/guided-intake-strategic-validation";
+import { resolveGuidedIntakeExtraction } from "@/lib/intake/guided-intake-extraction-recovery";
 import { generateGuidedIntakeExtractionJson } from "@/lib/openai/guided-intake-extraction";
 import { deepMergeResponses } from "@/lib/utils/deep-merge";
 import { mergeCompletedStepsForWizardStepIndices } from "@/lib/wizard/visible-moments";
@@ -29,13 +76,22 @@ type Params = { params: Promise<{ projectId: string }> };
 const bodySchema = z
   .object({
     text: z.string().max(12000).optional(),
-    action: z.enum(["no_info", "improve_later", "continue_base"]).optional(),
+    action: z.enum(["no_information"]).optional(),
+    challenge_type_pick: z.enum(CHALLENGE_TYPE_PICK_ENUM).optional(),
+    challenge_type_other: z.literal(true).optional(),
   })
   .refine(
     (d) =>
+      d.challenge_type_pick !== undefined ||
+      d.challenge_type_other === true ||
       (typeof d.text === "string" && d.text.trim().length > 0) ||
       d.action !== undefined,
-    { message: "Envía texto o una acción (chip)." },
+    { message: "Envía texto, una acción o la elección de tipo de reto." },
+  )
+  .refine(
+    (d) =>
+      !(d.challenge_type_pick !== undefined && d.challenge_type_other === true),
+    { message: "Elige un tipo de reto u “Otro”, no ambos." },
   );
 
 function readStrategicBase(
@@ -48,9 +104,43 @@ function readStrategicBase(
   return {};
 }
 
+function readAudienceBase(r: Record<string, unknown>): Record<string, unknown> {
+  const ab = r.audience_base;
+  if (ab && typeof ab === "object" && !Array.isArray(ab)) {
+    return { ...(ab as Record<string, unknown>) };
+  }
+  return {};
+}
+
+function readEvidenceBase(r: Record<string, unknown>): Record<string, unknown> {
+  const eb = r.evidence_base;
+  if (eb && typeof eb === "object" && !Array.isArray(eb)) {
+    return { ...(eb as Record<string, unknown>) };
+  }
+  return {};
+}
+
 function normalizeCompletedSteps(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
+function mergeTraceIntoResponses(
+  mergedWithoutTrace: Record<string, unknown>,
+  nextTrace: LimbicInterviewTraceV1,
+): Record<string, unknown> {
+  return deepMergeResponses(mergedWithoutTrace, {
+    [LIMBIC_INTERVIEW_TRACE_KEY]: nextTrace,
+  });
+}
+
+function pickAcknowledgmentLabel(
+  pick: z.infer<typeof bodySchema>["challenge_type_pick"],
+  other: boolean,
+): string {
+  if (other) return "este reto";
+  const row = GUIDED_CHALLENGE_PICKS.find((p) => p.pick === pick);
+  return row?.label.toLowerCase() ?? "este reto";
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -112,137 +202,781 @@ export async function POST(request: Request, { params }: Params) {
       ? { ...(existing.responses as Record<string, unknown>) }
       : {};
 
-  const trace: LimbicInterviewTraceV1 =
-    readInterviewTrace(baseResponses) ?? initialTrace();
+  const traceFromDb = coerceLegacyTraceForStrategicInterview(
+    readInterviewTrace(baseResponses) ?? initialTrace(),
+  );
+  const trace = traceForLlmProcessing(traceFromDb);
 
-  if (trace.phase === "done") {
+  if (traceFromDb.phase === "done" && traceFromDb.mini_step === "complete") {
     return NextResponse.json(
-      { error: "Este piloto de módulo ya está cerrado." },
+      { error: "Esta entrevista piloto ya está cerrada." },
       { status: 400 },
     );
   }
 
-  const challengeType =
-    typeof project.challenge_type === "string"
-      ? project.challenge_type
-      : null;
-  const sbSnap = readStrategicBase(baseResponses);
-  const offeringHint =
-    typeof sbSnap.offering_type === "string" ? sbSnap.offering_type : null;
+  const miniStep: GuidedMiniStepId = traceFromDb.mini_step ?? "challenge_type";
+  let projectChallengeType =
+    typeof project.challenge_type === "string" ? project.challenge_type : null;
+  const otherChallenge = Boolean(trace.other_challenge);
 
-  let extraction;
+  let extraction!: import("@/lib/intake/extraction-schema").IntakeExtractionOutput;
+  let nextTrace: LimbicInterviewTraceV1 = traceFromDb;
+  let mergedWithoutTrace: Record<string, unknown> = baseResponses;
+  let interviewerMessage: string | null = null;
+  let nextQuestion: string | null = null;
+
   const userLine =
     parsedBody.data.action !== undefined
       ? `[Acción del usuario: ${parsedBody.data.action}]`
       : (parsedBody.data.text ?? "").trim();
 
-  if (parsedBody.data.action !== undefined) {
+  /** --- Challenge type pick (no LLM) --- */
+  if (
+    parsedBody.data.challenge_type_pick !== undefined ||
+    parsedBody.data.challenge_type_other === true
+  ) {
+    if (miniStep !== "challenge_type") {
+      return NextResponse.json(
+        { error: "El tipo de reto ya quedó registrado." },
+        { status: 400 },
+      );
+    }
+
+    const other = parsedBody.data.challenge_type_other === true;
+    const pick = parsedBody.data.challenge_type_pick;
+
+    const updateProject: { challenge_type: string | null } = other
+      ? { challenge_type: null }
+      : { challenge_type: pick! };
+
+    const { error: patchProjectError } = await supabase
+      .from("projects")
+      .update(updateProject)
+      .eq("id", projectId);
+
+    if (patchProjectError) {
+      return NextResponse.json(
+        { error: patchProjectError.message },
+        { status: 500 },
+      );
+    }
+
+    projectChallengeType = updateProject.challenge_type;
+
+    const label = pickAcknowledgmentLabel(pick, other);
+    interviewerMessage = `Perfecto: vamos a trabajar ${other ? "un reto que definiremos juntos" : `un ${label}`}.`;
+
+    nextTrace = {
+      ...traceFromDb,
+      pilot_id: "strategic_interview_v1",
+      mini_step: "tailored_what",
+      phase: "main",
+      follow_up_used: false,
+      other_challenge: other || undefined,
+    };
+    nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
+    nextTrace = appendTurn(
+      nextTrace,
+      "assistant",
+      interviewerMessage.slice(0, 500),
+    );
+
+    mergedWithoutTrace = baseResponses;
+    extraction = {
+      extracted_response_updates: {},
+      confidence_by_field: {},
+      needs_follow_up: false,
+      follow_up_question: null,
+      suggested_answer_chips: [],
+      answer_status: "clear",
+      target_response_paths: [],
+      internal_notes: "challenge_type_pick",
+      interviewer_message: interviewerMessage,
+      public_copy_allowed: false,
+      user_intent: "answer",
+    };
+
+    nextQuestion = questionForMiniStep(
+      "tailored_what",
+      projectChallengeType,
+      other,
+    );
+  } else if (parsedBody.data.action !== undefined) {
+    /** --- Escape chip: never blocks; advance one mini-step --- */
+    const sbForLim = readStrategicBase(baseResponses);
+    const prevLim = Array.isArray(sbForLim.guided_intake_limitations_optional)
+      ? (sbForLim.guided_intake_limitations_optional as unknown[]).filter(
+          (x): x is string => typeof x === "string" && x.trim().length > 0,
+        )
+      : [];
     extraction = buildSyntheticExtractionForChip(
       parsedBody.data.action as PilotEscapeChipId,
+      prevLim,
     );
+
+    let mergedChip = applyStrategicInterviewExtraction(
+      baseResponses,
+      extraction,
+    ).mergedResponses;
+
+    if (miniStep === "evidence") {
+      mergedChip = deepMergeResponses(mergedChip, {
+        evidence_base: evidenceBaseNoClearPatch(),
+      });
+    }
+
+    if (miniStep === "audience") {
+      const sbChip = readStrategicBase(mergedChip);
+      const limArr = Array.isArray(sbChip.guided_intake_limitations_optional)
+        ? (sbChip.guided_intake_limitations_optional as unknown[]).filter(
+            (x): x is string => typeof x === "string" && x.trim().length > 0,
+          )
+        : [];
+      if (!limArr.includes(GUIDED_INTAKE_AUDIENCE_PENDING_LIM)) {
+        mergedChip = deepMergeResponses(mergedChip, {
+          strategic_base: {
+            ...sbChip,
+            guided_intake_limitations_optional: [
+              ...limArr,
+              GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
+            ],
+          },
+        });
+      }
+    }
+
+    mergedWithoutTrace = mergedChip;
+    nextTrace = appendTurn(traceFromDb, "user", userLine.slice(0, 500));
+    nextTrace = appendTurn(
+      nextTrace,
+      "assistant",
+      extraction.interviewer_message.slice(0, 500),
+    );
+    nextTrace = advanceMiniStepFrom(nextTrace);
+
+    nextQuestion =
+      nextTrace.mini_step === "complete"
+        ? null
+        : questionForMiniStep(
+            nextTrace.mini_step ?? "challenge_type",
+            projectChallengeType,
+            otherChallenge,
+          );
+    interviewerMessage = extraction.interviewer_message;
   } else {
-    const system = buildOfferingPilotSystemPrompt({
-      challengeType,
-      offeringTypeHint: offeringHint,
-    });
-    const schemaHint = `Required JSON shape:
+    /** --- LLM extraction for current mini-step --- */
+    if (miniStep === "challenge_type") {
+      return NextResponse.json(
+        { error: "Primero elige el tipo de reto." },
+        { status: 400 },
+      );
+    }
+
+    const userTextRaw = (parsedBody.data.text ?? "").trim();
+    const sbSnap = readStrategicBase(baseResponses);
+
+    let wantsFollowUp = false;
+    let shouldNotAdvance = false;
+    let skipMainLlmFlow = false;
+
+    const pendingAudience = traceFromDb.audience_recommendation_pending;
+    if (miniStep === "audience" && pendingAudience?.version === 1) {
+      skipMainLlmFlow = true;
+      const reply = classifyPendingAudienceUserReply(userTextRaw, pendingAudience);
+
+      if (reply.kind === "restart_strategic_audience") {
+        mergedWithoutTrace = baseResponses;
+        const cleared = stripAudienceRecommendationPending(traceFromDb);
+        const content = buildStrategicValidationTurnContent({
+          miniStep: "audience",
+          userText: userTextRaw,
+          challengeType: projectChallengeType,
+          otherChallenge,
+          strategicBase: sbSnap,
+          traceUserTurns: traceFromDb.turns,
+        });
+        const nq = content.next_question?.trim();
+        const im = nq
+          ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+          : content.interviewer_message.trim();
+        extraction = buildStrategicValidationSyntheticExtraction({
+          interviewer_message: im,
+          next_question: null,
+          suggested_chips: content.suggested_chips,
+          audience_recommendation_pending: content.audience_recommendation_pending,
+        });
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = im;
+        nextQuestion = null;
+        let baseForTrace: LimbicInterviewTraceV1 = {
+          ...cleared,
+          phase: "strategy_validation",
+          mini_step: "audience",
+        };
+        if (content.audience_recommendation_pending) {
+          baseForTrace = {
+            ...baseForTrace,
+            audience_recommendation_pending: content.audience_recommendation_pending,
+          };
+        }
+        nextTrace = appendTurn(
+          appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      } else if (reply.kind === "explicit_unclear") {
+        const ex = buildAudienceExplicitUnclearWhilePendingExtraction({
+          strategicBase: sbSnap,
+        });
+        let mr = applyStrategicInterviewExtraction(baseResponses, ex).mergedResponses;
+        mr = responsesWithAudienceWizardFieldsCleared(mr);
+        mergedWithoutTrace = mr;
+        extraction = ex;
+        shouldNotAdvance = false;
+        wantsFollowUp = false;
+        const cleared = stripAudienceRecommendationPending(traceFromDb);
+        let t1 = appendTurn(
+          { ...cleared, phase: "main", mini_step: miniStep },
+          "user",
+          userLine.slice(0, 500),
+        );
+        t1 = appendTurn(t1, "assistant", ex.interviewer_message.slice(0, 500));
+        nextTrace = advanceMiniStepFrom(t1);
+        interviewerMessage = ex.interviewer_message;
+        nextQuestion =
+          nextTrace.mini_step === "complete"
+            ? null
+            : questionForMiniStep(
+                nextTrace.mini_step ?? "challenge_type",
+                projectChallengeType,
+                otherChallenge,
+              );
+      } else if (reply.kind === "confirm") {
+        const pendingForMerge = reply.swapPrimarySecondary
+          ? swapPendingPrimarySecondary(pendingAudience)
+          : pendingAudience;
+        const { mergedResponses: mr, extraction: ex } =
+          buildAudienceConfirmMergeAndExtraction(baseResponses, pendingForMerge);
+        mergedWithoutTrace = mr;
+        extraction = ex;
+        shouldNotAdvance = false;
+        wantsFollowUp = false;
+        const cleared = stripAudienceRecommendationPending(traceFromDb);
+        let t1 = appendTurn(
+          { ...cleared, phase: "main", mini_step: miniStep },
+          "user",
+          userLine.slice(0, 500),
+        );
+        t1 = appendTurn(t1, "assistant", ex.interviewer_message.slice(0, 500));
+        nextTrace = advanceMiniStepFrom(t1);
+        interviewerMessage = ex.interviewer_message;
+        nextQuestion =
+          nextTrace.mini_step === "complete"
+            ? null
+            : questionForMiniStep(
+                nextTrace.mini_step ?? "challenge_type",
+                projectChallengeType,
+                otherChallenge,
+              );
+      } else if (reply.kind === "secondary_emphasis_invert_prompt") {
+        mergedWithoutTrace = baseResponses;
+        const amb = buildAudienceSecondaryInvertOfferTurnContent(pendingAudience);
+        extraction = buildStrategicValidationSyntheticExtraction(amb);
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = amb.interviewer_message;
+        nextQuestion = amb.next_question;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "strategy_validation",
+              mini_step: miniStep,
+              audience_recommendation_pending: amb.audience_recommendation_pending ?? undefined,
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      } else if (reply.kind === "decline_invert_reprompt") {
+        mergedWithoutTrace = baseResponses;
+        const amb = buildAudienceDeclineInvertRepromptTurnContent(pendingAudience);
+        extraction = buildStrategicValidationSyntheticExtraction(amb);
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = amb.interviewer_message;
+        nextQuestion = amb.next_question;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "strategy_validation",
+              mini_step: miniStep,
+              audience_recommendation_pending: amb.audience_recommendation_pending ?? undefined,
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      } else if (reply.kind === "reject_priority") {
+        mergedWithoutTrace = baseResponses;
+        const amb = buildAudienceRejectPriorityTurnContent(pendingAudience);
+        extraction = buildStrategicValidationSyntheticExtraction(amb);
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = amb.interviewer_message;
+        nextQuestion = amb.next_question;
+        const cleared = stripAudienceRecommendationPending(traceFromDb);
+        nextTrace = appendTurn(
+          appendTurn(
+            { ...cleared, phase: "strategy_validation", mini_step: miniStep },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      } else {
+        mergedWithoutTrace = baseResponses;
+        const amb = buildAudiencePendingAmbiguousTurnContent({
+          pending: pendingAudience,
+          challengeType: projectChallengeType,
+          otherChallenge,
+        });
+        extraction = buildStrategicValidationSyntheticExtraction(amb);
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = amb.interviewer_message;
+        nextQuestion = amb.next_question;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "strategy_validation",
+              mini_step: miniStep,
+              audience_recommendation_pending: pendingAudience,
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      }
+    }
+
+    if (
+      !skipMainLlmFlow &&
+      miniStep === "evidence" &&
+      detectReturnToAudienceTopicIntent(userTextRaw)
+    ) {
+      skipMainLlmFlow = true;
+      mergedWithoutTrace = baseResponses;
+      const content = buildStrategicValidationTurnContent({
+        miniStep: "audience",
+        userText: userTextRaw,
+        challengeType: projectChallengeType,
+        otherChallenge,
+        strategicBase: sbSnap,
+        traceUserTurns: traceFromDb.turns,
+      });
+      const bridge = "Claro. Antes de seguir con evidencia, resolvamos la audiencia.\n\n";
+      const nq = content.next_question?.trim();
+      const body = nq
+        ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+        : content.interviewer_message.trim();
+      const fullMessage = `${bridge}${body}`.trim();
+      extraction = buildStrategicValidationSyntheticExtraction({
+        interviewer_message: fullMessage,
+        next_question: null,
+        suggested_chips: content.suggested_chips,
+        audience_recommendation_pending: content.audience_recommendation_pending,
+      });
+      shouldNotAdvance = true;
+      wantsFollowUp = false;
+      interviewerMessage = fullMessage;
+      nextQuestion = null;
+      let baseForTrace: LimbicInterviewTraceV1 = {
+        ...stripAudienceRecommendationPending(traceFromDb),
+        phase: "strategy_validation",
+        mini_step: "audience",
+      };
+      if (content.audience_recommendation_pending) {
+        baseForTrace = {
+          ...baseForTrace,
+          audience_recommendation_pending: content.audience_recommendation_pending,
+        };
+      }
+      nextTrace = appendTurn(
+        appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+        "assistant",
+        extraction.interviewer_message.slice(0, 500),
+      );
+    }
+
+    if (
+      !skipMainLlmFlow &&
+      miniStep === "evidence" &&
+      detectEvidenceUncertaintyWithoutMetaQuestion(userTextRaw)
+    ) {
+      skipMainLlmFlow = true;
+      extraction = buildEvidenceUncertaintyDeterministicExtraction({
+        strategicBase: sbSnap,
+      });
+      mergedWithoutTrace = applyStrategicInterviewExtraction(
+        baseResponses,
+        extraction,
+      ).mergedResponses;
+      shouldNotAdvance = false;
+      wantsFollowUp = false;
+      const turn = computeTraceAfterStrategicLlmExtraction({ trace, extraction });
+      let t1 = appendTurn(turn.nextTrace, "user", userLine.slice(0, 500));
+      t1 = appendTurn(t1, "assistant", extraction.interviewer_message.slice(0, 500));
+      nextTrace = t1;
+      interviewerMessage = extraction.interviewer_message;
+      nextQuestion =
+        nextTrace.mini_step === "complete"
+          ? null
+          : questionForMiniStep(
+              nextTrace.mini_step ?? "challenge_type",
+              projectChallengeType,
+              otherChallenge,
+            );
+    }
+
+    const resumeAfterClarification =
+      traceFromDb.phase === "clarifying_question" ||
+      traceFromDb.phase === "strategy_validation" ||
+      Boolean(traceFromDb.audience_recommendation_pending);
+
+    const offeringHint =
+      typeof sbSnap.offering_type === "string" ? sbSnap.offering_type : null;
+
+    if (!skipMainLlmFlow) {
+      const system = buildStrategicInterviewSystemPrompt({
+        challengeType: projectChallengeType,
+        offeringTypeHint: offeringHint,
+        miniStep,
+        otherChallenge,
+      });
+      const schemaHint = `Required JSON shape:
 {
-  "extracted_response_updates": { "strategic_base": { ...partial } },
-  "confidence_by_field": { "strategic_base.simple_description": 0-1, ... },
+  "extracted_response_updates": { "strategic_base": { }, "audience_base": { }, "evidence_base": { } },
+  "confidence_by_field": { },
   "needs_follow_up": boolean,
   "follow_up_question": string | null,
   "suggested_answer_chips": string[],
-  "answer_status": "clear" | "weak" | "missing_choice" | "skipped",
+      "answer_status": "clear" | "weak" | "missing_choice" | "skipped" | "fallback_saved",
   "target_response_paths": string[],
   "internal_notes": string,
-  "public_copy_allowed": boolean
+  "interviewer_message": string,
+  "public_copy_allowed": boolean,
+  "user_intent": "answer" | "clarification_question" | "strategic_validation_question" | "skip"
 }`;
 
-    const userPrompt = buildOfferingPilotUserPrompt({
-      trace,
-      userText: userLine,
-      strategicBaseSnapshot: sbSnap,
-    });
+      const userPrompt = buildStrategicInterviewUserPrompt({
+        trace,
+        userText: userLine,
+        strategicBaseSnapshot: sbSnap,
+        audienceBaseSnapshot: readAudienceBase(baseResponses),
+        evidenceBaseSnapshot: readEvidenceBase(baseResponses),
+        resumeAfterClarification,
+      });
 
-    let raw: string;
-    try {
-      const r = await generateGuidedIntakeExtractionJson(
-        `${system}\n\n${schemaHint}\n\n${userPrompt}`,
-      );
-      raw = r.raw_json_text;
-    } catch (e) {
-      return NextResponse.json(
-        {
-          error:
-            e instanceof Error
-              ? e.message
-              : "No se pudo contactar al modelo de entrevista.",
-        },
-        { status: 502 },
-      );
-    }
+      const prevLimForExtraction = Array.isArray(
+        sbSnap.guided_intake_limitations_optional,
+      )
+        ? (sbSnap.guided_intake_limitations_optional as unknown[]).filter(
+            (x): x is string => typeof x === "string" && x.trim().length > 0,
+          )
+        : [];
 
-    let json: unknown;
-    try {
-      json = JSON.parse(raw) as unknown;
-    } catch {
-      return NextResponse.json(
-        { error: "El modelo no devolvió JSON válido." },
-        { status: 422 },
-      );
-    }
-
-    const parsedEx = parseIntakeExtractionOutput(json);
-    if (!parsedEx.ok) {
-      return NextResponse.json(
-        { error: "Extracción inválida", detail: parsedEx.error },
-        { status: 422 },
-      );
-    }
-    extraction = parsedEx.data;
-
-    if (extraction.needs_follow_up && trace.follow_up_used) {
-      extraction = {
-        ...extraction,
-        needs_follow_up: false,
-        follow_up_question: null,
+      const applyClarificationTurn = () => {
+        const content = buildClarificationTurnContent({
+          miniStep,
+          challengeType: projectChallengeType,
+          otherChallenge,
+        });
+        extraction = buildClarificationSyntheticExtraction(content);
+        mergedWithoutTrace = baseResponses;
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        const nq = content.next_question?.trim();
+        interviewerMessage = nq
+          ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+          : content.interviewer_message.trim();
+        nextQuestion = null;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "clarifying_question",
+              mini_step: miniStep,
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
       };
+
+      const applyStrategicValidationTurn = () => {
+        const content = buildStrategicValidationTurnContent({
+          miniStep,
+          userText: userTextRaw,
+          challengeType: projectChallengeType,
+          otherChallenge,
+          strategicBase: sbSnap,
+          traceUserTurns: traceFromDb.turns,
+        });
+        extraction = buildStrategicValidationSyntheticExtraction(content);
+        mergedWithoutTrace = baseResponses;
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        const nq = content.next_question?.trim();
+        interviewerMessage = nq
+          ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+          : content.interviewer_message.trim();
+        nextQuestion = null;
+        let baseForTrace: LimbicInterviewTraceV1 = {
+          ...traceFromDb,
+          phase: "strategy_validation",
+          mini_step: miniStep,
+        };
+        if (content.audience_recommendation_pending) {
+          baseForTrace = {
+            ...baseForTrace,
+            audience_recommendation_pending:
+              content.audience_recommendation_pending,
+          };
+        } else {
+          baseForTrace = stripAudienceRecommendationPending(baseForTrace);
+        }
+        nextTrace = appendTurn(
+          appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      };
+
+      const deterministicStrategicValidation =
+        traceFromDb.phase !== "follow_up" &&
+        detectDeterministicStrategicValidationIntent(userTextRaw, {
+          miniStep,
+        });
+
+      const deterministicClarification =
+        !deterministicStrategicValidation &&
+        traceFromDb.phase !== "follow_up" &&
+        detectDeterministicClarificationIntent(userTextRaw);
+
+      if (deterministicStrategicValidation) {
+        applyStrategicValidationTurn();
+      } else if (deterministicClarification) {
+        applyClarificationTurn();
+      } else {
+        let resolved: Awaited<ReturnType<typeof resolveGuidedIntakeExtraction>>;
+        try {
+          resolved = await resolveGuidedIntakeExtraction({
+            generate: generateGuidedIntakeExtractionJson,
+            system,
+            schemaHint,
+            userPrompt,
+            miniStep,
+            challengeType: projectChallengeType,
+            userText: userLine,
+            prevLimitations: prevLimForExtraction,
+          });
+        } catch (e) {
+          return NextResponse.json(
+            {
+              error:
+                e instanceof Error
+                  ? e.message
+                  : "No se pudo contactar al modelo de entrevista.",
+            },
+            { status: 502 },
+          );
+        }
+        extraction = resolved.extraction;
+
+        if (extraction.needs_follow_up && trace.follow_up_used) {
+          extraction = {
+            ...extraction,
+            needs_follow_up: false,
+            follow_up_question: null,
+          };
+        }
+
+        const intent = extraction.user_intent ?? "answer";
+        if (intent === "clarification_question") {
+          applyClarificationTurn();
+        } else if (intent === "strategic_validation_question") {
+          applyStrategicValidationTurn();
+        } else {
+          const { mergedResponses: mergedFromEx } =
+            applyStrategicInterviewExtraction(baseResponses, extraction);
+          mergedWithoutTrace = mergedFromEx;
+
+          const turn = computeTraceAfterStrategicLlmExtraction({
+            trace,
+            extraction,
+          });
+          nextTrace = turn.nextTrace;
+          wantsFollowUp = turn.wantsFollowUp;
+
+          nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
+          nextTrace = appendTurn(
+            nextTrace,
+            "assistant",
+            (extraction.interviewer_message || extraction.internal_notes).slice(
+              0,
+              500,
+            ),
+          );
+
+          interviewerMessage = extraction.interviewer_message || null;
+          nextQuestion =
+            nextTrace.mini_step === "complete"
+              ? null
+              : wantsFollowUp
+                ? null
+                : questionForMiniStep(
+                    nextTrace.mini_step ?? "challenge_type",
+                    projectChallengeType,
+                    otherChallenge,
+                  );
+        }
+      }
     }
+
+    /** Merge completed_steps using extraction indices (LLM path only) */
+    const prevCompleted = normalizeCompletedSteps(existing?.completed_steps);
+    const nextCompleted = shouldNotAdvance
+      ? prevCompleted
+      : mergeCompletedStepsForWizardStepIndices(
+          prevCompleted,
+          [
+            ...new Set([
+              ...(projectChallengeType ? [1] : []),
+              ...collectSatisfiedWizardIndices(mergedWithoutTrace),
+            ]),
+          ].sort((a, b) => a - b),
+          { returnTo: null },
+        );
+
+    const mergedResponses = mergeTraceIntoResponses(
+      mergedWithoutTrace,
+      nextTrace,
+    );
+
+    const summary = shouldNotAdvance
+      ? null
+      : nextTrace.mini_step === "complete" && nextTrace.phase === "done"
+        ? buildStrategicInterviewPilotSummary(
+            mergedResponses,
+            projectChallengeType,
+            otherChallenge,
+            extraction.confidence_by_field,
+          )
+        : null;
+
+    if (!existing) {
+      const { data: inserted, error: insertError } = await supabase
+        .from("project_responses")
+        .insert({
+          project_id: projectId,
+          user_id: user.id,
+          responses: mergedResponses,
+          completed_steps: nextCompleted,
+        })
+        .select("id, responses, completed_steps")
+        .single();
+
+      if (insertError) {
+        return NextResponse.json(
+          { error: insertError.message },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        project_responses: inserted,
+        extraction,
+        trace: nextTrace,
+        interviewer_message: interviewerMessage,
+        next_question: nextQuestion,
+        follow_up_question: wantsFollowUp
+          ? extraction.follow_up_question
+          : null,
+        suggested_chips: extraction.suggested_answer_chips,
+        summary,
+        project_challenge_type: projectChallengeType,
+        should_not_advance: shouldNotAdvance,
+      });
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from("project_responses")
+      .update({
+        responses: mergedResponses,
+        completed_steps: nextCompleted,
+      })
+      .eq("id", existing.id)
+      .select("id, responses, completed_steps")
+      .single();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      project_responses: updated,
+      extraction,
+      trace: nextTrace,
+      interviewer_message: interviewerMessage,
+      next_question: nextQuestion,
+      follow_up_question: wantsFollowUp ? extraction.follow_up_question : null,
+      suggested_chips: extraction.suggested_answer_chips,
+      summary,
+      project_challenge_type: projectChallengeType,
+      should_not_advance: shouldNotAdvance,
+    });
   }
 
-  const { mergedResponses: mergedWithoutTrace, completedStepIndicesToMerge } =
-    applyOfferingPilotExtraction(baseResponses, extraction);
-
-  let nextTrace: LimbicInterviewTraceV1;
-  if (parsedBody.data.action !== undefined) {
-    nextTrace = { ...trace, phase: "done" };
-  } else if (
-    trace.phase === "main" &&
-    extraction.needs_follow_up &&
-    !trace.follow_up_used
-  ) {
-    nextTrace = { ...trace, phase: "follow_up", follow_up_used: true };
-  } else {
-    nextTrace = { ...trace, phase: "done" };
-  }
-
-  nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
-  nextTrace = appendTurn(
+  /** Pick & chip paths: merge trace + completed_steps */
+  const mergedResponses = mergeTraceIntoResponses(
+    mergedWithoutTrace,
     nextTrace,
-    "assistant",
-    extraction.internal_notes.slice(0, 500),
   );
-
-  const mergedResponses = deepMergeResponses(mergedWithoutTrace, {
-    [LIMBIC_INTERVIEW_TRACE_KEY]: nextTrace,
-  });
 
   const prevCompleted = normalizeCompletedSteps(existing?.completed_steps);
+  const indicesFromData = collectSatisfiedWizardIndices(mergedResponses);
+  const indicesChallenge = projectChallengeType ? [1] : [];
+  const mergedIndices = [
+    ...new Set([...indicesChallenge, ...indicesFromData]),
+  ].sort((a, b) => a - b);
   const nextCompleted = mergeCompletedStepsForWizardStepIndices(
     prevCompleted,
-    completedStepIndicesToMerge,
+    mergedIndices,
     { returnTo: null },
   );
+
+  const summary =
+    nextTrace.mini_step === "complete" && nextTrace.phase === "done"
+      ? buildStrategicInterviewPilotSummary(
+          mergedResponses,
+          projectChallengeType,
+          otherChallenge,
+          extraction.confidence_by_field,
+        )
+      : null;
 
   if (!existing) {
     const { data: inserted, error: insertError } = await supabase
@@ -260,23 +994,16 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    const summary =
-      nextTrace.phase === "done"
-        ? buildOfferingPilotSummary(
-            mergedResponses,
-            extraction.confidence_by_field,
-          )
-        : null;
-
     return NextResponse.json({
       project_responses: inserted,
       extraction,
       trace: nextTrace,
-      follow_up_question: extraction.needs_follow_up
-        ? extraction.follow_up_question
-        : null,
+      interviewer_message: interviewerMessage,
+      next_question: nextQuestion,
+      follow_up_question: null,
       suggested_chips: extraction.suggested_answer_chips,
       summary,
+      project_challenge_type: projectChallengeType,
     });
   }
 
@@ -294,22 +1021,15 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  const summary =
-    nextTrace.phase === "done"
-      ? buildOfferingPilotSummary(
-          mergedResponses,
-          extraction.confidence_by_field,
-        )
-      : null;
-
   return NextResponse.json({
     project_responses: updated,
     extraction,
     trace: nextTrace,
-    follow_up_question: extraction.needs_follow_up
-      ? extraction.follow_up_question
-      : null,
+    interviewer_message: interviewerMessage,
+    next_question: nextQuestion,
+    follow_up_question: null,
     suggested_chips: extraction.suggested_answer_chips,
     summary,
+    project_challenge_type: projectChallengeType,
   });
 }

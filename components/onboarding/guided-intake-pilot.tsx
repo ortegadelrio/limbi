@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -19,31 +26,36 @@ import {
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
-import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
+import {
+  GUIDED_CHALLENGE_PICKS,
+  GUIDED_MINI_STEPS,
+  questionForMiniStep,
+} from "@/lib/intake/guided-interview-flow";
 import { isGuidedIntakePilotEnabled } from "@/lib/intake/guided-intake-flag";
 import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
+import { readInterviewTrace } from "@/lib/intake/orchestrator";
+import { EXTRACTION_USER_RECOVERY_NOTICE } from "@/lib/intake/guided-intake-extraction-recovery";
 import {
-  buildOfferingPilotSummary,
-  OFFERING_PILOT_NO_ALERTS_COPY,
-  type OfferingPilotSummary,
-} from "@/lib/intake/offering-pilot-summary";
+  INTAKE_TURN_TIMEOUT_MS,
+  parseIntakeTurnResponseOrThrow,
+  type IntakeTurnResponse,
+} from "@/lib/intake/guided-intake-pilot-response";
+import {
+  buildStrategicInterviewPilotSummary,
+  type StrategicInterviewPilotSummary,
+} from "@/lib/intake/strategic-interview-summary";
 import {
   PILOT_ESCAPE_CHIPS,
-  pilotMainQuestionText,
+  type PilotEscapeChipId,
 } from "@/lib/intake/question-bank";
-import type { PilotEscapeChipId } from "@/lib/intake/question-bank";
 import { nameStatusSchema } from "@/lib/schemas/project";
 import type { z } from "zod";
 
 type NameStatus = z.infer<typeof nameStatusSchema>;
 
-type IntakeTurnResponse = {
-  extraction: IntakeExtractionOutput;
-  trace: LimbicInterviewTraceV1;
-  follow_up_question: string | null;
-  suggested_chips: string[];
-  summary: OfferingPilotSummary | null;
-};
+type DialogLine = { role: "limbi" | "user"; text: string };
+
+const MINI_PROGRESS = GUIDED_MINI_STEPS.filter((s) => s !== "complete");
 
 export function GuidedIntakePilot() {
   const router = useRouter();
@@ -55,15 +67,24 @@ export function GuidedIntakePilot() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [challengeType, setChallengeType] = useState<string | null>(null);
-  const [mainQuestion, setMainQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [sending, setSending] = useState(false);
-  const [followUp, setFollowUp] = useState<string | null>(null);
   const [suggestedChips, setSuggestedChips] = useState<string[]>([]);
   const [tracePhase, setTracePhase] =
     useState<LimbicInterviewTraceV1["phase"]>("main");
-  const [summary, setSummary] = useState<OfferingPilotSummary | null>(null);
+  const [miniStep, setMiniStep] = useState<string | null>(null);
+  const [lines, setLines] = useState<DialogLine[]>([]);
+  const [summary, setSummary] = useState<StrategicInterviewPilotSummary | null>(
+    null,
+  );
+
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  const progressIndex = useMemo(() => {
+    if (!miniStep) return 0;
+    const i = MINI_PROGRESS.indexOf(miniStep as (typeof MINI_PROGRESS)[number]);
+    return i < 0 ? 0 : i;
+  }, [miniStep]);
 
   useEffect(() => {
     if (!isGuidedIntakePilotEnabled()) {
@@ -92,12 +113,27 @@ export function GuidedIntakePilot() {
           } | null;
         };
         if (cancelled) return;
-        setChallengeType(pJson.project?.challenge_type ?? null);
+        const ct = pJson.project?.challenge_type ?? null;
         const resp = rJson.project_responses?.responses ?? {};
-        const tr = resp._limbic_interview_v1 as LimbicInterviewTraceV1 | undefined;
-        if (tr?.phase === "done") {
-          setTracePhase("done");
-          setSummary(buildOfferingPilotSummary(resp, {}));
+        const tr = readInterviewTrace(resp);
+        if (tr?.mini_step) setMiniStep(tr.mini_step);
+        setTracePhase(tr?.phase ?? "main");
+        if (tr?.phase === "done" && tr.mini_step === "complete") {
+          setSummary(
+            buildStrategicInterviewPilotSummary(
+              resp,
+              ct,
+              Boolean(tr?.other_challenge),
+              {},
+            ),
+          );
+        } else if (tr?.turns?.length) {
+          setLines(
+            tr.turns.map((t) => ({
+              role: t.role === "user" ? "user" : "limbi",
+              text: t.summary,
+            })),
+          );
         }
       } catch {
         /* ignore */
@@ -108,9 +144,11 @@ export function GuidedIntakePilot() {
     };
   }, [projectId]);
 
-  useEffect(() => {
-    setMainQuestion(pilotMainQuestionText(challengeType));
-  }, [challengeType]);
+  useLayoutEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [lines]);
 
   const createProject = useCallback(async () => {
     setError(null);
@@ -144,11 +182,76 @@ export function GuidedIntakePilot() {
     }
   }, [nameOrDescriptor, nameStatus, router]);
 
+  const applyIntakeJson = useCallback((json: IntakeTurnResponse) => {
+    setSuggestedChips(json.suggested_chips ?? []);
+    setTracePhase(json.trace.phase);
+    if (json.trace.mini_step) setMiniStep(json.trace.mini_step);
+    if (json.should_not_advance) {
+      setSummary(null);
+    }
+    const followUp = json.follow_up_question?.trim();
+    if (followUp) {
+      if (json.interviewer_message?.trim()) {
+        setLines((prev) => [
+          ...prev,
+          { role: "limbi", text: json.interviewer_message!.trim() },
+        ]);
+      }
+      setLines((prev) => [...prev, { role: "limbi", text: followUp }]);
+    } else {
+      if (json.interviewer_message?.trim()) {
+        setLines((prev) => [
+          ...prev,
+          { role: "limbi", text: json.interviewer_message!.trim() },
+        ]);
+      }
+      if (json.next_question?.trim()) {
+        setLines((prev) => [
+          ...prev,
+          { role: "limbi", text: json.next_question!.trim() },
+        ]);
+      }
+    }
+    if (json.summary) {
+      setSummary(json.summary);
+    }
+  }, []);
+
   const sendTurn = useCallback(
-    async (opts: { text?: string; action?: PilotEscapeChipId }) => {
+    async (opts: {
+      text?: string;
+      action?: PilotEscapeChipId;
+      challenge_type_pick?: string;
+      challenge_type_other?: boolean;
+    }) => {
       if (!projectId) return;
       setError(null);
       setSending(true);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => controller.abort(),
+        INTAKE_TURN_TIMEOUT_MS,
+      );
+      const userPreview =
+        opts.challenge_type_pick !== undefined
+          ? `Tipo de reto: ${GUIDED_CHALLENGE_PICKS.find((p) => p.pick === opts.challenge_type_pick)?.label ?? opts.challenge_type_pick}`
+          : opts.challenge_type_other
+            ? "Tipo de reto: Otro"
+            : opts.text?.trim() ?? opts.action ?? "";
+      if (
+        opts.text?.trim() &&
+        !opts.challenge_type_pick &&
+        !opts.challenge_type_other
+      ) {
+        setLines((prev) => [...prev, { role: "user", text: opts.text!.trim() }]);
+      } else if (opts.challenge_type_pick || opts.challenge_type_other) {
+        setLines((prev) => [...prev, { role: "user", text: userPreview }]);
+      } else if (opts.action) {
+        setLines((prev) => [
+          ...prev,
+          { role: "user", text: "No tengo la información" },
+        ]);
+      }
       try {
         const res = await fetch(`/api/projects/${projectId}/intake-turn`, {
           method: "POST",
@@ -157,30 +260,39 @@ export function GuidedIntakePilot() {
           body: JSON.stringify({
             text: opts.text?.trim() || undefined,
             action: opts.action,
+            challenge_type_pick: opts.challenge_type_pick,
+            challenge_type_other: opts.challenge_type_other ? true : undefined,
           }),
+          signal: controller.signal,
         });
-        const json = (await res.json().catch(() => ({}))) as IntakeTurnResponse & {
-          error?: string;
-        };
+        const jsonRaw = await res.json().catch(() => ({}));
+        const errObj = jsonRaw as { error?: string };
         if (!res.ok) {
-          throw new Error(
-            typeof json.error === "string" ? json.error : "Error al guardar",
-          );
+          const rawErr =
+            typeof errObj.error === "string" ? errObj.error : "Error al guardar";
+          const safe =
+            /extracci|schema|z\.|json\s+válido/i.test(rawErr)
+              ? EXTRACTION_USER_RECOVERY_NOTICE
+              : rawErr;
+          throw new Error(safe);
         }
-        setFollowUp(json.follow_up_question);
-        setSuggestedChips(json.suggested_chips ?? []);
-        setTracePhase(json.trace.phase);
+        const json = parseIntakeTurnResponseOrThrow(jsonRaw);
+        applyIntakeJson(json);
         setAnswer("");
-        if (json.summary) {
-          setSummary(json.summary);
-        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error");
+        if (e instanceof DOMException && e.name === "AbortError") {
+          setError(
+            "La solicitud tardó demasiado. Puedes volver a intentar; no hace falta recargar la página.",
+          );
+        } else {
+          setError(e instanceof Error ? e.message : "Error");
+        }
       } finally {
+        window.clearTimeout(timeoutId);
         setSending(false);
       }
     },
-    [projectId],
+    [projectId, applyIntakeJson],
   );
 
   if (!isGuidedIntakePilotEnabled()) {
@@ -193,11 +305,11 @@ export function GuidedIntakePilot() {
         <Card className="rounded-[22px] border border-limbi-border shadow-limbi">
           <CardHeader>
             <CardTitle className="font-heading text-xl">
-              Entrevista guiada (piloto)
+              Crear Sistema Límbico
             </CardTitle>
             <CardDescription>
-              Módulo: Lo que ofreces y para qué sirve. Crea el sistema para
-              empezar.
+              Esto nos ayuda a identificar tu sistema. Si cambia después, podrás
+              ajustarlo.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -206,33 +318,43 @@ export function GuidedIntakePilot() {
                 {error}
               </p>
             ) : null}
-            <Input
-              value={nameOrDescriptor}
-              onChange={(e) => setNameOrDescriptor(e.target.value)}
-              placeholder="Nombre o descriptor"
-              className="text-base"
-            />
-            <div className="grid gap-2 sm:grid-cols-3">
-              {(
-                [
-                  { value: "definitive" as const, label: "Definitivo" },
-                  { value: "provisional" as const, label: "Provisional" },
-                  { value: "unnamed" as const, label: "Sin nombre" },
-                ] as const
-              ).map((opt) => (
-                <Button
-                  key={opt.value}
-                  type="button"
-                  variant={nameStatus === opt.value ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    const v = nameStatusSchema.safeParse(opt.value);
-                    if (v.success) setNameStatus(v.data);
-                  }}
-                >
-                  {opt.label}
-                </Button>
-              ))}
+            <div>
+              <p className="mb-1.5 text-sm font-medium text-foreground">
+                Nombre o descriptor del proyecto
+              </p>
+              <Input
+                value={nameOrDescriptor}
+                onChange={(e) => setNameOrDescriptor(e.target.value)}
+                placeholder="Ej. Marca X, campaña primavera…"
+                className="text-base"
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-sm font-medium text-foreground">
+                Estado del nombre
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    { value: "definitive" as const, label: "Definitivo" },
+                    { value: "provisional" as const, label: "Provisional" },
+                    { value: "unnamed" as const, label: "Sin nombre" },
+                  ] as const
+                ).map((opt) => (
+                  <Button
+                    key={opt.value}
+                    type="button"
+                    variant={nameStatus === opt.value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      const v = nameStatusSchema.safeParse(opt.value);
+                      if (v.success) setNameStatus(v.data);
+                    }}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </CardContent>
           <CardFooter>
@@ -242,7 +364,7 @@ export function GuidedIntakePilot() {
               disabled={creating}
               onClick={() => void createProject()}
             >
-              {creating ? "Creando…" : "Crear y empezar entrevista"}
+              {creating ? "Creando…" : "Empezar"}
             </Button>
           </CardFooter>
         </Card>
@@ -255,63 +377,32 @@ export function GuidedIntakePilot() {
     );
   }
 
-  if (tracePhase === "done") {
-    const continueBaseHref = projectId
-      ? `/projects/new?projectId=${encodeURIComponent(projectId)}`
-      : "/projects/new";
+  if (tracePhase === "done" && miniStep === "complete") {
+    if (!summary) {
+      return (
+        <div className="mx-auto max-w-xl px-4 py-16 text-center text-sm text-muted-foreground">
+          Cargando resumen…
+        </div>
+      );
+    }
+    const continueBaseHref = `/projects/new?projectId=${encodeURIComponent(projectId)}`;
 
     return (
       <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6">
         <Card className="rounded-[22px] border border-limbi-border shadow-limbi">
           <CardHeader>
             <CardTitle className="font-heading text-xl">
-              Primer módulo listo
+              {summary.title}
             </CardTitle>
-            <CardDescription>
-              Ya guardamos esta parte como base inicial. Ahora seguimos
-              completando el resto del Sistema Límbico.
+            <CardDescription className="whitespace-pre-wrap text-base leading-relaxed text-muted-foreground">
+              {summary.body}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5 text-sm">
-            <div>
-              <p className="font-medium text-foreground">Lo que entendí</p>
-              <ul className="mt-2 list-inside list-disc space-y-1 text-muted-foreground">
-                {(summary?.understood ?? []).map((s, i) => (
-                  <li key={`${i}-${s.slice(0, 24)}`}>{s}</li>
-                ))}
-              </ul>
-            </div>
-            {summary?.pendingInfoNote ? (
-              <p className="rounded-lg border border-limbi-border bg-muted/40 px-3 py-2 text-muted-foreground">
-                {summary.pendingInfoNote}
-              </p>
-            ) : null}
-            <div>
-              <p className="font-medium text-foreground">
-                Lo que conviene mejorar
-              </p>
-              {summary?.showWeakSection && (summary.weak?.length ?? 0) > 0 ? (
-                <ul className="mt-2 list-inside list-disc space-y-1 text-muted-foreground">
-                  {summary.weak.map((s, i) => (
-                    <li key={`${i}-${s.slice(0, 24)}`}>{s}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-muted-foreground">
-                  {OFFERING_PILOT_NO_ALERTS_COPY}
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="font-medium text-foreground">
-                Cómo lo usará Limbi
-              </p>
-              <p className="mt-2 text-muted-foreground">
-                {summary?.limbiUseParagraph ??
-                  "Esta información ayudará a construir la base de valor del proyecto y a evitar que Limbi invente beneficios o promesas que no estén claras."}
-              </p>
-            </div>
-          </CardContent>
+          {summary.weakLine ? (
+            <CardContent>
+              <p className="text-sm text-muted-foreground">{summary.weakLine}</p>
+            </CardContent>
+          ) : null}
           <CardFooter className="flex w-full flex-col gap-3">
             <div className="w-full space-y-1.5">
               <Button
@@ -324,8 +415,7 @@ export function GuidedIntakePilot() {
                 </Link>
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Continuaremos con las preguntas que faltan para completar la base
-                estratégica.
+                Seguiremos completando la base estratégica.
               </p>
             </div>
             <Button
@@ -342,11 +432,30 @@ export function GuidedIntakePilot() {
             >
               Guardar y salir
             </Link>
+            <p className="pt-2 text-center text-xs text-muted-foreground">
+              <Link
+                href={continueBaseHref}
+                className="underline underline-offset-2"
+              >
+                Continuar con cuestionario clásico
+              </Link>
+            </p>
           </CardFooter>
         </Card>
       </div>
     );
   }
+
+  const onChallengePick = (pick: string) => {
+    if (pick === "other") {
+      void sendTurn({ challenge_type_other: true });
+    } else {
+      void sendTurn({ challenge_type_pick: pick });
+    }
+  };
+
+  const showChallengePicker =
+    miniStep === null || miniStep === "challenge_type";
 
   const optionBtnClass =
     "h-auto min-h-[2.75rem] w-full justify-start whitespace-normal px-3 py-2 text-left text-sm font-normal leading-snug";
@@ -354,28 +463,27 @@ export function GuidedIntakePilot() {
   return (
     <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6">
       <div className="mb-4 flex gap-1">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {MINI_PROGRESS.map((_, i) => (
           <div
             key={i}
             className={cn(
               "h-2 flex-1 rounded-full",
-              i === 2 ? "bg-limbi-green" : "bg-limbi-border",
+              i <= progressIndex ? "bg-limbi-green" : "bg-limbi-border",
             )}
-            title={i === 2 ? "Módulo activo (piloto)" : ""}
+            title={`Paso ${i + 1} de ${MINI_PROGRESS.length}`}
           />
         ))}
       </div>
       <Card className="rounded-[22px] border border-limbi-border shadow-limbi">
         <CardHeader>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Piloto · Módulo 3 de 8
+            Entrevista guiada · Piloto
           </p>
           <CardTitle className="font-heading text-xl">
-            Lo que ofreces y para qué sirve
+            {showChallengePicker ? "Tu Sistema Límbico" : "Seguimos en conversación"}
           </CardTitle>
           <CardDescription>
-            Una pregunta a la vez. Limbi extrae datos estructurados; no redacta
-            la campaña todavía.
+            Limbi va tomando nota para la estrategia; aún no redacta la campaña.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -384,68 +492,112 @@ export function GuidedIntakePilot() {
               {error}
             </p>
           ) : null}
-          <p className="text-base font-medium leading-snug text-foreground">
-            {followUp ?? mainQuestion}
-          </p>
-          <Textarea
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Responde con la esencia: qué ofreces y qué problema o situación resuelve."
-            rows={5}
-            className="resize-y text-base"
-            disabled={sending}
-          />
-          {suggestedChips.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {suggestedChips.map((c) => (
-                <Button
-                  key={c}
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="text-xs"
-                  disabled={sending}
-                  onClick={() => setAnswer((a) => (a ? `${a} ${c}` : c))}
+
+          {lines.length > 0 ? (
+            <div
+              ref={chatScrollRef}
+              className="max-h-[320px] space-y-3 overflow-y-auto rounded-lg border border-border/60 bg-muted/20 p-3"
+            >
+              {lines.map((line, idx) => (
+                <div
+                  key={`${idx}-${line.text.slice(0, 12)}`}
+                  className={cn(
+                    "rounded-2xl px-3 py-2 text-sm leading-relaxed",
+                    line.role === "limbi"
+                      ? "ml-0 mr-6 bg-background text-foreground shadow-sm"
+                      : "ml-6 mr-0 bg-limbi-green/15 text-foreground",
+                  )}
                 >
-                  {c}
-                </Button>
+                  {line.role === "limbi" ? (
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Limbi
+                    </p>
+                  ) : null}
+                  <p className="whitespace-pre-wrap">{line.text}</p>
+                </div>
               ))}
             </div>
           ) : null}
-          <div className="space-y-2 border-t border-border/60 pt-4">
-            <p className="text-xs font-medium text-muted-foreground">
-              Si aún no lo tienes claro
-            </p>
-            <div className="grid gap-2 sm:grid-cols-1">
-              {PILOT_ESCAPE_CHIPS.map((c) => (
-                <Button
-                  key={c.id}
-                  type="button"
-                  variant="outline"
-                  className={optionBtnClass}
-                  disabled={sending}
-                  onClick={() => void sendTurn({ action: c.id })}
-                >
-                  {c.label}
-                </Button>
-              ))}
+
+          {showChallengePicker &&
+          (miniStep === "challenge_type" || miniStep === null) ? (
+            <div className="space-y-3">
+              <p className="text-base font-medium leading-snug text-foreground">
+                {questionForMiniStep("challenge_type", null, false)}
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {GUIDED_CHALLENGE_PICKS.map((opt) => (
+                  <Button
+                    key={opt.pick}
+                    type="button"
+                    variant="outline"
+                    className={optionBtnClass}
+                    disabled={sending}
+                    onClick={() => onChallengePick(opt.pick)}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+              <Textarea
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                placeholder="Escribe con naturalidad; no hace falta que sea perfecto."
+                rows={5}
+                className="min-h-[120px] resize-y rounded-none border-0 border-b border-border/80 bg-transparent px-3 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
+                disabled={sending}
+              />
+              {suggestedChips.length > 0 ? (
+                <div className="flex flex-wrap gap-2 border-b border-border/60 px-3 py-2">
+                  {suggestedChips.map((c) => (
+                    <Button
+                      key={c}
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="text-xs"
+                      disabled={sending}
+                      onClick={() => setAnswer((a) => (a ? `${a} ${c}` : c))}
+                    >
+                      {c}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="px-3 py-2">
+                {PILOT_ESCAPE_CHIPS.map((c) => (
+                  <Button
+                    key={c.id}
+                    type="button"
+                    variant="ghost"
+                    className="h-auto w-full justify-start px-2 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
+                    disabled={sending}
+                    onClick={() => void sendTurn({ action: c.id })}
+                  >
+                    {c.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="border-t border-border bg-muted/30 p-2">
+                <Button
+                  type="button"
+                  className={`${limbiPrimaryButtonClass} w-full`}
+                  disabled={sending || !answer.trim()}
+                  onClick={() => void sendTurn({ text: answer })}
+                >
+                  {sending ? "Enviando…" : "Enviar"}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
-        <CardFooter>
-          <Button
-            type="button"
-            className={limbiPrimaryButtonClass}
-            disabled={sending || !answer.trim()}
-            onClick={() => void sendTurn({ text: answer })}
-          >
-            {sending ? "Enviando…" : "Enviar respuesta"}
-          </Button>
-        </CardFooter>
       </Card>
       <p className="mt-4 text-center text-sm text-muted-foreground">
-        <Link href={`/projects/new?projectId=${encodeURIComponent(projectId!)}`}>
-          Cambiar al cuestionario clásico
+        <Link href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}>
+          Continuar con cuestionario clásico
         </Link>
       </p>
     </div>

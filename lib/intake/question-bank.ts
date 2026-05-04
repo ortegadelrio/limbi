@@ -32,9 +32,10 @@ export function pilotMainQuestionText(
 }
 
 export const PILOT_ESCAPE_CHIPS = [
-  { id: "no_info" as const, label: "No tengo esta información todavía" },
-  { id: "improve_later" as const, label: "Lo puedo mejorar después" },
-  { id: "continue_base" as const, label: "Continuar con esta base" },
+  {
+    id: "no_information" as const,
+    label: "No tengo la información",
+  },
 ];
 
 export type PilotEscapeChipId = (typeof PILOT_ESCAPE_CHIPS)[number]["id"];

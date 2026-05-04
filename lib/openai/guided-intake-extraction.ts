@@ -15,6 +15,11 @@ export type GuidedIntakeExtractionJsonResult = {
 /**
  * OpenAI Responses API — JSON object output. Server-only.
  * Does not generate master document or public copy.
+ *
+ * Uses **prompt-based** `json_object` mode (not a bound JSON Schema). If you
+ * need stricter shape guarantees, consider migrating this call to Responses
+ * API `text.format` with a `json_schema` / structured-output definition that
+ * mirrors `intakeExtractionOutputSchema` (and keep server-side Zod as defense).
  */
 export async function generateGuidedIntakeExtractionJson(
   input: string,
