@@ -43,6 +43,7 @@ export type ConversationalEngineRouteBranch =
   | "provisional_decision_resolution"
   | "active_strategic_doubt"
   | "bare_confirmation_hold"
+  | "segment_confirmation_resolve"
   | "evidence_uncertainty_advance"
   | "deterministic_clarification"
   | "deterministic_strategic_validation"
@@ -97,6 +98,14 @@ export type TurnDecisionNotesForRoute = {
   restoreMiniStepAfter?: GuidedMiniStepId;
   rerouteTargetTopic?: StrategicDecisionTopicKey;
   provisionalChoice?: ProvisionalDecisionUserChoice;
+  /** When branch is `segment_confirmation_resolve`. */
+  segmentConfirmationKind?:
+    | "confirm"
+    | "pending_ack_confirm"
+    | "correct"
+    | "help"
+    | "pending_prompt"
+    | "reprompt";
 };
 
 /**

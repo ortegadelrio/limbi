@@ -12,6 +12,7 @@ import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
  * - reopened: user returned to this topic after the flow moved on; needs re-resolution.
  * - rejected: user declined a proposed framing (distinct from pending).
  * - low_confidence: something was saved but is vague, contradictory, or weak.
+ * - pending_confirmed: user explicitly confirmed leaving the segment pending (safe to advance).
  */
 export type DecisionStatus =
   | "unstarted"
@@ -19,6 +20,7 @@ export type DecisionStatus =
   | "provisional"
   | "confirmed"
   | "pending"
+  | "pending_confirmed"
   | "reopened"
   | "rejected"
   | "low_confidence";
@@ -30,6 +32,15 @@ export type StrategicDecisionTopicKey =
   | "problem"
   | "transformation";
 
+/** Pilot segment keys for decision_states (extends strategic topics + journey steps). */
+export type PilotSegmentKey =
+  | StrategicDecisionTopicKey
+  | "tailored_what"
+  | "challenge_type"
+  | "context"
+  | "limbic_pulse"
+  | "voice";
+
 export type StrategicDecisionStateEntry = {
   status: DecisionStatus;
   confidence?: number;
@@ -40,11 +51,11 @@ export type StrategicDecisionStateEntry = {
 };
 
 export type StrategicDecisionStatesV1 = Partial<
-  Record<StrategicDecisionTopicKey, StrategicDecisionStateEntry>
+  Record<PilotSegmentKey, StrategicDecisionStateEntry>
 >;
 
 export type DecisionStatusPatch = {
-  topic: StrategicDecisionTopicKey;
+  topic: PilotSegmentKey;
   status: DecisionStatus;
   confidence?: number;
   reason?: string;
@@ -76,6 +87,28 @@ export function miniStepToStrategicTopicKey(
   return null;
 }
 
+/** Maps guided mini-step to pilot segment key (includes offering / challenge). */
+export function miniStepToPilotSegmentKey(
+  miniStep: GuidedMiniStepId,
+): PilotSegmentKey | null {
+  switch (miniStep) {
+    case "challenge_type":
+      return "challenge_type";
+    case "tailored_what":
+      return "tailored_what";
+    case "problem":
+      return "problem";
+    case "transformation":
+      return "transformation";
+    case "audience":
+      return "audience";
+    case "evidence":
+      return "evidence";
+    default:
+      return null;
+  }
+}
+
 export function strategicTopicKeyToMiniStep(
   topic: StrategicDecisionTopicKey,
 ): GuidedMiniStepId {
@@ -87,11 +120,16 @@ export function normalizeDecisionStates(
 ): StrategicDecisionStatesV1 | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const o = raw as Record<string, unknown>;
-  const topics: StrategicDecisionTopicKey[] = [
+  const topics: PilotSegmentKey[] = [
     "audience",
     "evidence",
     "problem",
     "transformation",
+    "tailored_what",
+    "challenge_type",
+    "context",
+    "limbic_pulse",
+    "voice",
   ];
   const out: StrategicDecisionStatesV1 = {};
   for (const k of topics) {
@@ -106,6 +144,7 @@ export function normalizeDecisionStates(
       "provisional",
       "confirmed",
       "pending",
+      "pending_confirmed",
       "reopened",
       "rejected",
       "low_confidence",
@@ -150,8 +189,11 @@ export function applyDecisionStatusPatches(
 
 const SUMMARY_BLOCKING: ReadonlySet<DecisionStatus> = new Set([
   "provisional",
+  "in_progress",
   "reopened",
   "low_confidence",
+  "rejected",
+  "pending",
 ]);
 
 /**
@@ -160,9 +202,10 @@ const SUMMARY_BLOCKING: ReadonlySet<DecisionStatus> = new Set([
  */
 export function pilotSummaryBlockedByDecisionStates(
   states: StrategicDecisionStatesV1 | undefined,
-  opts: { userExplicitProceed: boolean },
+  opts: { userExplicitProceed: boolean; hasOpenSegmentConfirmation?: boolean },
 ): boolean {
   if (opts.userExplicitProceed) return false;
+  if (opts.hasOpenSegmentConfirmation) return true;
   if (!states) return false;
   for (const e of Object.values(states)) {
     if (e && SUMMARY_BLOCKING.has(e.status)) return true;

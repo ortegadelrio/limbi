@@ -76,7 +76,8 @@ export function traceForLlmProcessing(
 ): LimbicInterviewTraceV1 {
   if (
     trace.phase === "clarifying_question" ||
-    trace.phase === "strategy_validation"
+    trace.phase === "strategy_validation" ||
+    trace.phase === "segment_confirmation"
   ) {
     return { ...trace, phase: "main" };
   }

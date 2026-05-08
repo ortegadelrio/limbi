@@ -28,6 +28,16 @@ export type AudienceRecommendationPendingV1 = {
   invert_question_active?: boolean;
 };
 
+/** Internal: LLM extraction awaiting explicit user segment confirmation before advance. */
+export type SegmentConfirmationPendingV1 = {
+  version: 1;
+  mini_step: GuidedMiniStepId;
+  /** Serialized extraction JSON (internal trace only). */
+  extraction: Record<string, unknown>;
+  /** When true, last turn asked user to confirm leaving the segment pending. */
+  awaiting_pending_ack?: boolean;
+};
+
 export type LimbicInterviewTraceV1 = {
   version: 1;
   pilot_id: LimbicInterviewPilotId;
@@ -36,6 +46,7 @@ export type LimbicInterviewTraceV1 = {
     | "follow_up"
     | "clarifying_question"
     | "strategy_validation"
+    | "segment_confirmation"
     | "done";
   follow_up_used: boolean;
   /** Strategic pilot journey position (ignored for legacy offering_module_v1). */
@@ -44,6 +55,8 @@ export type LimbicInterviewTraceV1 = {
   other_challenge?: boolean;
   /** After a provisional audience recommendation; next turn may confirm in plain language. */
   audience_recommendation_pending?: AudienceRecommendationPendingV1;
+  /** Awaits user confirm / correct / pending on the current segment before advancing mini_step. */
+  segment_confirmation_pending?: SegmentConfirmationPendingV1;
   /** Short audit trail (not full raw chat for master). */
   turns: { at: string; role: "user" | "assistant"; summary: string }[];
   /** Internal-only strategic decision lifecycle (Phase 2 conversational engine). */
@@ -67,6 +80,7 @@ export function readInterviewTrace(
     phase !== "follow_up" &&
     phase !== "clarifying_question" &&
     phase !== "strategy_validation" &&
+    phase !== "segment_confirmation" &&
     phase !== "done"
   ) {
     return null;
@@ -116,6 +130,32 @@ export function readInterviewTrace(
   const dsRaw = o.decision_states;
   const decision_states = normalizeDecisionStates(dsRaw);
 
+  const scpRaw = o.segment_confirmation_pending;
+  let segment_confirmation_pending: SegmentConfirmationPendingV1 | undefined;
+  if (scpRaw && typeof scpRaw === "object" && !Array.isArray(scpRaw)) {
+    const sc = scpRaw as Record<string, unknown>;
+    const ms =
+      typeof sc.mini_step === "string" &&
+      GUIDED_MINI_STEPS.includes(sc.mini_step as GuidedMiniStepId)
+        ? (sc.mini_step as GuidedMiniStepId)
+        : undefined;
+    const ext = sc.extraction;
+    if (
+      sc.version === 1 &&
+      ms &&
+      ext &&
+      typeof ext === "object" &&
+      !Array.isArray(ext)
+    ) {
+      segment_confirmation_pending = {
+        version: 1,
+        mini_step: ms,
+        extraction: ext as Record<string, unknown>,
+        ...(sc.awaiting_pending_ack === true ? { awaiting_pending_ack: true } : {}),
+      };
+    }
+  }
+
   return {
     version: 1,
     pilot_id: pilotId as LimbicInterviewPilotId,
@@ -125,6 +165,9 @@ export function readInterviewTrace(
     other_challenge: Boolean(o.other_challenge),
     ...(audience_recommendation_pending
       ? { audience_recommendation_pending }
+      : {}),
+    ...(segment_confirmation_pending
+      ? { segment_confirmation_pending }
       : {}),
     ...(decision_states ? { decision_states } : {}),
     turns: Array.isArray(o.turns)

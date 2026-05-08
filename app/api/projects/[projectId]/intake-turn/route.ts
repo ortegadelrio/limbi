@@ -52,12 +52,21 @@ import {
 import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
 import { shouldFreezeCompletedStepsForTurn } from "@/lib/intake/conversational-engine/completed-steps-policy";
 import type { TurnDecision } from "@/lib/intake/conversational-engine/types";
+import { parseIntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import {
   applyDecisionStatusPatches,
   detectExplicitProceedWithPendingSummary,
   miniStepToStrategicTopicKey,
   pilotSummaryBlockedByDecisionStates,
 } from "@/lib/intake/decision-state";
+import {
+  buildPendingSegmentAckQuestion,
+  buildSegmentConfirmationAssistantMessage,
+} from "@/lib/intake/segment-confirmation";
+import {
+  extractionPayloadForTrace,
+  shouldOfferSegmentConfirmationAfterExtraction,
+} from "@/lib/intake/segment-confirmation-gate";
 import {
   buildBareAudienceAffirmationHoldContent,
   buildAudienceConfirmMergeAndExtraction,
@@ -131,6 +140,20 @@ function normalizeCompletedSteps(raw: unknown): string[] {
 }
 
 const GUIDED_STRATEGIC_FIELD_PENDING = "guided_intake:strategic_field_pending";
+
+const SEGMENT_CONFIRM_TEXT_OPTIONS_ES =
+  "Puedes responder con: Confirmar · Corregir · Pedir recomendación · Dejar pendiente.";
+
+const CHALLENGE_TYPE_PICK_CONFIRM_MARKER = "segment_confirm:challenge_type_pick";
+
+function stripSegmentConfirmationPending(
+  tr: LimbicInterviewTraceV1,
+): LimbicInterviewTraceV1 {
+  if (!tr.segment_confirmation_pending) return tr;
+  const rest = { ...tr };
+  delete rest.segment_confirmation_pending;
+  return rest;
+}
 
 function applyEngineDecisionPatchesToTrace(
   tr: LimbicInterviewTraceV1,
@@ -296,22 +319,9 @@ export async function POST(request: Request, { params }: Params) {
     projectChallengeType = updateProject.challenge_type;
 
     const label = pickAcknowledgmentLabel(pick, other);
-    interviewerMessage = `Perfecto: vamos a trabajar ${other ? "un reto que definiremos juntos" : `un ${label}`}.`;
-
-    nextTrace = {
-      ...traceFromDb,
-      pilot_id: "strategic_interview_v1",
-      mini_step: "tailored_what",
-      phase: "main",
-      follow_up_used: false,
-      other_challenge: other || undefined,
-    };
-    nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
-    nextTrace = appendTurn(
-      nextTrace,
-      "assistant",
-      interviewerMessage.slice(0, 500),
-    );
+    const coreUnderstanding = `Perfecto: vamos a trabajar ${
+      other ? "un reto que definiremos juntos" : `un ${label}`
+    }.`;
 
     mergedWithoutTrace = baseResponses;
     extraction = {
@@ -322,17 +332,56 @@ export async function POST(request: Request, { params }: Params) {
       suggested_answer_chips: [],
       answer_status: "clear",
       target_response_paths: [],
-      internal_notes: "challenge_type_pick",
-      interviewer_message: interviewerMessage,
+      internal_notes: CHALLENGE_TYPE_PICK_CONFIRM_MARKER,
+      interviewer_message: coreUnderstanding,
       public_copy_allowed: false,
       user_intent: "answer",
     };
 
-    nextQuestion = questionForMiniStep(
-      "tailored_what",
-      projectChallengeType,
-      other,
+    const confirmCopy = buildSegmentConfirmationAssistantMessage(extraction);
+    extraction = { ...extraction, interviewer_message: confirmCopy };
+
+    const atIso = new Date().toISOString();
+    const dsPatched = applyDecisionStatusPatches(
+      traceFromDb.decision_states,
+      [
+        {
+          topic: "challenge_type",
+          status: "provisional",
+          confidence: 0.55,
+          reason: "Challenge type chosen; awaiting explicit confirmation.",
+          source: "guided_intake",
+        },
+      ],
+      atIso,
     );
+
+    nextTrace = {
+      ...traceFromDb,
+      pilot_id: "strategic_interview_v1",
+      mini_step: "challenge_type",
+      phase: "segment_confirmation",
+      follow_up_used: false,
+      other_challenge: other || undefined,
+      ...(dsPatched ? { decision_states: dsPatched } : {}),
+      segment_confirmation_pending: {
+        version: 1,
+        mini_step: "challenge_type",
+        extraction: extractionPayloadForTrace({
+          ...extraction,
+          interviewer_message: coreUnderstanding,
+        }),
+      },
+    };
+    nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
+    nextTrace = appendTurn(
+      nextTrace,
+      "assistant",
+      confirmCopy.slice(0, 500),
+    );
+
+    interviewerMessage = confirmCopy;
+    nextQuestion = null;
   } else if (parsedBody.data.action !== undefined) {
     /** --- Escape chip: never blocks; advance one mini-step --- */
     const sbForLim = readStrategicBase(baseResponses);
@@ -406,6 +455,13 @@ export async function POST(request: Request, { params }: Params) {
 
     const userTextRaw = (parsedBody.data.text ?? "").trim();
     const sbSnap = readStrategicBase(baseResponses);
+    const limitationSnapshotForIntake = Array.isArray(
+      sbSnap.guided_intake_limitations_optional,
+    )
+      ? (sbSnap.guided_intake_limitations_optional as unknown[]).filter(
+          (x): x is string => typeof x === "string" && x.trim().length > 0,
+        )
+      : [];
 
     let wantsFollowUp = false;
     let shouldNotAdvance = false;
@@ -606,6 +662,264 @@ export async function POST(request: Request, { params }: Params) {
       }
     }
 
+    if (engineTurn.notes_for_route.branch === "segment_confirmation_resolve") {
+      const kind = engineTurn.notes_for_route.segmentConfirmationKind!;
+      const pending0 = traceFromDb.segment_confirmation_pending!;
+      const parsedEx = parseIntakeExtractionOutput(pending0.extraction);
+      if (!parsedEx.ok) {
+        return NextResponse.json(
+          { error: "Estado interno de confirmación inválido." },
+          { status: 500 },
+        );
+      }
+      const ext0 = parsedEx.data;
+      const segMini = pending0.mini_step;
+      const crossResumeSameJourney =
+        traceFromDb.mini_step !== undefined && traceFromDb.mini_step !== segMini;
+
+      const mergeLimitationForPendingConfirmed = () => {
+        const strategicTopic = miniStepToStrategicTopicKey(segMini);
+        const lim =
+          strategicTopic === "audience"
+            ? GUIDED_INTAKE_AUDIENCE_PENDING_LIM
+            : GUIDED_STRATEGIC_FIELD_PENDING;
+        const nextLim = limitationSnapshotForIntake.includes(lim)
+          ? limitationSnapshotForIntake
+          : [...limitationSnapshotForIntake, lim];
+        return applyStrategicInterviewExtraction(baseResponses, {
+          extracted_response_updates: {
+            strategic_base: {
+              ...sbSnap,
+              guided_intake_limitations_optional: nextLim,
+            },
+          },
+          confidence_by_field: {},
+          needs_follow_up: false,
+          follow_up_question: null,
+          suggested_answer_chips: [],
+          answer_status: "missing_choice",
+          target_response_paths: [
+            "strategic_base.guided_intake_limitations_optional",
+          ],
+          internal_notes: "segment_confirm_pending_confirmed",
+          interviewer_message:
+            "Queda registrado como pendiente explícito: Limbi no lo tratará como un dato cerrado hasta que lo revisemos.",
+          public_copy_allowed: false,
+          user_intent: "answer",
+        }).mergedResponses;
+      };
+
+      if (kind === "confirm") {
+        if (ext0.internal_notes === CHALLENGE_TYPE_PICK_CONFIRM_MARKER) {
+          mergedWithoutTrace = baseResponses;
+          const ack = "Gracias por confirmar. Seguimos.".trim();
+          let t1 = stripSegmentConfirmationPending({
+            ...traceFromDb,
+            phase: "main",
+            mini_step: "challenge_type",
+          });
+          t1 = appendTurn(t1, "user", userLine.slice(0, 500));
+          t1 = appendTurn(t1, "assistant", ack.slice(0, 500));
+          nextTrace = advanceMiniStepFrom(t1);
+          extraction = {
+            ...ext0,
+            interviewer_message: ack,
+            internal_notes: "challenge_type_pick_confirmed",
+          };
+        } else {
+          mergedWithoutTrace = applyStrategicInterviewExtraction(
+            baseResponses,
+            ext0,
+          ).mergedResponses;
+          let t1 = stripSegmentConfirmationPending({
+            ...traceFromDb,
+            phase: "main",
+            mini_step: traceFromDb.mini_step ?? segMini,
+          });
+          t1 = appendTurn(t1, "user", userLine.slice(0, 500));
+          t1 = appendTurn(
+            t1,
+            "assistant",
+            (ext0.interviewer_message || "").slice(0, 500),
+          );
+          nextTrace = crossResumeSameJourney ? t1 : advanceMiniStepFrom(t1);
+          extraction = ext0;
+        }
+        shouldNotAdvance = false;
+        wantsFollowUp = false;
+        interviewerMessage = extraction.interviewer_message;
+        nextQuestion =
+          nextTrace.mini_step === "complete"
+            ? null
+            : questionForMiniStep(
+                nextTrace.mini_step ?? "challenge_type",
+                projectChallengeType,
+                otherChallenge,
+              );
+      } else if (kind === "pending_ack_confirm") {
+        mergedWithoutTrace = mergeLimitationForPendingConfirmed();
+        let t1 = stripSegmentConfirmationPending({
+          ...traceFromDb,
+          phase: "main",
+          mini_step: traceFromDb.mini_step ?? segMini,
+        });
+        t1 = appendTurn(t1, "user", userLine.slice(0, 500));
+        t1 = appendTurn(
+          t1,
+          "assistant",
+          "Queda como pendiente confirmado. Seguimos.".slice(0, 500),
+        );
+        nextTrace = crossResumeSameJourney ? t1 : advanceMiniStepFrom(t1);
+        extraction = {
+          ...ext0,
+          interviewer_message: "Queda como pendiente confirmado. Seguimos.",
+          internal_notes: "segment_confirm_pending_ack",
+        };
+        shouldNotAdvance = false;
+        wantsFollowUp = false;
+        interviewerMessage = extraction.interviewer_message;
+        nextQuestion =
+          nextTrace.mini_step === "complete"
+            ? null
+            : questionForMiniStep(
+                nextTrace.mini_step ?? "challenge_type",
+                projectChallengeType,
+                otherChallenge,
+              );
+      } else if (kind === "correct") {
+        mergedWithoutTrace = baseResponses;
+        const msg =
+          "De acuerdo. Cuéntame la versión corregida con tus palabras; cuando la tenga clara volveré a mostrarte la síntesis para confirmar.".trim();
+        extraction = {
+          ...ext0,
+          extracted_response_updates: {},
+          interviewer_message: msg,
+          internal_notes: "segment_confirm_correction_reprompt",
+        };
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = msg;
+        nextQuestion = null;
+        nextTrace = appendTurn(
+          appendTurn(
+            stripSegmentConfirmationPending({
+              ...traceFromDb,
+              phase: "main",
+              mini_step: segMini,
+            }),
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          msg.slice(0, 500),
+        );
+      } else if (kind === "help") {
+        mergedWithoutTrace = baseResponses;
+        const content = buildStrategicValidationTurnContent({
+          miniStep: segMini,
+          userText: userTextRaw,
+          challengeType: projectChallengeType,
+          otherChallenge,
+          strategicBase: sbSnap,
+          traceUserTurns: traceFromDb.turns,
+        });
+        const suppressFollowUpQuestion =
+          engineTurn.requires_confirmation || engineTurn.active_doubt_detected;
+        const nq = suppressFollowUpQuestion ? null : content.next_question?.trim();
+        let body = nq
+          ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+          : content.interviewer_message.trim();
+        body = appendStrategicConfirmationTriad(body, engineTurn);
+        extraction = buildStrategicValidationSyntheticExtraction({
+          interviewer_message: body,
+          next_question: null,
+          suggested_chips: content.suggested_chips,
+          audience_recommendation_pending: content.audience_recommendation_pending,
+        });
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = body;
+        nextQuestion = null;
+        let baseForTrace: LimbicInterviewTraceV1 = {
+          ...stripAudienceRecommendationPending(traceFromDb),
+          phase: "strategy_validation",
+          mini_step: segMini,
+          segment_confirmation_pending: pending0,
+        };
+        if (content.audience_recommendation_pending) {
+          baseForTrace = {
+            ...baseForTrace,
+            audience_recommendation_pending: content.audience_recommendation_pending,
+          };
+        }
+        nextTrace = appendTurn(
+          appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+          "assistant",
+          extraction.interviewer_message.slice(0, 500),
+        );
+      } else if (kind === "pending_prompt") {
+        mergedWithoutTrace = baseResponses;
+        const synth = buildSegmentConfirmationAssistantMessage({
+          ...ext0,
+          interviewer_message: ext0.interviewer_message,
+        });
+        const why =
+          "Si dejamos este punto abierto, Limbi no debe rellenarlo con suposiciones en el Sistema Límbico.";
+        const msg = `${why}\n\n${synth}\n\n${buildPendingSegmentAckQuestion()}\n\n${SEGMENT_CONFIRM_TEXT_OPTIONS_ES}`.trim();
+        extraction = {
+          ...ext0,
+          interviewer_message: msg,
+          internal_notes: "segment_confirm_pending_prompt",
+        };
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = msg;
+        nextQuestion = null;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "segment_confirmation",
+              mini_step: segMini,
+              segment_confirmation_pending: {
+                ...pending0,
+                awaiting_pending_ack: true,
+              },
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          msg.slice(0, 500),
+        );
+      } else {
+        mergedWithoutTrace = baseResponses;
+        const msg = buildSegmentConfirmationAssistantMessage(ext0);
+        extraction = { ...ext0, interviewer_message: msg };
+        shouldNotAdvance = true;
+        wantsFollowUp = false;
+        interviewerMessage = msg;
+        nextQuestion = null;
+        nextTrace = appendTurn(
+          appendTurn(
+            {
+              ...traceFromDb,
+              phase: "segment_confirmation",
+              mini_step: segMini,
+              segment_confirmation_pending: {
+                ...pending0,
+                awaiting_pending_ack: false,
+              },
+            },
+            "user",
+            userLine.slice(0, 500),
+          ),
+          "assistant",
+          msg.slice(0, 500),
+        );
+      }
+    }
+
     if (engineTurn.notes_for_route.branch === "evidence_return_to_audience") {
       mergedWithoutTrace = baseResponses;
       const content = buildStrategicValidationTurnContent({
@@ -709,30 +1023,37 @@ export async function POST(request: Request, { params }: Params) {
       extraction = buildEvidenceUncertaintyDeterministicExtraction({
         strategicBase: sbSnap,
       });
-      mergedWithoutTrace = applyStrategicInterviewExtraction(
-        baseResponses,
-        extraction,
-      ).mergedResponses;
-      shouldNotAdvance = false;
+      mergedWithoutTrace = baseResponses;
+      shouldNotAdvance = true;
       wantsFollowUp = false;
-      const turn = computeTraceAfterStrategicLlmExtraction({ trace, extraction });
-      let t1 = appendTurn(turn.nextTrace, "user", userLine.slice(0, 500));
-      t1 = appendTurn(t1, "assistant", extraction.interviewer_message.slice(0, 500));
+      const gateExtraction = {
+        ...extraction,
+        needs_follow_up: false,
+        follow_up_question: null,
+      };
+      const confirmCopy = buildSegmentConfirmationAssistantMessage(gateExtraction);
+      extraction = { ...gateExtraction, interviewer_message: confirmCopy };
+      const pendingTrace: LimbicInterviewTraceV1 = {
+        ...traceFromDb,
+        phase: "segment_confirmation",
+        mini_step: "evidence",
+        segment_confirmation_pending: {
+          version: 1,
+          mini_step: "evidence",
+          extraction: extractionPayloadForTrace(gateExtraction),
+        },
+      };
+      let t1 = appendTurn(pendingTrace, "user", userLine.slice(0, 500));
+      t1 = appendTurn(t1, "assistant", confirmCopy.slice(0, 500));
       nextTrace = t1;
-      interviewerMessage = extraction.interviewer_message;
-      nextQuestion =
-        nextTrace.mini_step === "complete"
-          ? null
-          : questionForMiniStep(
-              nextTrace.mini_step ?? "challenge_type",
-              projectChallengeType,
-              otherChallenge,
-            );
+      interviewerMessage = confirmCopy;
+      nextQuestion = null;
     }
 
     const resumeAfterClarification =
       traceFromDb.phase === "clarifying_question" ||
       traceFromDb.phase === "strategy_validation" ||
+      traceFromDb.phase === "segment_confirmation" ||
       Boolean(traceFromDb.audience_recommendation_pending);
 
     const offeringHint =
@@ -1025,51 +1346,103 @@ export async function POST(request: Request, { params }: Params) {
         } else if (intent === "strategic_validation_question") {
           applyStrategicValidationTurn();
         } else {
-          const { mergedResponses: mergedFromEx } =
-            applyStrategicInterviewExtraction(baseResponses, extraction);
-          mergedWithoutTrace = mergedFromEx;
-
-          const turn = computeTraceAfterStrategicLlmExtraction({
-            trace: traceForExtraction,
-            extraction,
+          const gateMini = llmMiniStep;
+          const wantsFollowUpAfter =
+            Boolean(extraction.needs_follow_up) && !traceForExtraction.follow_up_used;
+          const enterSegmentConfirm = shouldOfferSegmentConfirmationAfterExtraction({
+            miniStep: gateMini,
+            tracePhase: traceForExtraction.phase,
+            needsFollowUp: Boolean(extraction.needs_follow_up),
+            followUpUsed: traceForExtraction.follow_up_used,
           });
-          nextTrace = turn.nextTrace;
-          wantsFollowUp = turn.wantsFollowUp;
 
-          nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
-          nextTrace = appendTurn(
-            nextTrace,
-            "assistant",
-            (extraction.interviewer_message || extraction.internal_notes).slice(
-              0,
-              500,
-            ),
-          );
-
-          if (
-            engineTurn.notes_for_route.branch === "cross_topic_llm_extraction" &&
-            engineTurn.notes_for_route.restoreMiniStepAfter &&
-            !wantsFollowUp
-          ) {
-            nextTrace = {
-              ...nextTrace,
-              mini_step: engineTurn.notes_for_route.restoreMiniStepAfter,
-              phase: "main",
-              follow_up_used: false,
+          if (enterSegmentConfirm && !wantsFollowUpAfter) {
+            mergedWithoutTrace = baseResponses;
+            const gateExtraction = {
+              ...extraction,
+              needs_follow_up: false,
+              follow_up_question: null,
             };
-          }
+            const confirmCopy =
+              buildSegmentConfirmationAssistantMessage(gateExtraction);
+            extraction = { ...gateExtraction, interviewer_message: confirmCopy };
+            shouldNotAdvance = true;
+            wantsFollowUp = false;
+            const pendingTrace: LimbicInterviewTraceV1 = {
+              ...traceForExtraction,
+              phase: "segment_confirmation",
+              mini_step: gateMini,
+              segment_confirmation_pending: {
+                version: 1,
+                mini_step: gateMini,
+                extraction: extractionPayloadForTrace(gateExtraction),
+              },
+            };
+            nextTrace = appendTurn(
+              appendTurn(pendingTrace, "user", userLine.slice(0, 500)),
+              "assistant",
+              confirmCopy.slice(0, 500),
+            );
+            if (
+              engineTurn.notes_for_route.branch === "cross_topic_llm_extraction" &&
+              engineTurn.notes_for_route.restoreMiniStepAfter
+            ) {
+              nextTrace = {
+                ...nextTrace,
+                mini_step: engineTurn.notes_for_route.restoreMiniStepAfter,
+                phase: "segment_confirmation",
+                follow_up_used: nextTrace.follow_up_used,
+              };
+            }
+            interviewerMessage = confirmCopy;
+            nextQuestion = null;
+          } else {
+            const { mergedResponses: mergedFromEx } =
+              applyStrategicInterviewExtraction(baseResponses, extraction);
+            mergedWithoutTrace = mergedFromEx;
 
-          interviewerMessage = extraction.interviewer_message || null;
-          nextQuestion =
-            nextTrace.mini_step === "complete"
-              ? null
-              : wantsFollowUp
+            const turn = computeTraceAfterStrategicLlmExtraction({
+              trace: traceForExtraction,
+              extraction,
+            });
+            nextTrace = turn.nextTrace;
+            wantsFollowUp = turn.wantsFollowUp;
+
+            nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
+            nextTrace = appendTurn(
+              nextTrace,
+              "assistant",
+              (extraction.interviewer_message || extraction.internal_notes).slice(
+                0,
+                500,
+              ),
+            );
+
+            if (
+              engineTurn.notes_for_route.branch === "cross_topic_llm_extraction" &&
+              engineTurn.notes_for_route.restoreMiniStepAfter &&
+              !wantsFollowUp
+            ) {
+              nextTrace = {
+                ...nextTrace,
+                mini_step: engineTurn.notes_for_route.restoreMiniStepAfter,
+                phase: "main",
+                follow_up_used: false,
+              };
+            }
+
+            interviewerMessage = extraction.interviewer_message || null;
+            nextQuestion =
+              nextTrace.mini_step === "complete"
                 ? null
-                : questionForMiniStep(
-                    nextTrace.mini_step ?? "challenge_type",
-                    projectChallengeType,
-                    otherChallenge,
-                  );
+                : wantsFollowUp
+                  ? null
+                  : questionForMiniStep(
+                      nextTrace.mini_step ?? "challenge_type",
+                      projectChallengeType,
+                      otherChallenge,
+                    );
+          }
         }
       }
     }
@@ -1105,6 +1478,7 @@ export async function POST(request: Request, { params }: Params) {
       nextTrace.decision_states,
       {
         userExplicitProceed: detectExplicitProceedWithPendingSummary(userTextRaw),
+        hasOpenSegmentConfirmation: Boolean(nextTrace.segment_confirmation_pending),
       },
     );
 
@@ -1119,6 +1493,13 @@ export async function POST(request: Request, { params }: Params) {
               extraction.confidence_by_field,
             )
           : null;
+
+    const summary_gate_message =
+      summaryBlockedByDecisions &&
+      nextTrace.mini_step === "complete" &&
+      nextTrace.phase === "done"
+        ? "Todavía falta confirmar algunos puntos antes de cerrar esta etapa."
+        : null;
 
     if (!existing) {
       const { data: inserted, error: insertError } = await supabase
@@ -1150,6 +1531,7 @@ export async function POST(request: Request, { params }: Params) {
           : null,
         suggested_chips: extraction.suggested_answer_chips,
         summary,
+        summary_gate_message,
         project_challenge_type: projectChallengeType,
         should_not_advance: effectiveShouldNotAdvance,
       });
@@ -1178,6 +1560,7 @@ export async function POST(request: Request, { params }: Params) {
       follow_up_question: wantsFollowUp ? extraction.follow_up_question : null,
       suggested_chips: extraction.suggested_answer_chips,
       summary,
+      summary_gate_message,
       project_challenge_type: projectChallengeType,
       should_not_advance: effectiveShouldNotAdvance,
     });
@@ -1201,14 +1584,30 @@ export async function POST(request: Request, { params }: Params) {
     { returnTo: null },
   );
 
+  const summaryBlockedPickChip = pilotSummaryBlockedByDecisionStates(
+    nextTrace.decision_states,
+    {
+      userExplicitProceed: false,
+      hasOpenSegmentConfirmation: Boolean(nextTrace.segment_confirmation_pending),
+    },
+  );
+
   const summary =
-    nextTrace.mini_step === "complete" && nextTrace.phase === "done"
-      ? buildStrategicInterviewPilotSummary(
+    summaryBlockedPickChip ||
+    !(nextTrace.mini_step === "complete" && nextTrace.phase === "done")
+      ? null
+      : buildStrategicInterviewPilotSummary(
           mergedResponses,
           projectChallengeType,
           otherChallenge,
           extraction.confidence_by_field,
-        )
+        );
+
+  const summary_gate_message =
+    summaryBlockedPickChip &&
+    nextTrace.mini_step === "complete" &&
+    nextTrace.phase === "done"
+      ? "Todavía falta confirmar algunos puntos antes de cerrar esta etapa."
       : null;
 
   if (!existing) {
@@ -1236,6 +1635,7 @@ export async function POST(request: Request, { params }: Params) {
       follow_up_question: null,
       suggested_chips: extraction.suggested_answer_chips,
       summary,
+      summary_gate_message,
       project_challenge_type: projectChallengeType,
     });
   }
@@ -1263,6 +1663,7 @@ export async function POST(request: Request, { params }: Params) {
     follow_up_question: null,
     suggested_chips: extraction.suggested_answer_chips,
     summary,
+    summary_gate_message,
     project_challenge_type: projectChallengeType,
   });
 }
