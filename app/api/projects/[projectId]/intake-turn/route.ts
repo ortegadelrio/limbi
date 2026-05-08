@@ -61,8 +61,8 @@ import {
   pilotSummaryBlockedByDecisionStates,
 } from "@/lib/intake/decision-state";
 import {
-  buildPendingSegmentAckQuestion,
   buildSegmentConfirmationAssistantMessage,
+  buildSegmentConfirmationHelpAssistantReply,
 } from "@/lib/intake/segment-confirmation";
 import {
   extractionPayloadForTrace,
@@ -141,9 +141,6 @@ function normalizeCompletedSteps(raw: unknown): string[] {
 }
 
 const GUIDED_STRATEGIC_FIELD_PENDING = "guided_intake:strategic_field_pending";
-
-const SEGMENT_CONFIRM_TEXT_OPTIONS_ES =
-  "Puedes responder con: Sí, así está bien · Quiero ajustar · Ayúdame a mejorarlo · Dejémoslo pendiente.";
 
 function applyEngineDecisionPatchesToTrace(
   tr: LimbicInterviewTraceV1,
@@ -766,8 +763,7 @@ export async function POST(request: Request, { params }: Params) {
               );
       } else if (kind === "correct") {
         mergedWithoutTrace = baseResponses;
-        const msg =
-          "De acuerdo. Cuéntame la versión corregida con tus palabras; cuando la tenga clara volveré a mostrarte la síntesis para confirmar.".trim();
+        const msg = "Claro. ¿Cómo lo ajustarías?".trim();
         extraction = {
           ...ext0,
           extracted_response_updates: {},
@@ -793,61 +789,36 @@ export async function POST(request: Request, { params }: Params) {
         );
       } else if (kind === "help") {
         mergedWithoutTrace = baseResponses;
-        const content = buildStrategicValidationTurnContent({
-          miniStep: segMini,
-          userText: userTextRaw,
-          challengeType: projectChallengeType,
-          otherChallenge,
-          strategicBase: sbSnap,
-          traceUserTurns: traceFromDb.turns,
-        });
-        const suppressFollowUpQuestion =
-          engineTurn.requires_confirmation || engineTurn.active_doubt_detected;
-        const nq = suppressFollowUpQuestion ? null : content.next_question?.trim();
-        let body = nq
-          ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
-          : content.interviewer_message.trim();
-        body = appendStrategicConfirmationTriad(body, engineTurn);
+        const body = buildSegmentConfirmationHelpAssistantReply(ext0, segMini);
         extraction = buildStrategicValidationSyntheticExtraction({
           interviewer_message: body,
           next_question: null,
-          suggested_chips: content.suggested_chips,
-          audience_recommendation_pending: content.audience_recommendation_pending,
+          suggested_chips: [],
+          audience_recommendation_pending: null,
         });
         shouldNotAdvance = true;
         wantsFollowUp = false;
         interviewerMessage = body;
         nextQuestion = null;
-        let baseForTrace: LimbicInterviewTraceV1 = {
+        const baseForTrace: LimbicInterviewTraceV1 = {
           ...stripAudienceRecommendationPending(traceFromDb),
-          phase: "strategy_validation",
+          phase: "segment_confirmation",
           mini_step: segMini,
           segment_confirmation_pending: pending0,
         };
-        if (content.audience_recommendation_pending) {
-          baseForTrace = {
-            ...baseForTrace,
-            audience_recommendation_pending: content.audience_recommendation_pending,
-          };
-        }
         nextTrace = appendTurn(
           appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
           "assistant",
           extraction.interviewer_message.slice(0, 500),
         );
-      } else if (kind === "pending_prompt") {
+      } else if (kind === "frustration") {
         mergedWithoutTrace = baseResponses;
-        const synth = buildSegmentConfirmationAssistantMessage({
-          ...ext0,
-          interviewer_message: ext0.interviewer_message,
-        });
-        const why =
-          "Si dejamos este punto abierto, Limbi no debe rellenarlo con suposiciones en el Sistema Límbico.";
-        const msg = `${why}\n\n${synth}\n\n${buildPendingSegmentAckQuestion()}\n\n${SEGMENT_CONFIRM_TEXT_OPTIONS_ES}`.trim();
+        const msg =
+          "Tienes razón. Para poder avanzar necesito cerrar este punto: ¿lo confirmamos, lo ajustamos o lo dejamos pendiente?".trim();
         extraction = {
           ...ext0,
           interviewer_message: msg,
-          internal_notes: "segment_confirm_pending_prompt",
+          internal_notes: "segment_confirm_frustration_ack",
         };
         shouldNotAdvance = true;
         wantsFollowUp = false;
@@ -861,7 +832,7 @@ export async function POST(request: Request, { params }: Params) {
               mini_step: segMini,
               segment_confirmation_pending: {
                 ...pending0,
-                awaiting_pending_ack: true,
+                awaiting_pending_ack: false,
               },
             },
             "user",
@@ -872,7 +843,7 @@ export async function POST(request: Request, { params }: Params) {
         );
       } else {
         mergedWithoutTrace = baseResponses;
-        const msg = buildSegmentConfirmationAssistantMessage(ext0);
+        const msg = buildSegmentConfirmationAssistantMessage(ext0, segMini);
         extraction = { ...ext0, interviewer_message: msg };
         shouldNotAdvance = true;
         wantsFollowUp = false;
@@ -1009,7 +980,10 @@ export async function POST(request: Request, { params }: Params) {
         needs_follow_up: false,
         follow_up_question: null,
       };
-      const confirmCopy = buildSegmentConfirmationAssistantMessage(gateExtraction);
+      const confirmCopy = buildSegmentConfirmationAssistantMessage(
+        gateExtraction,
+        "evidence",
+      );
       extraction = { ...gateExtraction, interviewer_message: confirmCopy };
       const pendingTrace: LimbicInterviewTraceV1 = {
         ...stripSegmentConfirmationPending(traceFromDb),
@@ -1341,8 +1315,10 @@ export async function POST(request: Request, { params }: Params) {
               needs_follow_up: false,
               follow_up_question: null,
             };
-            const confirmCopy =
-              buildSegmentConfirmationAssistantMessage(gateExtraction);
+            const confirmCopy = buildSegmentConfirmationAssistantMessage(
+              gateExtraction,
+              gateMini,
+            );
             extraction = { ...gateExtraction, interviewer_message: confirmCopy };
             shouldNotAdvance = true;
             wantsFollowUp = false;

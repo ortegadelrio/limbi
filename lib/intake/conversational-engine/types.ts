@@ -104,7 +104,7 @@ export type TurnDecisionNotesForRoute = {
     | "pending_ack_confirm"
     | "correct"
     | "help"
-    | "pending_prompt"
+    | "frustration"
     | "reprompt";
 };
 

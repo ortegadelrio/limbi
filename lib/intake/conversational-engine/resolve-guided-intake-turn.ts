@@ -384,7 +384,11 @@ function resolveSegmentConfirmationTurnInner(
     });
   }
 
-  if (reply === "pending_ack_confirm") {
+  if (reply === "pending_ack_confirm" || (reply === "pending_missing_info" && !awaiting)) {
+    const pendingReason =
+      reply === "pending_ack_confirm"
+        ? "User confirmed leaving segment information explicitly pending."
+        : "User chose to leave this segment explicitly pending.";
     return finalizeEngineTurn(trace, userText, {
       user_intent: "confirmation",
       pending_state: pendingState,
@@ -405,7 +409,7 @@ function resolveSegmentConfirmationTurnInner(
       decision_status_updates: segmentTopicPatch(
         segMini,
         "pending_confirmed",
-        "User confirmed leaving segment information explicitly pending.",
+        pendingReason,
       ),
       active_doubt_detected: false,
       can_show_summary: false,
@@ -456,7 +460,7 @@ function resolveSegmentConfirmationTurnInner(
       current_mini_step: miniStep,
       next_mini_step: segMini,
       current_phase: trace.phase,
-      next_phase: "strategy_validation",
+      next_phase: "segment_confirmation",
       should_advance: false,
       should_not_advance: true,
       writes_to_responses: false,
@@ -469,20 +473,20 @@ function resolveSegmentConfirmationTurnInner(
       decision_status_updates: segmentTopicPatch(
         segMini,
         "low_confidence",
-        "User asked for recommendation during segment confirmation.",
+        "User asked for help improving the segment confirmation synthesis.",
       ),
-      active_doubt_detected: true,
+      active_doubt_detected: false,
       can_show_summary: false,
       requires_confirmation: true,
-      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      confirmation_options: null,
       target_topic: miniStepToStrategicTopicKey(segMini),
       reopened_topic: null,
     });
   }
 
-  if (reply === "pending_missing_info" && !awaiting) {
+  if (reply === "frustration") {
     return finalizeEngineTurn(trace, userText, {
-      user_intent: "missing_information",
+      user_intent: "ambiguous_answer",
       pending_state: pendingState,
       action: "segment_confirmation_resolve",
       current_mini_step: miniStep,
@@ -497,13 +501,9 @@ function resolveSegmentConfirmationTurnInner(
       render_policy: "single_surface_no_competing_bank",
       question_surface_type: "single_merged_assistant_turn",
       skip_llm_extraction: true,
-      notes_for_route: { ...notesBase, segmentConfirmationKind: "pending_prompt" },
-      decision_status_updates: segmentTopicPatch(
-        segMini,
-        "provisional",
-        "Awaiting explicit confirmation to leave segment pending.",
-      ),
-      active_doubt_detected: true,
+      notes_for_route: { ...notesBase, segmentConfirmationKind: "frustration" },
+      decision_status_updates: [],
+      active_doubt_detected: false,
       can_show_summary: false,
       requires_confirmation: true,
       confirmation_options: null,

@@ -1,3 +1,4 @@
+import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
 
@@ -7,6 +8,7 @@ export type SegmentConfirmationUserReplyKind =
   | "help"
   | "pending_missing_info"
   | "pending_ack_confirm"
+  | "frustration"
   | "unknown";
 
 export const SEGMENT_CONFIRM_UI_HINT_ES = [
@@ -22,6 +24,9 @@ const SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES: RegExp[] = [
   /propuesta\s+de\s+valor\s+distinta/i,
   /\bresuena\s+con\b/i,
   /\betapa\s+de\s+vida\b/i,
+  /\betapa\s+crucial\b/i,
+  /\boportunidades?\s+de\s+personalizaci[oó]n\b/i,
+  /\bpotencial\s+fuerte\b/i,
   /\bgran\s+oportunidad\b/i,
   /\bfuerte\s+posicionamiento\b/i,
   /\bdiferenciaci[oó]n\s+clave\b/i,
@@ -49,11 +54,108 @@ export function sanitizeInterpretationCoreForSegmentConfirmation(core: string): 
   return joined.length > 0 ? joined : t;
 }
 
-export function buildSegmentConfirmationAssistantMessage(
-  extraction: Pick<IntakeExtractionOutput, "interviewer_message">,
+function readRecord(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  return {};
+}
+
+function stripTerminalPeriod(s: string): string {
+  const t = s.trim();
+  if (t.endsWith(".")) return t.slice(0, -1).trim();
+  return t;
+}
+
+/**
+ * One-line confirmation body from structured extraction (preferred over model interviewer_message).
+ */
+export function buildSegmentConfirmationStructuredCore(
+  extraction: Pick<IntakeExtractionOutput, "interviewer_message" | "extracted_response_updates">,
+  miniStep: GuidedMiniStepId,
 ): string {
-  const core = sanitizeInterpretationCoreForSegmentConfirmation(extraction.interviewer_message.trim());
+  const upd = readRecord(extraction.extracted_response_updates);
+  const sb = readRecord(upd.strategic_base);
+  const ab = readRecord(upd.audience_base);
+  const eb = readRecord(upd.evidence_base);
+
+  if (miniStep === "tailored_what") {
+    const d =
+      typeof sb.simple_description === "string"
+        ? sanitizeInterpretationCoreForSegmentConfirmation(sb.simple_description)
+        : "";
+    if (d.length > 0) return `Ofreces ${stripTerminalPeriod(d)}.`;
+  }
+  if (miniStep === "problem") {
+    const p =
+      typeof sb.problem_description_optional === "string"
+        ? sanitizeInterpretationCoreForSegmentConfirmation(sb.problem_description_optional)
+        : "";
+    if (p.length > 0) return `La fricción central es ${stripTerminalPeriod(p)}.`;
+  }
+  if (miniStep === "transformation") {
+    const to =
+      typeof sb.transformation_to === "string"
+        ? sanitizeInterpretationCoreForSegmentConfirmation(sb.transformation_to)
+        : "";
+    if (to.length > 0) return `El beneficio a comunicar es ${stripTerminalPeriod(to)}.`;
+  }
+  if (miniStep === "audience") {
+    const desc =
+      typeof ab.audience_description_optional === "string"
+        ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_description_optional)
+        : "";
+    if (desc.length > 0) return `La audiencia quedaría así: ${stripTerminalPeriod(desc)}.`;
+    const slug =
+      typeof ab.audience_type === "string"
+        ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_type)
+        : "";
+    if (slug.length > 0) return `La audiencia principal quedaría categorizada como: ${stripTerminalPeriod(slug)}.`;
+  }
+  if (miniStep === "evidence") {
+    const types = eb.evidence_types;
+    if (Array.isArray(types) && types.includes("no_clear_evidence")) {
+      return "La evidencia queda pendiente.";
+    }
+    if (Array.isArray(types) && types.length > 0) {
+      const joined = types.map((x) => String(x).trim()).filter(Boolean).join(", ");
+      if (joined.length > 0) return `La evidencia registrada incluye estos tipos: ${joined}.`;
+    }
+    const details = eb.evidence_details;
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      const keys = Object.keys(details as Record<string, unknown>).filter((k) => {
+        const v = (details as Record<string, unknown>)[k];
+        return typeof v === "string" && String(v).trim().length > 0;
+      });
+      if (keys.length > 0) return `La evidencia disponible está anotada en: ${keys.join(", ")}.`;
+    }
+  }
+
+  return sanitizeInterpretationCoreForSegmentConfirmation(extraction.interviewer_message.trim());
+}
+
+export function buildSegmentConfirmationAssistantMessage(
+  extraction: Pick<IntakeExtractionOutput, "interviewer_message" | "extracted_response_updates">,
+  miniStep?: GuidedMiniStepId,
+): string {
+  const structured =
+    miniStep !== undefined &&
+    miniStep !== "challenge_type" &&
+    miniStep !== "complete"
+      ? buildSegmentConfirmationStructuredCore(extraction, miniStep)
+      : "";
+  const core =
+    structured.length > 0
+      ? structured
+      : sanitizeInterpretationCoreForSegmentConfirmation(extraction.interviewer_message.trim());
   return `Lo guardaría así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
+}
+
+/** Help during segment confirmation: grounded structured line + same triad (no generic strategic validation essay). */
+export function buildSegmentConfirmationHelpAssistantReply(
+  extraction: Pick<IntakeExtractionOutput, "interviewer_message" | "extracted_response_updates">,
+  miniStep: GuidedMiniStepId,
+): string {
+  const core = buildSegmentConfirmationStructuredCore(extraction, miniStep);
+  return `Con lo que registramos en este paso, te propongo dejarlo así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
 }
 
 export function buildPendingSegmentAckQuestion(): string {
@@ -74,6 +176,11 @@ export function classifySegmentConfirmationUserReply(params: {
 
   if (params.awaitingPendingAck) {
     if (
+      /\b(ya te respond[ií]|ya respond[ií]|eso ya lo dije|ya te dije|ya lo dije)\b/i.test(tFold)
+    ) {
+      return "frustration";
+    }
+    if (
       /^(s[ií]|ok|vale|confirmo|exacto|adelante|dale)(?=[\s,.;:!?]|$)/u.test(tFold) ||
       /\b(confirmo que quede pendiente|s[ií],?\s+pendiente|dej[aé]moslo as[ií])\b/i.test(
         tFold,
@@ -85,7 +192,21 @@ export function classifySegmentConfirmationUserReply(params: {
   }
 
   if (
-    /\b(no tengo|sin informaci[oó]n|no dispongo|no cuento con|falta informaci[oó]n)\b/i.test(
+    /\b(ya te respond[ií]|ya respond[ií]|eso ya lo dije|ya te dije|ya lo dije)\b/i.test(tFold)
+  ) {
+    return "frustration";
+  }
+
+  if (
+    /\b(ajustemos|ajusta|quiero ajustar|lo ajustamos|corrijamos|quiero corregir|no,?\s*eso no|eso no es|no esta bien|no está bien|mejor dicho|cambiemoslo|cambi[eé]moslo|hay que corregir|hay que ajustarlo)\b/i.test(
+      tFold,
+    )
+  ) {
+    return "correct";
+  }
+
+  if (
+    /\b(no tengo|sin informaci[oó]n|no dispongo|no cuento con|falta informaci[oó]n|dejarlo pendiente|dejemoslo pendiente|dej[eé]moslo pendiente|lo dejamos pendiente|pendiente(?!\s+confirm)|mas tarde|m[aá]s tarde|lo revisamos despues|lo revisamos despu[eé]s|no tengo esa informaci[oó]n|no lo se todavia|no lo se todav[ií]a|no lo s[eé] todav[ií]a)\b/i.test(
       tFold,
     )
   ) {
@@ -94,7 +215,7 @@ export function classifySegmentConfirmationUserReply(params: {
 
   if (
     detectStrategicHelpOrHowToRequest(params.userText) ||
-    /\b(recomendaci[oó]n|recomiendas|qu[eé] opinas|ay[uú]dame|ay[uú]dame a mejorarlo|mejorarlo conmigo)\b/i.test(
+    /\b(recomendaci[oó]n|recomiendas|qu[eé] opinas|ay[uú]dame|ay[uú]dame a mejorarlo|mejorarlo conmigo|mejoralo|mej[oó]ralo|hazlo mejor|prop[oó]n|dame una recomendaci[oó]n)\b/i.test(
       tFold,
     )
   ) {
@@ -102,25 +223,11 @@ export function classifySegmentConfirmationUserReply(params: {
   }
 
   if (
-    /\b(corregir|correcci[oó]n|no es as[ií]|no,?\s+eso no|me equivoqu[eé]|mejor dicho|quiero ajustar|lo ajustamos|hay que ajustarlo)\b/i.test(
+    /^(s[ií]|ok|vale|confirmo|exacto|correcto|claro|listo|dale|perfecto|adelante)(?=[\s,.;:!?]|$)/u.test(
       tFold,
-    )
-  ) {
-    return "correct";
-  }
-
-  if (
-    /\b(dej[eé]moslo pendiente|dejar pendiente|pendiente por ahora|lo vemos despu[eé]s)\b/i.test(
-      tFold,
-    )
-  ) {
-    return "pending_missing_info";
-  }
-
-  if (
-    /^(s[ií]|ok|vale|confirmo|exacto|correcto|claro|listo)(?=[\s,.;:!?]|$)/u.test(tFold) ||
+    ) ||
     /^confirmar(?=[\s,.;:!?]|$)/iu.test(tFold) ||
-    /\b(dej[eé]moslo as[ií]|as[ií] est[aá] bien|confirmo que s[ií]|s[ií],?\s+as[ií] est[aá] bien)\b/i.test(
+    /\b(esta bien|est[aá] bien|as[ií] esta bien|as[ií] está bien|dejemoslo asi|dej[eé]moslo as[ií]|dejalo asi|d[eé]jalo as[ií]|me sirve|confirmo que s[ií]|s[ií],?\s+as[ií] est[aá] bien|de acuerdo)\b/i.test(
       tFold,
     )
   ) {

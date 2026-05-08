@@ -37,9 +37,10 @@ function traceWithPending(
 function minimalExtraction(
   interviewer_message: string,
   internal_notes = "unit",
+  extracted_response_updates: Record<string, unknown> = {},
 ): IntakeExtractionOutput {
   return {
-    extracted_response_updates: {},
+    extracted_response_updates,
     confidence_by_field: {},
     needs_follow_up: false,
     follow_up_question: null,
@@ -146,6 +147,42 @@ describe("segment confirmation gate helpers", () => {
     expect(msg).toContain("Lo guardaría así:");
     expect(msg).toContain("interpretación resumida");
     expect(msg).toMatch(/ajustamos|pendiente/i);
+  });
+
+  it("prefers structured simple_description over interviewer_message for tailored_what", () => {
+    const msg = buildSegmentConfirmationAssistantMessage(
+      minimalExtraction(
+        "Etapa crucial con oportunidades de personalización y potencial fuerte.",
+        "unit",
+        {
+          strategic_base: {
+            simple_description: "Un servicio de software para equipos medianos.",
+          },
+        },
+      ),
+      "tailored_what",
+    );
+    expect(msg).toMatch(/Ofreces/i);
+    expect(msg).toMatch(/software|equipos/i);
+    expect(msg).not.toMatch(/etapa crucial|potencial fuerte|oportunidades de personalizaci/i);
+  });
+
+  it("uses problem_description_optional for problem step, not interviewer prose", () => {
+    const msg = buildSegmentConfirmationAssistantMessage(
+      minimalExtraction(
+        "Resuena con una etapa de vida distinta y hay alto potencial.",
+        "unit",
+        {
+          strategic_base: {
+            problem_description_optional: "La coordinación interna se rompe antes del lanzamiento.",
+          },
+        },
+      ),
+      "problem",
+    );
+    expect(msg).toMatch(/fricci[oó]n central/i);
+    expect(msg).toMatch(/coordinaci[oó]n interna/i);
+    expect(msg).not.toMatch(/etapa de vida|alto potencial/i);
   });
 
   it("drops generic evaluative sentences from confirmation synthesis", () => {
@@ -281,26 +318,37 @@ describe("resolveGuidedIntakeTurn segment_confirmation_resolve", () => {
     expect(d.writes_to_responses).toBe(false);
   });
 
-  it("routes help to strategy_validation hold without advancing", () => {
+  it("routes help to segment_confirmation hold without advancing", () => {
     const d = resolveGuidedIntakeTurn({
       userText: "ayúdame a definirlo",
       miniStep: "tailored_what",
       trace: traceWithPending(pending),
     });
     expect(d.notes_for_route.segmentConfirmationKind).toBe("help");
-    expect(d.next_phase).toBe("strategy_validation");
+    expect(d.next_phase).toBe("segment_confirmation");
     expect(d.should_not_advance).toBe(true);
     expect(d.requires_confirmation).toBe(true);
   });
 
-  it("asks pending ack after user signals missing info", () => {
+  it("advances when user signals missing info or explicit pending (single step)", () => {
     const d = resolveGuidedIntakeTurn({
       userText: "no tengo esa información",
       miniStep: "tailored_what",
       trace: traceWithPending(pending),
     });
-    expect(d.notes_for_route.segmentConfirmationKind).toBe("pending_prompt");
-    expect(d.next_phase).toBe("segment_confirmation");
+    expect(d.notes_for_route.segmentConfirmationKind).toBe("pending_ack_confirm");
+    expect(d.should_advance).toBe(true);
+    expect(d.next_phase).toBe("main");
+  });
+
+  it("advances on dejarlo pendiente without a second ack round", () => {
+    const d = resolveGuidedIntakeTurn({
+      userText: "dejarlo pendiente",
+      miniStep: "tailored_what",
+      trace: traceWithPending(pending),
+    });
+    expect(d.notes_for_route.segmentConfirmationKind).toBe("pending_ack_confirm");
+    expect(d.should_advance).toBe(true);
   });
 
   it("pending_ack_confirm advances with pending_confirmed patch", () => {
@@ -317,6 +365,17 @@ describe("resolveGuidedIntakeTurn segment_confirmation_resolve", () => {
     expect(d.decision_status_updates.some((p) => p.status === "pending_confirmed")).toBe(
       true,
     );
+  });
+
+  it("frustration reply keeps confirmation open without reprompt kind", () => {
+    const d = resolveGuidedIntakeTurn({
+      userText: "ya te respondí",
+      miniStep: "tailored_what",
+      trace: traceWithPending(pending),
+    });
+    expect(d.notes_for_route.segmentConfirmationKind).toBe("frustration");
+    expect(d.should_not_advance).toBe(true);
+    expect(d.next_phase).toBe("segment_confirmation");
   });
 });
 
@@ -340,6 +399,42 @@ describe("classifySegmentConfirmationUserReply", () => {
         awaitingPendingAck: false,
       }),
     ).toBe("correct");
+  });
+
+  it("treats short affirmations and colloquial confirm phrases as confirm", () => {
+    expect(
+      classifySegmentConfirmationUserReply({ userText: "está bien", awaitingPendingAck: false }),
+    ).toBe("confirm");
+    expect(
+      classifySegmentConfirmationUserReply({ userText: "si", awaitingPendingAck: false }),
+    ).toBe("confirm");
+    expect(
+      classifySegmentConfirmationUserReply({ userText: "me sirve", awaitingPendingAck: false }),
+    ).toBe("confirm");
+  });
+
+  it("treats adjustment verbs as correction", () => {
+    expect(
+      classifySegmentConfirmationUserReply({ userText: "Ajustemos", awaitingPendingAck: false }),
+    ).toBe("correct");
+  });
+
+  it("treats help and improvement asks as help", () => {
+    expect(
+      classifySegmentConfirmationUserReply({
+        userText: "ayúdame a mejorarlo",
+        awaitingPendingAck: false,
+      }),
+    ).toBe("help");
+  });
+
+  it("treats frustration as its own class", () => {
+    expect(
+      classifySegmentConfirmationUserReply({
+        userText: "Ya te respondí",
+        awaitingPendingAck: false,
+      }),
+    ).toBe("frustration");
   });
 });
 
