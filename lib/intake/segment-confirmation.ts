@@ -14,10 +14,45 @@ export const SEGMENT_CONFIRM_UI_HINT_ES = [
   "También valen «confirmar», «sí» o «dejémoslo pendiente».",
 ].join("\n");
 
+/** Generic praise, market diagnosis, or evaluative boilerplate — not persisted in confirmation unless the user said it. */
+const SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES: RegExp[] = [
+  /\balt[oa]s?\s+potencial(es)?\b/i,
+  /\bmercado\s+saturad[oa]\b/i,
+  /\bmercado\s+competitivo\b/i,
+  /propuesta\s+de\s+valor\s+distinta/i,
+  /\bresuena\s+con\b/i,
+  /\betapa\s+de\s+vida\b/i,
+  /\bgran\s+oportunidad\b/i,
+  /\bfuerte\s+posicionamiento\b/i,
+  /\bdiferenciaci[oó]n\s+clave\b/i,
+  /\bvalor\s+estratégico\b/i,
+  /\boportunidad(es)?\s+de\s+mercado\b/i,
+];
+
+/**
+ * Removes sentences that are mostly generic market evaluation or praise, so the
+ * confirmation line stays short and tied to what the user actually said.
+ */
+export function sanitizeInterpretationCoreForSegmentConfirmation(core: string): string {
+  const t = core.trim();
+  if (!t) return t;
+
+  const sentences = t
+    .split(/(?<=[.!?])\s+/u)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const chunks = sentences.length > 0 ? sentences : [t];
+  const kept = chunks.filter(
+    (sentence) => !SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES.some((re) => re.test(sentence)),
+  );
+  const joined = kept.join(" ").replace(/\s+/g, " ").trim();
+  return joined.length > 0 ? joined : t;
+}
+
 export function buildSegmentConfirmationAssistantMessage(
   extraction: Pick<IntakeExtractionOutput, "interviewer_message">,
 ): string {
-  const core = extraction.interviewer_message.trim();
+  const core = sanitizeInterpretationCoreForSegmentConfirmation(extraction.interviewer_message.trim());
   return `Lo guardaría así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
 }
 

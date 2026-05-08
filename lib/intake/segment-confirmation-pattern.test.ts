@@ -5,6 +5,7 @@ import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
 import {
   buildSegmentConfirmationAssistantMessage,
   classifySegmentConfirmationUserReply,
+  sanitizeInterpretationCoreForSegmentConfirmation,
 } from "@/lib/intake/segment-confirmation";
 import {
   extractionPayloadForTrace,
@@ -145,6 +146,18 @@ describe("segment confirmation gate helpers", () => {
     expect(msg).toContain("Lo guardaría así:");
     expect(msg).toContain("interpretación resumida");
     expect(msg).toMatch(/ajustamos|pendiente/i);
+  });
+
+  it("drops generic evaluative sentences from confirmation synthesis", () => {
+    const raw =
+      "Tu oferta tiene alto potencial en un mercado saturado. Lo esencial es que vendes un servicio operativo con entregas claras.";
+    expect(sanitizeInterpretationCoreForSegmentConfirmation(raw)).not.toMatch(
+      /alto potencial|mercado saturado/i,
+    );
+    expect(sanitizeInterpretationCoreForSegmentConfirmation(raw)).toMatch(/operativo|entregas/i);
+    const msg = buildSegmentConfirmationAssistantMessage(minimalExtraction(raw));
+    expect(msg).not.toMatch(/alto potencial|mercado saturado/i);
+    expect(msg).toMatch(/operativo|entregas/i);
   });
 });
 

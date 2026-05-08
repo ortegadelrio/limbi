@@ -130,12 +130,6 @@ export type StrategicValidationTurnContent = {
   audience_recommendation_pending?: AudienceRecommendationPendingV1 | null;
 };
 
-const TEEN_PARENTS_PROVISIONAL_ASSESSMENT =
-  "Con la información que tenemos hasta ahora, sí tiene sentido que los padres sean la audiencia principal porque autorizan y pagan el servicio. Pero también aparece una audiencia secundaria importante: los adolescentes, que son quienes deben desear la experiencia. Cuando completemos el Sistema Límbico, podré ayudarte a definir si la comunicación debe priorizar a padres, adolescentes o mensajes diferenciados para ambos. Por ahora dejo a los padres como audiencia principal provisional.";
-
-const EVIDENCE_RETURN_AFTER_PARENTS_DEBATE =
-  "Sigamos con evidencia: ¿tienes algún dato, experiencia, testimonio o referencia que respalde la seguridad y acompañamiento del servicio?";
-
 function readSb(r: Record<string, unknown>): Record<string, unknown> {
   const sb = r.strategic_base;
   if (sb && typeof sb === "object" && !Array.isArray(sb)) {
@@ -157,21 +151,6 @@ function blobFromContext(
       ? strategicBase.simple_description
       : "";
   return `${userText}\n${prob}\n${desc}`.toLowerCase();
-}
-
-function isTeenTravelParentsEvidenceValidation(params: {
-  userText: string;
-  strategicBase: Record<string, unknown>;
-}): boolean {
-  const b = blobFromContext(params.userText, params.strategicBase);
-  const parents = /padres|madres|mamás|papás|autoriz|pagan/.test(
-    params.userText.toLowerCase(),
-  );
-  const youthTravel =
-    /adolescent|menores|jóvenes|jovenes|teen|viaj|viaje|sin (sus )?padres/.test(
-      b,
-    );
-  return parents && youthTravel;
 }
 
 function genericProvisionalPreamble(miniStep: GuidedMiniStepId): string {
@@ -670,6 +649,7 @@ export function buildStrategicValidationTurnContent(params: {
       userText,
       traceUserTurns,
       strategicBaseLowerBlob: strategicBlobLower,
+      strategicBase,
       bankQuestion: bank,
     });
     if (resolved) {
@@ -680,18 +660,6 @@ export function buildStrategicValidationTurnContent(params: {
         audience_recommendation_pending: resolved.audience_recommendation_pending,
       };
     }
-  }
-
-  if (
-    miniStep === "evidence" &&
-    isTeenTravelParentsEvidenceValidation({ userText, strategicBase })
-  ) {
-    return {
-      interviewer_message: TEEN_PARENTS_PROVISIONAL_ASSESSMENT,
-      next_question: EVIDENCE_RETURN_AFTER_PARENTS_DEBATE,
-      suggested_chips: [...EVIDENCE_CLARIFICATION_SUGGESTED_CHIPS],
-      audience_recommendation_pending: null,
-    };
   }
 
   if (miniStep === "evidence") {

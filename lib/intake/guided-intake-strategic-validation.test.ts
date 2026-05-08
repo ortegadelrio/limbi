@@ -111,6 +111,20 @@ describe("detectMultiActorRecommendationContext", () => {
     ).toBe(true);
   });
 
+  it("is true when a guidance fragment plus confirmed strategic fields yield two clean actors", () => {
+    expect(
+      detectMultiActorRecommendationContext(
+        "Yo diria que a los niños, pero recomiéndame porque tengo dudas",
+        [],
+        "",
+        {
+          simple_description: "",
+          problem_description_optional: "Los padres necesitan confiar antes de autorizar.",
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("is false when an ambiguous actor remains unresolved in the same turn", () => {
     const line =
       "Creería que al gobierno local y también a los señores para que vayan a la casa, tú qué opinas?";
@@ -141,24 +155,25 @@ describe("extractActorsForAudienceRecommendation", () => {
 describe("buildStrategicValidationTurnContent", () => {
   const emptyTurns: { role: string; summary: string }[] = [];
 
-  it("uses the teen-travel + parents provisional copy on evidence when context matches", () => {
+  it("evidence step keeps generic provisional framing and re-asks for evidence material", () => {
     const content = buildStrategicValidationTurnContent({
       miniStep: "evidence",
       userText:
-        "No tengo evidencias, pero ¿estás de acuerdo en que los padres deben ser el objetivo?",
+        "No tengo evidencias todavía, pero ¿crees que el posicionamiento que comenté tiene sentido?",
       challengeType: "service",
       otherChallenge: false,
       strategicBase: {
         problem_description_optional:
-          "Adolescentes que viajan sin la supervisión directa de sus padres",
-        simple_description: "Servicio de viajes con acompañamiento para grupos jóvenes",
+          "Equipos internos dudan antes de adoptar un flujo operativo nuevo.",
+        simple_description: "Software para coordinar entregas y handoffs internos.",
       },
       traceUserTurns: emptyTurns,
     });
     expect(content.interviewer_message).toContain("Sistema Límbico");
-    expect(content.interviewer_message).toMatch(/padres|adolescentes/i);
+    expect(content.interviewer_message).not.toMatch(/viajes escolares|adolescentes/i);
     expect(content.next_question).toMatch(/Sigamos con evidencia/i);
-    expect(content.next_question).toMatch(/testimonio|seguridad|acompañamiento/i);
+    expect(content.interviewer_message).toMatch(/cifras|casos|trayectoria|testimonios/i);
+    expect(content.audience_recommendation_pending).toBeNull();
   });
 
   it("does not advance or persist evidence when applying synthetic extraction", () => {
@@ -247,7 +262,9 @@ describe("buildStrategicValidationTurnContent", () => {
     expect(content.interviewer_message).toMatch(/ventas|usuarios/i);
     expect(content.interviewer_message).not.toMatch(/consumidores finales|equipos internos/i);
     expect(content.interviewer_message).not.toMatch(/consumidor final/i);
-    expect(content.interviewer_message).toMatch(/deciden|compra|usan|herramienta|comprad|usuario/i);
+    expect(content.interviewer_message).toMatch(
+      /foco principal|Capa complementaria|autorizaci[oó]n|confianza|pago|deseo|vivencia/i,
+    );
   });
 
   it("A. público/social: gobierno local + señores ambiguos — aclaración, sin confirmación ni frase completa", () => {

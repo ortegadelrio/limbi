@@ -1,4 +1,5 @@
 import type { AudienceRecommendationPendingV1 } from "@/lib/intake/orchestrator";
+import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
 
 /** Roles for ranking and copy only; not exposed as API fields. */
 export type ActorAudienceRole =
@@ -39,10 +40,10 @@ const NON_ACTOR_TOPIC_RE =
   /^(subsidios?|seguridad|confianza|financiaci[oó]n|m[aá]s ventas|mejor experiencia|experiencia|ventas|incentivos?|presupuesto abstracto|transparencia|innovaci[oó]n|servicio|servicios)$/i;
 
 const OPINION_OR_REQUEST_RE =
-  /\b(opinas|recomendarías|recomiendas|sugieres|harías|me recomiendas|qué opinas|qué me recomiendas|a quién me recomendarías|cuál me recomiendas|qué me sugieres|tú qué harías|qué ves mejor|te parece|crees que)\b/i;
+  /\b(opinas|recomendarías|recomiendas|sugieres|harías|me recomiendas|qué opinas|qué me recomiendas|a quién me recomendarías|cuál me recomiendas|qué me sugieres|tú qué harías|qué ves mejor|te parece|crees que|recomi[eé]nd(ame|anos|emos|arías)|tengo dudas|muchas dudas|tengo una duda|no estoy seguro|no estoy segura)\b/i;
 
 const HEDGE_LEADING =
-  /^(creería\s+que|yo\s+creo\s+que|pienso\s+que|me\s+parece\s+que|considero\s+que|diría\s+que|supongo\s+que)\s+/i;
+  /^(creería\s+que|yo\s+creo\s+que|pienso\s+que|me\s+parece\s+que|considero\s+que|(?:yo\s+)?dir[ií]a\s+que|diria\s+que|supongo\s+que)\s+/i;
 
 const TAIL_QUESTION_OR_REQUEST =
   /[,.\s]*\b(tú\s+qué\s+opinas|qué\s+opinas|qué\s+me\s+recomiendas|a\s+quién\s+me\s+recomendarías|cuál\s+me\s+recomiendas|qué\s+me\s+sugieres|tú\s+qué\s+harías|qué\s+ves\s+mejor)\??\s*$/i;
@@ -145,6 +146,18 @@ function isValidActorCandidate(normalizedLower: string): boolean {
   if (BANNED_STANDALONE_ACTOR_PHRASES.test(t)) return false;
   if (wordCount(t) > MAX_ACTOR_WORDS) return false;
   if (/^¿/.test(t)) return false;
+  if (/^\s*pero\b/i.test(t)) return false;
+  if (/^que\s+(son|son las|son los|están|estan|hacen)\b/i.test(t)) return false;
+  if (/\b(recomi[eé]nd|recomend)\w*\b/i.test(t)) return false;
+  if (/\bdudas?\b/i.test(t)) return false;
+  /** Reject clause-like spans (“los X usan Y …”) mistaken for audience labels. */
+  if (
+    wordCount(t) >= 4 &&
+    /\b(usar|usan|recomiendan|recomienda|autorizan|autoriza|deciden|decide|organizan|organiza)\b/i.test(t)
+  ) {
+    return false;
+  }
+  if (/\b(viajan|viaja|necesitan|deben)\s+\w+\b/i.test(t) && wordCount(t) <= 5) return false;
   if (/\bviajes\b/i.test(t) && !/\bviajeros?\b/i.test(t)) return false;
   if (/^(casa|casas|hogar|día|dia|ahora|hoy)$/i.test(t)) return false;
   return true;
@@ -162,8 +175,25 @@ function stripPurposeClause(s: string): string {
   return s.replace(/\s+para\s+que\b[\s\S]*$/i, "").trim();
 }
 
+function stripTrailingMetaPeroClause(s: string): string {
+  const m = s.match(/\s*,?\s*pero\b([\s\S]*)$/i);
+  if (!m) return s;
+  const tail = (m[1] ?? "").trim().toLowerCase();
+  /** Keep factual contrast (“…, pero los médicos…”) — only drop meta tails (“pero recomiéndame”). */
+  if (/^(los|las|el|la|un|una|unos|unas)\b/u.test(tail)) return s;
+  if (
+    /\b(recomi|dudas|opinas|sugieres|crees|ay[uú]dame|no estoy seguro|no estoy segura|qu[eé]\s+me\s+recomiendas)\b/i.test(
+      tail,
+    )
+  ) {
+    return s.replace(/\s*,?\s*pero\b[\s\S]*$/i, "").trim();
+  }
+  return s;
+}
+
 function preprocessLine(line: string): string {
   let s = line.trim();
+  s = stripTrailingMetaPeroClause(s);
   s = s.replace(TAIL_QUESTION_OR_REQUEST, "").trim();
   s = s.replace(HEDGE_LEADING, "").trim();
   s = s.replace(/^\s*¿+\s*/, "").trim();
@@ -292,6 +322,53 @@ export type ExtractActorsResult = {
   ambiguous: string[];
 };
 
+/** Help, doubt, or recommendation-in-the-same-line: do not mine prior trace lines for actors. */
+/** Narrative fields already captured in strategic_base — safe nominal mining on guidance turns (excludes the live user line). */
+export function confirmedStrategicActorContext(strategicBase: Record<string, unknown>): string {
+  const prob =
+    typeof strategicBase.problem_description_optional === "string"
+      ? strategicBase.problem_description_optional.trim()
+      : "";
+  const desc =
+    typeof strategicBase.simple_description === "string"
+      ? strategicBase.simple_description.trim()
+      : "";
+  return [desc, prob].filter(Boolean).join("\n");
+}
+
+export function isAudienceGuidanceSeekingTurn(userText: string): boolean {
+  const t = userText.trim();
+  if (t.length < 6) return false;
+  if (detectStrategicHelpOrHowToRequest(t)) return true;
+  if (/\b(tengo dudas|muchas dudas|tengo una duda|no estoy seguro|no estoy segura)\b/i.test(t)) {
+    return true;
+  }
+  if (/\brecomi[eé]nd(ame|anos|emos|arías|aciones)\b/i.test(t)) return true;
+  return false;
+}
+
+function actorSourceText(params: {
+  userText: string;
+  traceUserTurns: { role: string; summary: string }[];
+  strategicBase?: Record<string, unknown>;
+}): string {
+  const { userText, traceUserTurns, strategicBase } = params;
+  if (isAudienceGuidanceSeekingTurn(userText)) {
+    let s = userText.trim();
+    s = (s.split(/\s*,\s*pero\b/i)[0] ?? s).trim();
+    s = (s.split(/\s+pero\s+/i)[0] ?? s).trim();
+    const confirmed = strategicBase ? confirmedStrategicActorContext(strategicBase) : "";
+    if (confirmed.length > 0) return `${s}\n${confirmed}`.trim();
+    return s;
+  }
+  const userLines = traceUserTurns
+    .filter((t) => t.role === "user")
+    .slice(-6)
+    .map((t) => t.summary)
+    .join("\n");
+  return `${userLines}\n${userText}`.trim();
+}
+
 /**
  * Extracts clean audience labels and ambiguous spans from user/trace text.
  * Does not title-case; labels are lowercase for natural rendering.
@@ -400,13 +477,9 @@ export function detectMultiActorRecommendationContext(
   userText: string,
   traceUserTurns: { role: string; summary: string }[],
   strategicBaseLowerBlob: string,
+  strategicBase?: Record<string, unknown>,
 ): boolean {
-  const userLines = traceUserTurns
-    .filter((t) => t.role === "user")
-    .slice(-6)
-    .map((t) => t.summary)
-    .join("\n");
-  const source = `${userLines}\n${userText}`.trim();
+  const source = actorSourceText({ userText, traceUserTurns, strategicBase });
   const blobLower = `${source.toLowerCase()}\n${strategicBaseLowerBlob}`.toLowerCase();
   const { clean, ambiguous } = extractActorsForAudienceRecommendation(source, blobLower);
   return clean.length >= 2 && ambiguous.length === 0;
@@ -459,14 +532,10 @@ export function buildProvisionalAudienceRecommendation(params: {
   userText: string;
   traceUserTurns: { role: string; summary: string }[];
   strategicBaseLowerBlob: string;
+  strategicBase?: Record<string, unknown>;
 }): ProvisionalAudienceRecommendation | null {
-  const { userText, traceUserTurns, strategicBaseLowerBlob } = params;
-  const userLines = traceUserTurns
-    .filter((t) => t.role === "user")
-    .slice(-6)
-    .map((t) => t.summary)
-    .join("\n");
-  const source = `${userLines}\n${userText}`.trim();
+  const { userText, traceUserTurns, strategicBaseLowerBlob, strategicBase } = params;
+  const source = actorSourceText({ userText, traceUserTurns, strategicBase });
   const blobLower = `${source.toLowerCase()}\n${strategicBaseLowerBlob}`.toLowerCase();
 
   const { clean: actors, ambiguous } = extractActorsForAudienceRecommendation(source, blobLower);
@@ -480,27 +549,24 @@ export function buildProvisionalAudienceRecommendation(params: {
 
   const lines: string[] = [];
   lines.push(
-    "Con la información que tenemos hasta ahora, esta es una recomendación provisional (no es pieza final de comunicación):",
+    "Con la información que tenemos hasta ahora, mi recomendación provisional (no es pieza final de comunicación) sería:",
     "",
   );
 
-  for (const a of ordered) {
-    lines.push(`– ${a.label}: ${formatRoles(a)}.`);
-  }
   lines.push(
+    `– Prioridad principal "${primary.label}": suele concentrar autorización, confianza o pago cuando ese rol aparece en lo ya contado.`,
+    `– Capa complementaria "${secondary.label}": suele asociarse a deseo, uso o vivencia cuando convive con la primera.`,
     "",
-    `Por prioridad de contacto y mensaje, yo empezaría por ${primary.label} porque concentra la función más de habilitación o decisión según lo que ya contaste, y mantendría muy explícita una segunda capa para ${secondary.label} por su rol (confianza, pago, experiencia u organización, según lo que encaje con tu reto).`,
-    `Puede tener sentido diferenciar capas de mensaje si varios actores conviven, sin prometer lo mismo a cada uno.`,
+    "No invento actores nuevos: solo ordeno y aclaro capas con lo que ya está en tu respuesta y en el contexto confirmado hasta aquí.",
+    "",
+    `¿Lo dejamos así: "${primary.label}" como foco principal de mensaje y "${secondary.label}" como segunda capa, sin mezclar promesas incompatibles?`,
   );
   if (tertiary) {
     lines.push(
-      `Si aparece también ${tertiary.label}, conviene alinear el tono sin contradecer lo que le prometes al decisor u organizador.`,
+      "",
+      `Si también quieres dar peso explícito a "${tertiary.label}", lo alineamos en el tono sin contradecir lo que le prometes al foco principal.`,
     );
   }
-  lines.push(
-    "",
-    "Cuando completemos el Sistema Límbico podré ayudarte a validar si ese orden es el más estratégico para tu caso.",
-  );
 
   const interviewer_message = lines.join("\n").trim();
 
@@ -546,15 +612,12 @@ export function resolveAudienceMultiActorStrategicTurn(params: {
   userText: string;
   traceUserTurns: { role: string; summary: string }[];
   strategicBaseLowerBlob: string;
+  strategicBase?: Record<string, unknown>;
   bankQuestion: string | null;
 }): ResolvedAudienceStrategicTurn | null {
-  const { userText, traceUserTurns, strategicBaseLowerBlob, bankQuestion } = params;
-  const userLines = traceUserTurns
-    .filter((t) => t.role === "user")
-    .slice(-6)
-    .map((t) => t.summary)
-    .join("\n");
-  const source = `${userLines}\n${userText}`.trim();
+  const { userText, traceUserTurns, strategicBaseLowerBlob, bankQuestion, strategicBase } =
+    params;
+  const source = actorSourceText({ userText, traceUserTurns, strategicBase });
   const blobLower = `${source.toLowerCase()}\n${strategicBaseLowerBlob}`.toLowerCase();
   const { clean, ambiguous } = extractActorsForAudienceRecommendation(source, blobLower);
 
@@ -576,6 +639,7 @@ export function resolveAudienceMultiActorStrategicTurn(params: {
     userText,
     traceUserTurns,
     strategicBaseLowerBlob,
+    strategicBase,
   });
   if (!provisional) return null;
 
