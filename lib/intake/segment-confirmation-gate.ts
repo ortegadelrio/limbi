@@ -3,11 +3,15 @@ import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { miniStepToPilotSegmentKey } from "@/lib/intake/decision-state";
 
-/** Strategic pilot segments that require explicit user confirmation before advancing. */
+/**
+ * Strategic pilot segments that require explicit user confirmation before advancing.
+ * Closed-choice UI steps (e.g. challenge type pick) are excluded: the choice is already
+ * an intentional commitment; confirmation applies to interpreted free-form answers.
+ */
 export function miniStepRequiresSegmentConfirmationGate(
   miniStep: GuidedMiniStepId,
 ): boolean {
-  if (miniStep === "challenge_type") return true;
+  if (miniStep === "challenge_type") return false;
   return miniStepToPilotSegmentKey(miniStep) !== null;
 }
 

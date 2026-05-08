@@ -144,8 +144,6 @@ const GUIDED_STRATEGIC_FIELD_PENDING = "guided_intake:strategic_field_pending";
 const SEGMENT_CONFIRM_TEXT_OPTIONS_ES =
   "Puedes responder con: Confirmar · Corregir · Pedir recomendación · Dejar pendiente.";
 
-const CHALLENGE_TYPE_PICK_CONFIRM_MARKER = "segment_confirm:challenge_type_pick";
-
 function stripSegmentConfirmationPending(
   tr: LimbicInterviewTraceV1,
 ): LimbicInterviewTraceV1 {
@@ -319,7 +317,7 @@ export async function POST(request: Request, { params }: Params) {
     projectChallengeType = updateProject.challenge_type;
 
     const label = pickAcknowledgmentLabel(pick, other);
-    const coreUnderstanding = `Perfecto: vamos a trabajar ${
+    interviewerMessage = `Perfecto: vamos a trabajar ${
       other ? "un reto que definiremos juntos" : `un ${label}`
     }.`;
 
@@ -332,24 +330,22 @@ export async function POST(request: Request, { params }: Params) {
       suggested_answer_chips: [],
       answer_status: "clear",
       target_response_paths: [],
-      internal_notes: CHALLENGE_TYPE_PICK_CONFIRM_MARKER,
-      interviewer_message: coreUnderstanding,
+      internal_notes: "challenge_type_pick",
+      interviewer_message: interviewerMessage,
       public_copy_allowed: false,
       user_intent: "answer",
     };
 
-    const confirmCopy = buildSegmentConfirmationAssistantMessage(extraction);
-    extraction = { ...extraction, interviewer_message: confirmCopy };
-
     const atIso = new Date().toISOString();
+    const clearedTrace = stripSegmentConfirmationPending(traceFromDb);
     const dsPatched = applyDecisionStatusPatches(
-      traceFromDb.decision_states,
+      clearedTrace.decision_states,
       [
         {
           topic: "challenge_type",
-          status: "provisional",
-          confidence: 0.55,
-          reason: "Challenge type chosen; awaiting explicit confirmation.",
+          status: "confirmed",
+          confidence: 0.95,
+          reason: "Explicit UI challenge type selection (closed choice).",
           source: "guided_intake",
         },
       ],
@@ -357,31 +353,26 @@ export async function POST(request: Request, { params }: Params) {
     );
 
     nextTrace = {
-      ...traceFromDb,
+      ...clearedTrace,
       pilot_id: "strategic_interview_v1",
-      mini_step: "challenge_type",
-      phase: "segment_confirmation",
+      mini_step: "tailored_what",
+      phase: "main",
       follow_up_used: false,
       other_challenge: other || undefined,
       ...(dsPatched ? { decision_states: dsPatched } : {}),
-      segment_confirmation_pending: {
-        version: 1,
-        mini_step: "challenge_type",
-        extraction: extractionPayloadForTrace({
-          ...extraction,
-          interviewer_message: coreUnderstanding,
-        }),
-      },
     };
     nextTrace = appendTurn(nextTrace, "user", userLine.slice(0, 500));
     nextTrace = appendTurn(
       nextTrace,
       "assistant",
-      confirmCopy.slice(0, 500),
+      (interviewerMessage ?? "").slice(0, 500),
     );
 
-    interviewerMessage = confirmCopy;
-    nextQuestion = null;
+    nextQuestion = questionForMiniStep(
+      "tailored_what",
+      projectChallengeType,
+      other,
+    );
   } else if (parsedBody.data.action !== undefined) {
     /** --- Escape chip: never blocks; advance one mini-step --- */
     const sbForLim = readStrategicBase(baseResponses);
@@ -710,7 +701,11 @@ export async function POST(request: Request, { params }: Params) {
       };
 
       if (kind === "confirm") {
-        if (ext0.internal_notes === CHALLENGE_TYPE_PICK_CONFIRM_MARKER) {
+        /** Legacy pending from earlier pilot builds; no longer emitted for UI picks. */
+        const legacyChallengePickPending =
+          ext0.internal_notes === "segment_confirm:challenge_type_pick";
+
+        if (legacyChallengePickPending) {
           mergedWithoutTrace = baseResponses;
           const ack = "Gracias por confirmar. Seguimos.".trim();
           let t1 = stripSegmentConfirmationPending({
@@ -724,7 +719,7 @@ export async function POST(request: Request, { params }: Params) {
           extraction = {
             ...ext0,
             interviewer_message: ack,
-            internal_notes: "challenge_type_pick_confirmed",
+            internal_notes: "challenge_type_pick_legacy_cleared",
           };
         } else {
           mergedWithoutTrace = applyStrategicInterviewExtraction(

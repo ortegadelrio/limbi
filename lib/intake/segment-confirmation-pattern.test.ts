@@ -49,10 +49,43 @@ function minimalExtraction(
 }
 
 describe("segment confirmation gate helpers", () => {
-  it("marks strategic mini steps and challenge type as gated", () => {
+  it("gates interpreted free-form strategic steps but not closed-choice challenge_type", () => {
     expect(miniStepRequiresSegmentConfirmationGate("tailored_what")).toBe(true);
-    expect(miniStepRequiresSegmentConfirmationGate("challenge_type")).toBe(true);
+    expect(miniStepRequiresSegmentConfirmationGate("problem")).toBe(true);
+    expect(miniStepRequiresSegmentConfirmationGate("challenge_type")).toBe(false);
     expect(miniStepRequiresSegmentConfirmationGate("complete")).toBe(false);
+  });
+
+  it("does not offer segment confirmation after extraction for challenge_type", () => {
+    expect(
+      shouldOfferSegmentConfirmationAfterExtraction({
+        miniStep: "challenge_type",
+        tracePhase: "main",
+        needsFollowUp: false,
+        followUpUsed: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps segment confirmation for open-ended strategic mini steps", () => {
+    expect(miniStepRequiresSegmentConfirmationGate("audience")).toBe(true);
+    expect(
+      shouldOfferSegmentConfirmationAfterExtraction({
+        miniStep: "audience",
+        tracePhase: "main",
+        needsFollowUp: false,
+        followUpUsed: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses a stable internal_notes slug for challenge type picks, not segment-confirm markers", () => {
+    const extraction = {
+      ...minimalExtraction("Perfecto: vamos a trabajar un servicio."),
+      internal_notes: "challenge_type_pick",
+    };
+    expect(extraction.internal_notes).toBe("challenge_type_pick");
+    expect(extraction.internal_notes).not.toContain("segment_confirm:");
   });
 
   it("offers confirmation after extraction when advancing on same step without follow-up", () => {
