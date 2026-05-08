@@ -634,6 +634,17 @@ export function buildAudienceConfirmMergeAndExtraction(
   return { mergedResponses, extraction };
 }
 
+/** Short hold when the user only affirms without tying to a concrete audience choice. */
+export function buildBareAudienceAffirmationHoldContent(): StrategicValidationTurnContent {
+  return {
+    interviewer_message:
+      "Con una sola afirmación corta no me queda claro a qué te refieres. Si confirmas lo que ya describiste sobre la audiencia, dime en una frase qué actor priorizas y por qué; si no, afinamos quién decide, quién usa y quién puede vetar.",
+    next_question: null,
+    suggested_chips: [],
+    audience_recommendation_pending: null,
+  };
+}
+
 export function buildStrategicValidationTurnContent(params: {
   miniStep: GuidedMiniStepId;
   userText: string;

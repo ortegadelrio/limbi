@@ -42,6 +42,7 @@ export type ConversationalEngineRouteBranch =
   | "cross_topic_llm_extraction"
   | "provisional_decision_resolution"
   | "active_strategic_doubt"
+  | "bare_confirmation_hold"
   | "evidence_uncertainty_advance"
   | "deterministic_clarification"
   | "deterministic_strategic_validation"

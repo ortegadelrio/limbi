@@ -180,7 +180,7 @@ const cases: Case[] = [
       branch: "deterministic_strategic_validation",
       user_intent: "strategic_validation_question",
       summary_allowed: false,
-      skip_llm_extraction: false,
+      skip_llm_extraction: true,
       render_policy: "single_surface_no_competing_bank",
     },
   },

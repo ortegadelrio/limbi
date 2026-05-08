@@ -50,6 +50,7 @@ import {
   traceForLlmProcessing,
 } from "@/lib/intake/guided-intake-clarification";
 import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
+import { shouldFreezeCompletedStepsForTurn } from "@/lib/intake/conversational-engine/completed-steps-policy";
 import type { TurnDecision } from "@/lib/intake/conversational-engine/types";
 import {
   applyDecisionStatusPatches,
@@ -58,6 +59,7 @@ import {
   pilotSummaryBlockedByDecisionStates,
 } from "@/lib/intake/decision-state";
 import {
+  buildBareAudienceAffirmationHoldContent,
   buildAudienceConfirmMergeAndExtraction,
   buildAudienceDeclineInvertRepromptTurnContent,
   buildAudienceExplicitUnclearWhilePendingExtraction,
@@ -739,6 +741,8 @@ export async function POST(request: Request, { params }: Params) {
     const runStrategicHandlerBranch =
       !engineTurn.skip_llm_extraction ||
       engineTurn.notes_for_route.branch === "active_strategic_doubt" ||
+      engineTurn.notes_for_route.branch === "deterministic_strategic_validation" ||
+      engineTurn.notes_for_route.branch === "bare_confirmation_hold" ||
       engineTurn.notes_for_route.branch === "provisional_decision_resolution";
 
     if (runStrategicHandlerBranch) {
@@ -817,19 +821,30 @@ export async function POST(request: Request, { params }: Params) {
       };
 
       const applyStrategicValidationTurn = () => {
-        const content = buildStrategicValidationTurnContent({
-          miniStep,
-          userText: userTextRaw,
-          challengeType: projectChallengeType,
-          otherChallenge,
-          strategicBase: sbSnap,
-          traceUserTurns: traceFromDb.turns,
-        });
+        const content =
+          engineTurn.notes_for_route.branch === "bare_confirmation_hold"
+            ? buildBareAudienceAffirmationHoldContent()
+            : buildStrategicValidationTurnContent({
+                miniStep,
+                userText: userTextRaw,
+                challengeType: projectChallengeType,
+                otherChallenge,
+                strategicBase: sbSnap,
+                traceUserTurns: traceFromDb.turns,
+              });
         extraction = buildStrategicValidationSyntheticExtraction(content);
         mergedWithoutTrace = baseResponses;
         shouldNotAdvance = true;
         wantsFollowUp = false;
-        const nq = content.next_question?.trim();
+        const suppressFollowUpQuestion =
+          engineTurn.notes_for_route.branch === "active_strategic_doubt" ||
+          engineTurn.notes_for_route.branch === "deterministic_strategic_validation" ||
+          engineTurn.notes_for_route.branch === "bare_confirmation_hold" ||
+          engineTurn.requires_confirmation ||
+          engineTurn.active_doubt_detected;
+        const nq = suppressFollowUpQuestion
+          ? null
+          : content.next_question?.trim();
         interviewerMessage = nq
           ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
           : content.interviewer_message.trim();
@@ -964,7 +979,8 @@ export async function POST(request: Request, { params }: Params) {
         }
       } else if (
         engineTurn.notes_for_route.branch === "active_strategic_doubt" ||
-        engineTurn.notes_for_route.branch === "deterministic_strategic_validation"
+        engineTurn.notes_for_route.branch === "deterministic_strategic_validation" ||
+        engineTurn.notes_for_route.branch === "bare_confirmation_hold"
       ) {
         applyStrategicValidationTurn();
       } else if (engineTurn.notes_for_route.branch === "deterministic_clarification") {
@@ -1060,7 +1076,12 @@ export async function POST(request: Request, { params }: Params) {
 
     /** Merge completed_steps using extraction indices (LLM path only) */
     const prevCompleted = normalizeCompletedSteps(existing?.completed_steps);
-    const nextCompleted = shouldNotAdvance
+    const effectiveShouldNotAdvance =
+      shouldNotAdvance || engineTurn.should_not_advance;
+    const nextCompleted = shouldFreezeCompletedStepsForTurn(
+      engineTurn,
+      shouldNotAdvance,
+    )
       ? prevCompleted
       : mergeCompletedStepsForWizardStepIndices(
           prevCompleted,
@@ -1088,7 +1109,7 @@ export async function POST(request: Request, { params }: Params) {
     );
 
     const summary =
-      shouldNotAdvance || summaryBlockedByDecisions
+      effectiveShouldNotAdvance || summaryBlockedByDecisions
         ? null
         : nextTrace.mini_step === "complete" && nextTrace.phase === "done"
           ? buildStrategicInterviewPilotSummary(
@@ -1130,7 +1151,7 @@ export async function POST(request: Request, { params }: Params) {
         suggested_chips: extraction.suggested_answer_chips,
         summary,
         project_challenge_type: projectChallengeType,
-        should_not_advance: shouldNotAdvance,
+        should_not_advance: effectiveShouldNotAdvance,
       });
     }
 
@@ -1158,7 +1179,7 @@ export async function POST(request: Request, { params }: Params) {
       suggested_chips: extraction.suggested_answer_chips,
       summary,
       project_challenge_type: projectChallengeType,
-      should_not_advance: shouldNotAdvance,
+      should_not_advance: effectiveShouldNotAdvance,
     });
   }
 

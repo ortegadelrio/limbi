@@ -20,7 +20,9 @@ import {
   type DecisionStatusPatch,
 } from "@/lib/intake/decision-state";
 import { detectActiveStrategicDoubt } from "@/lib/intake/conversational-engine/active-strategic-doubt";
+import { isBareAffirmationWithoutSubstance } from "@/lib/intake/conversational-engine/bare-confirmation";
 import { classifyProvisionalDecisionFollowUp } from "@/lib/intake/conversational-engine/provisional-decision-reply";
+import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
 import {
   classifyCrossTopicSurface,
   resolveCrossStrategicTopicReference,
@@ -532,6 +534,49 @@ export function resolveGuidedIntakeTurn(
     }
   }
 
+  if (
+    miniStep === "audience" &&
+    trace.phase === "main" &&
+    !trace.audience_recommendation_pending &&
+    isBareAffirmationWithoutSubstance(userText)
+  ) {
+    const doubtTopic = currentTopic ?? "audience";
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: "ambiguous_answer",
+      pending_state:
+        pendingState === "none" ? "pending_strategic_validation" : pendingState,
+      action: "bare_confirmation_hold",
+      current_mini_step: miniStep,
+      next_mini_step: miniStep,
+      current_phase: trace.phase,
+      next_phase: "strategy_validation",
+      should_advance: false,
+      should_not_advance: true,
+      writes_to_responses: false,
+      writes_to_completed_steps: false,
+      summary_allowed: false,
+      render_policy: "single_surface_no_competing_bank",
+      question_surface_type: "single_merged_assistant_turn",
+      skip_llm_extraction: true,
+      notes_for_route: { branch: "bare_confirmation_hold" },
+      decision_status_updates: [
+        {
+          topic: "audience",
+          status: "provisional",
+          confidence: 0.45,
+          reason: "Bare affirmation without referent; not a committed audience answer.",
+          source: "guided_intake",
+        },
+      ],
+      target_topic: doubtTopic,
+      reopened_topic: null,
+      active_doubt_detected: true,
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      can_show_summary: false,
+    });
+  }
+
   if (miniStep === "evidence" && detectEvidenceUncertaintyWithoutMetaQuestion(userText)) {
     return finalizeEngineTurn(trace, userText, {
       user_intent: "missing_information",
@@ -568,30 +613,34 @@ export function resolveGuidedIntakeTurn(
     });
   }
 
-  const deterministicStrategic =
+  const strategicMini = Boolean(currentTopic);
+  const strategicValidation =
     allowsDeterministicMetaResolution(trace) &&
     detectDeterministicStrategicValidationIntent(userText, { miniStep });
+  const helpOrHow = detectStrategicHelpOrHowToRequest(userText);
+  const activeDoubtSignal = detectActiveStrategicDoubt(userText);
 
-  const deterministicClarification =
-    !deterministicStrategic &&
-    allowsDeterministicMetaResolution(trace) &&
-    detectDeterministicClarificationIntent(userText);
-
-  const strategicMini = Boolean(currentTopic);
-  const activeDoubtOnly =
+  const seeksStrategicGuidance =
     allowsDeterministicMetaResolution(trace) &&
     strategicMini &&
-    detectActiveStrategicDoubt(userText) &&
-    !deterministicStrategic &&
-    !deterministicClarification;
+    (strategicValidation || activeDoubtSignal || helpOrHow);
 
-  if (activeDoubtOnly) {
+  if (seeksStrategicGuidance) {
     const doubtTopic = currentTopic!;
+    const entryStatus =
+      helpOrHow && !strategicValidation ? "low_confidence" : "provisional";
+    const routeBranch = strategicValidation
+      ? ("deterministic_strategic_validation" as const)
+      : ("active_strategic_doubt" as const);
+    const userIntent = strategicValidation
+      ? ("strategic_validation_question" as const)
+      : ("active_doubt" as const);
+
     return finalizeEngineTurn(trace, userText, {
-      user_intent: "active_doubt",
+      user_intent: userIntent,
       pending_state:
         pendingState === "none" ? "pending_strategic_validation" : pendingState,
-      action: "active_strategic_doubt",
+      action: routeBranch,
       current_mini_step: miniStep,
       next_mini_step: miniStep,
       current_phase: trace.phase,
@@ -604,75 +653,31 @@ export function resolveGuidedIntakeTurn(
       render_policy: "single_surface_no_competing_bank",
       question_surface_type: "single_merged_assistant_turn",
       skip_llm_extraction: true,
-      notes_for_route: { branch: "active_strategic_doubt" },
+      notes_for_route: { branch: routeBranch },
       decision_status_updates: [
         {
           topic: doubtTopic,
-          status: "provisional",
-          confidence: 0.52,
-          reason: "User expressed strategic doubt or asked for advisory input.",
+          status: entryStatus,
+          confidence: entryStatus === "low_confidence" ? 0.42 : 0.55,
+          reason:
+            entryStatus === "low_confidence"
+              ? "User asked for help or does not know how to answer; not a final capture."
+              : "Strategic guidance or validation exchange; awaiting user confirmation.",
           source: "guided_intake",
         },
       ],
       target_topic: doubtTopic,
+      reopened_topic: null,
       active_doubt_detected: true,
       requires_confirmation: true,
       confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
       can_show_summary: false,
-      reopened_topic: null,
     });
   }
 
-  if (deterministicStrategic) {
-    const doubtTopic = currentTopic;
-    return finalizeEngineTurn(trace, userText, {
-      user_intent: "strategic_validation_question",
-      pending_state:
-        pendingState === "none" ? "pending_strategic_validation" : pendingState,
-      action: "deterministic_strategic_validation",
-      current_mini_step: miniStep,
-      next_mini_step: miniStep,
-      current_phase: trace.phase,
-      next_phase: "strategy_validation",
-      should_advance: false,
-      should_not_advance: true,
-      writes_to_responses: false,
-      writes_to_completed_steps: false,
-      summary_allowed: false,
-      render_policy: "single_surface_no_competing_bank",
-      question_surface_type: "single_merged_assistant_turn",
-      skip_llm_extraction: false,
-      notes_for_route: { branch: "deterministic_strategic_validation" },
-      decision_status_updates:
-        doubtTopic && detectActiveStrategicDoubt(userText)
-          ? [
-              {
-                topic: doubtTopic,
-                status: "provisional",
-                confidence: 0.55,
-                reason: "Strategic validation question; user not closing decision.",
-                source: "guided_intake",
-              },
-            ]
-          : doubtTopic
-            ? [
-                {
-                  topic: doubtTopic,
-                  status: "provisional",
-                  confidence: 0.58,
-                  reason: "Awaiting confirmation after validation exchange.",
-                  source: "guided_intake",
-                },
-              ]
-            : [],
-      target_topic: doubtTopic ?? null,
-      reopened_topic: null,
-      active_doubt_detected: detectActiveStrategicDoubt(userText),
-      requires_confirmation: true,
-      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
-      can_show_summary: false,
-    });
-  }
+  const deterministicClarification =
+    allowsDeterministicMetaResolution(trace) &&
+    detectDeterministicClarificationIntent(userText);
 
   if (deterministicClarification) {
     return finalizeEngineTurn(trace, userText, {
