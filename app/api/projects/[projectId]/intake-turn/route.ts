@@ -30,8 +30,9 @@ import {
   coerceLegacyTraceForStrategicInterview,
   computeTraceAfterStrategicLlmExtraction,
   initialTrace,
-  LIMBIC_INTERVIEW_TRACE_KEY,
+  mergeResponsesWithInterviewTrace,
   readInterviewTrace,
+  stripSegmentConfirmationPending,
   type LimbicInterviewTraceV1,
 } from "@/lib/intake/orchestrator";
 import type { PilotEscapeChipId } from "@/lib/intake/question-bank";
@@ -142,16 +143,7 @@ function normalizeCompletedSteps(raw: unknown): string[] {
 const GUIDED_STRATEGIC_FIELD_PENDING = "guided_intake:strategic_field_pending";
 
 const SEGMENT_CONFIRM_TEXT_OPTIONS_ES =
-  "Puedes responder con: Confirmar · Corregir · Pedir recomendación · Dejar pendiente.";
-
-function stripSegmentConfirmationPending(
-  tr: LimbicInterviewTraceV1,
-): LimbicInterviewTraceV1 {
-  if (!tr.segment_confirmation_pending) return tr;
-  const rest = { ...tr };
-  delete rest.segment_confirmation_pending;
-  return rest;
-}
+  "Puedes responder con: Sí, así está bien · Quiero ajustar · Ayúdame a mejorarlo · Dejémoslo pendiente.";
 
 function applyEngineDecisionPatchesToTrace(
   tr: LimbicInterviewTraceV1,
@@ -176,15 +168,6 @@ function appendStrategicConfirmationTriad(
     return `${message.trim()}\n\n${engine.confirmation_options.join("\n")}`.trim();
   }
   return message.trim();
-}
-
-function mergeTraceIntoResponses(
-  mergedWithoutTrace: Record<string, unknown>,
-  nextTrace: LimbicInterviewTraceV1,
-): Record<string, unknown> {
-  return deepMergeResponses(mergedWithoutTrace, {
-    [LIMBIC_INTERVIEW_TRACE_KEY]: nextTrace,
-  });
 }
 
 function pickAcknowledgmentLabel(
@@ -1029,7 +1012,7 @@ export async function POST(request: Request, { params }: Params) {
       const confirmCopy = buildSegmentConfirmationAssistantMessage(gateExtraction);
       extraction = { ...gateExtraction, interviewer_message: confirmCopy };
       const pendingTrace: LimbicInterviewTraceV1 = {
-        ...traceFromDb,
+        ...stripSegmentConfirmationPending(traceFromDb),
         phase: "segment_confirmation",
         mini_step: "evidence",
         segment_confirmation_pending: {
@@ -1364,7 +1347,7 @@ export async function POST(request: Request, { params }: Params) {
             shouldNotAdvance = true;
             wantsFollowUp = false;
             const pendingTrace: LimbicInterviewTraceV1 = {
-              ...traceForExtraction,
+              ...stripSegmentConfirmationPending(traceForExtraction),
               phase: "segment_confirmation",
               mini_step: gateMini,
               segment_confirmation_pending: {
@@ -1464,7 +1447,7 @@ export async function POST(request: Request, { params }: Params) {
 
     nextTrace = applyEngineDecisionPatchesToTrace(nextTrace, engineTurn);
 
-    const mergedResponses = mergeTraceIntoResponses(
+    const mergedResponses = mergeResponsesWithInterviewTrace(
       mergedWithoutTrace,
       nextTrace,
     );
@@ -1562,7 +1545,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   /** Pick & chip paths: merge trace + completed_steps */
-  const mergedResponses = mergeTraceIntoResponses(
+  const mergedResponses = mergeResponsesWithInterviewTrace(
     mergedWithoutTrace,
     nextTrace,
   );

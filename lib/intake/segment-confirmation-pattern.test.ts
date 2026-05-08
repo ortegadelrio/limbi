@@ -13,7 +13,11 @@ import {
 } from "@/lib/intake/segment-confirmation-gate";
 import { pilotSummaryBlockedByDecisionStates } from "@/lib/intake/decision-state";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
-import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
+import {
+  mergeResponsesWithInterviewTrace,
+  stripSegmentConfirmationPending,
+  type LimbicInterviewTraceV1,
+} from "@/lib/intake/orchestrator";
 
 function traceWithPending(
   pending: LimbicInterviewTraceV1["segment_confirmation_pending"],
@@ -65,6 +69,19 @@ describe("segment confirmation gate helpers", () => {
         followUpUsed: false,
       }),
     ).toBe(false);
+  });
+
+  it("offers segment confirmation for tailored_what and problem on main when not in follow-up", () => {
+    for (const step of ["tailored_what", "problem"] as const) {
+      expect(
+        shouldOfferSegmentConfirmationAfterExtraction({
+          miniStep: step,
+          tracePhase: "main",
+          needsFollowUp: false,
+          followUpUsed: false,
+        }),
+      ).toBe(true);
+    }
   });
 
   it("keeps segment confirmation for open-ended strategic mini steps", () => {
@@ -121,13 +138,91 @@ describe("segment confirmation gate helpers", () => {
     expect(rec.interviewer_message).toBe("síntesis interna");
   });
 
-  it("builds confirmation copy from interpreted interviewer_message only", () => {
+  it("builds shorter confirmation copy grounded in the interpreted line", () => {
     const msg = buildSegmentConfirmationAssistantMessage(
       minimalExtraction("interpretación resumida"),
     );
-    expect(msg).toContain("Esto es lo que estoy entendiendo:");
+    expect(msg).toContain("Lo guardaría así:");
     expect(msg).toContain("interpretación resumida");
-    expect(msg).toContain("Sistema Límbico");
+    expect(msg).toMatch(/ajustamos|pendiente/i);
+  });
+});
+
+describe("mergeResponsesWithInterviewTrace", () => {
+  it("replaces _limbic_interview_v1 so removed segment_confirmation_pending does not survive", () => {
+    const pending = {
+      version: 1 as const,
+      mini_step: "tailored_what" as const,
+      extraction: extractionPayloadForTrace(minimalExtraction("captura anterior")),
+    };
+    const withPending = traceWithPending(pending);
+    const cleared = stripSegmentConfirmationPending({
+      ...withPending,
+      phase: "main",
+      mini_step: "problem",
+    });
+    const merged = mergeResponsesWithInterviewTrace(
+      {
+        strategic_base: {},
+        _limbic_interview_v1: withPending as unknown as Record<string, unknown>,
+      },
+      cleared,
+    );
+    const tr = merged._limbic_interview_v1 as Record<string, unknown>;
+    expect(tr.segment_confirmation_pending).toBeUndefined();
+    expect(tr.mini_step).toBe("problem");
+  });
+});
+
+describe("stale segment_confirmation_pending", () => {
+  it("ignores pending for a different mini_step when phase is main and routes a normal answer", () => {
+    const staleTrace: LimbicInterviewTraceV1 = {
+      version: 1,
+      pilot_id: "strategic_interview_v1",
+      phase: "main",
+      follow_up_used: false,
+      mini_step: "problem",
+      turns: [],
+      segment_confirmation_pending: {
+        version: 1,
+        mini_step: "tailored_what",
+        extraction: extractionPayloadForTrace(
+          minimalExtraction("contenido de un paso anterior"),
+        ),
+      },
+    };
+    const d = resolveGuidedIntakeTurn({
+      userText: "La fricción central es que los padres necesitan confiar en la agencia.",
+      miniStep: "problem",
+      trace: staleTrace,
+    });
+    expect(d.action).toBe("llm_extraction");
+    expect(d.notes_for_route.branch).toBe("llm_extraction");
+  });
+
+  it("still resolves segment confirmation when phase is segment_confirmation and pending targets another step (cross-flow)", () => {
+    const cross: LimbicInterviewTraceV1 = {
+      version: 1,
+      pilot_id: "strategic_interview_v1",
+      phase: "segment_confirmation",
+      follow_up_used: false,
+      mini_step: "evidence",
+      turns: [],
+      segment_confirmation_pending: {
+        version: 1,
+        mini_step: "audience",
+        extraction: extractionPayloadForTrace(
+          minimalExtraction("síntesis de audiencia"),
+        ),
+      },
+    };
+    const d = resolveGuidedIntakeTurn({
+      userText: "sí",
+      miniStep: "evidence",
+      trace: cross,
+    });
+    expect(d.action).toBe("segment_confirmation_resolve");
+    expect(d.notes_for_route.segmentConfirmationKind).toBe("confirm");
   });
 });
 
@@ -217,6 +312,12 @@ describe("classifySegmentConfirmationUserReply", () => {
     expect(
       classifySegmentConfirmationUserReply({
         userText: "dejémoslo así",
+        awaitingPendingAck: false,
+      }),
+    ).toBe("confirm");
+    expect(
+      classifySegmentConfirmationUserReply({
+        userText: "confirmar",
         awaitingPendingAck: false,
       }),
     ).toBe("confirm");

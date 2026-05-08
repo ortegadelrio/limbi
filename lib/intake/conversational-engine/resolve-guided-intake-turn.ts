@@ -9,7 +9,10 @@ import {
   detectReturnToAudienceTopicIntent,
   type PendingAudienceUserReply,
 } from "@/lib/intake/guided-intake-strategic-validation";
-import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
+import {
+  stripSegmentConfirmationPending,
+  type LimbicInterviewTraceV1,
+} from "@/lib/intake/orchestrator";
 import {
   applyDecisionStatusPatches,
   detectExplicitProceedWithPendingSummary,
@@ -547,7 +550,18 @@ export function resolveGuidedIntakeTurn(
   const pendingState = derivePendingState(trace, miniStep);
 
   if (trace.segment_confirmation_pending?.version === 1) {
-    return resolveSegmentConfirmationTurnInner(input, pendingState);
+    const p = trace.segment_confirmation_pending;
+    const sameStep = p.mini_step === miniStep;
+    /** Cross-topic: confirm a different mini_step while journey cursor stays on current step. */
+    const crossFlowSegmentConfirm =
+      trace.phase === "segment_confirmation" && p.mini_step !== miniStep;
+    if (sameStep || crossFlowSegmentConfirm) {
+      return resolveSegmentConfirmationTurnInner(input, pendingState);
+    }
+    return resolveGuidedIntakeTurn({
+      ...input,
+      trace: stripSegmentConfirmationPending(trace),
+    });
   }
 
   if (miniStep === "audience" && trace.audience_recommendation_pending?.version === 1) {

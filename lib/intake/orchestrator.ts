@@ -231,6 +231,30 @@ export function appendTurn(
   return { ...trace, turns: next.slice(-20) };
 }
 
+/** Clears internal segment-confirmation draft (e.g. after confirm or when discarding stale state). */
+export function stripSegmentConfirmationPending(
+  tr: LimbicInterviewTraceV1,
+): LimbicInterviewTraceV1 {
+  if (!tr.segment_confirmation_pending) return tr;
+  const rest = { ...tr };
+  delete rest.segment_confirmation_pending;
+  return rest;
+}
+
+/**
+ * Writes `_limbic_interview_v1` by replacement, not deep merge, so keys removed from `nextTrace`
+ * (such as cleared `segment_confirmation_pending`) do not reappear from older saved blobs.
+ */
+export function mergeResponsesWithInterviewTrace(
+  mergedWithoutTrace: Record<string, unknown>,
+  nextTrace: LimbicInterviewTraceV1,
+): Record<string, unknown> {
+  return {
+    ...mergedWithoutTrace,
+    [LIMBIC_INTERVIEW_TRACE_KEY]: nextTrace as unknown as Record<string, unknown>,
+  };
+}
+
 /** Advance journey one mini-step; resets follow-up flags when entering a new step. */
 export function advanceMiniStepFrom(
   trace: LimbicInterviewTraceV1,

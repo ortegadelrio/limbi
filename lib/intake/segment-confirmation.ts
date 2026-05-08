@@ -10,19 +10,19 @@ export type SegmentConfirmationUserReplyKind =
   | "unknown";
 
 export const SEGMENT_CONFIRM_UI_HINT_ES = [
-  "Puedes usar tus palabras: confirmar, corregir, pedir una recomendación, o dejar pendiente.",
-  "También valen respuestas cortas como «sí», «confirmo» o «dejémoslo pendiente».",
+  "Por ejemplo: «sí, así está bien», «quiero ajustar», «ayúdame a mejorarlo» o «dejémoslo pendiente».",
+  "También valen «confirmar», «sí» o «dejémoslo pendiente».",
 ].join("\n");
 
 export function buildSegmentConfirmationAssistantMessage(
   extraction: Pick<IntakeExtractionOutput, "interviewer_message">,
 ): string {
   const core = extraction.interviewer_message.trim();
-  return `Esto es lo que estoy entendiendo:\n\n${core}\n\n¿Confirmas que esta es la respuesta correcta para guardar en el Sistema Límbico?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
+  return `Lo guardaría así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
 }
 
 export function buildPendingSegmentAckQuestion(): string {
-  return "¿Confirmas que dejemos esta información pendiente por ahora? Si la dejamos pendiente, Limbi no debe tratarla como un dato ya cerrado.".trim();
+  return "¿Confirmas que la dejemos pendiente por ahora? Mientras esté pendiente, Limbi no la tratará como un dato cerrado.".trim();
 }
 
 export function classifySegmentConfirmationUserReply(params: {
@@ -59,13 +59,15 @@ export function classifySegmentConfirmationUserReply(params: {
 
   if (
     detectStrategicHelpOrHowToRequest(params.userText) ||
-    /\b(recomendaci[oó]n|recomiendas|qu[eé] opinas|ay[uú]dame)\b/i.test(tFold)
+    /\b(recomendaci[oó]n|recomiendas|qu[eé] opinas|ay[uú]dame|ay[uú]dame a mejorarlo|mejorarlo conmigo)\b/i.test(
+      tFold,
+    )
   ) {
     return "help";
   }
 
   if (
-    /\b(corregir|correcci[oó]n|no es as[ií]|no,?\s+eso no|me equivoqu[eé]|mejor dicho)\b/i.test(
+    /\b(corregir|correcci[oó]n|no es as[ií]|no,?\s+eso no|me equivoqu[eé]|mejor dicho|quiero ajustar|lo ajustamos|hay que ajustarlo)\b/i.test(
       tFold,
     )
   ) {
@@ -82,7 +84,10 @@ export function classifySegmentConfirmationUserReply(params: {
 
   if (
     /^(s[ií]|ok|vale|confirmo|exacto|correcto|claro|listo)(?=[\s,.;:!?]|$)/u.test(tFold) ||
-    /\b(dej[eé]moslo as[ií]|as[ií] est[aá] bien|confirmo que s[ií])\b/i.test(tFold)
+    /^confirmar(?=[\s,.;:!?]|$)/iu.test(tFold) ||
+    /\b(dej[eé]moslo as[ií]|as[ií] est[aá] bien|confirmo que s[ií]|s[ií],?\s+as[ií] est[aá] bien)\b/i.test(
+      tFold,
+    )
   ) {
     return "confirm";
   }
