@@ -1,11 +1,17 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
+import type {
+  DecisionStatusPatch,
+  StrategicDecisionTopicKey,
+} from "@/lib/intake/decision-state";
 import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
+import type { ProvisionalDecisionUserChoice } from "@/lib/intake/conversational-engine/provisional-decision-reply";
 
 /** Canonical user intents for routing (engine layer; broader than extraction-schema enum). */
 export type ConversationalUserIntent =
   | "answer"
   | "clarification_question"
   | "strategic_validation_question"
+  | "active_doubt"
   | "return_to_previous_topic"
   | "confirmation"
   | "rejection"
@@ -32,6 +38,10 @@ export type ConversationalPendingState =
 export type ConversationalEngineRouteBranch =
   | "pending_audience_confirmation"
   | "evidence_return_to_audience"
+  | "strategic_topic_reroute"
+  | "cross_topic_llm_extraction"
+  | "provisional_decision_resolution"
+  | "active_strategic_doubt"
   | "evidence_uncertainty_advance"
   | "deterministic_clarification"
   | "deterministic_strategic_validation"
@@ -81,6 +91,11 @@ export type TurnDecisionNotesForRoute = {
   pendingAudienceReplyKind?: PendingAudienceReplyKind;
   /** When confirm path may swap primary/secondary. */
   swapPrimarySecondary?: boolean;
+  /** Cross-topic LLM: run extraction as this mini-step, then restore flow position. */
+  overrideMiniStep?: GuidedMiniStepId;
+  restoreMiniStepAfter?: GuidedMiniStepId;
+  rerouteTargetTopic?: StrategicDecisionTopicKey;
+  provisionalChoice?: ProvisionalDecisionUserChoice;
 };
 
 /**
@@ -109,4 +124,15 @@ export type TurnDecision = {
    */
   skip_llm_extraction: boolean;
   notes_for_route: TurnDecisionNotesForRoute;
+  /** Patches applied to `_limbic_interview_v1.decision_states` for this turn. */
+  decision_status_updates: DecisionStatusPatch[];
+  target_topic: StrategicDecisionTopicKey | null;
+  reopened_topic: StrategicDecisionTopicKey | null;
+  active_doubt_detected: boolean;
+  /** When the mini-journey completes, whether the pilot summary may be shown. */
+  can_show_summary: boolean;
+  requires_confirmation: boolean;
+  confirmation_options: string[] | null;
 };
+
+export type { DecisionStatusPatch, StrategicDecisionTopicKey } from "@/lib/intake/decision-state";

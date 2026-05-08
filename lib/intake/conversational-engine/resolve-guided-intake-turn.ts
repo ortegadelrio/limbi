@@ -10,6 +10,21 @@ import {
   type PendingAudienceUserReply,
 } from "@/lib/intake/guided-intake-strategic-validation";
 import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
+import {
+  applyDecisionStatusPatches,
+  detectExplicitProceedWithPendingSummary,
+  miniStepToStrategicTopicKey,
+  pilotSummaryBlockedByDecisionStates,
+  strategicTopicKeyToMiniStep,
+  STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES,
+  type DecisionStatusPatch,
+} from "@/lib/intake/decision-state";
+import { detectActiveStrategicDoubt } from "@/lib/intake/conversational-engine/active-strategic-doubt";
+import { classifyProvisionalDecisionFollowUp } from "@/lib/intake/conversational-engine/provisional-decision-reply";
+import {
+  classifyCrossTopicSurface,
+  resolveCrossStrategicTopicReference,
+} from "@/lib/intake/conversational-engine/strategic-topic-router";
 import type {
   ConversationalPendingState,
   ConversationalQuestionSurfaceType,
@@ -55,11 +70,118 @@ function mapPendingAudienceReplyToIntent(
   }
 }
 
+function patchesForPendingAudienceReply(
+  reply: PendingAudienceUserReply,
+): DecisionStatusPatch[] {
+  switch (reply.kind) {
+    case "confirm":
+      return [
+        {
+          topic: "audience",
+          status: "confirmed",
+          confidence: 0.9,
+          reason: "User confirmed proposed audience priority.",
+          source: "guided_intake",
+        },
+      ];
+    case "explicit_unclear":
+      return [
+        {
+          topic: "audience",
+          status: "pending",
+          confidence: 0.35,
+          reason: "User could not confirm audience priority yet.",
+          source: "guided_intake",
+        },
+      ];
+    case "restart_strategic_audience":
+      return [
+        {
+          topic: "audience",
+          status: "reopened",
+          confidence: 0.55,
+          reason: "User returned to refine audience.",
+          source: "guided_intake",
+        },
+      ];
+    case "reject_priority":
+      return [
+        {
+          topic: "audience",
+          status: "provisional",
+          confidence: 0.5,
+          reason: "User rejected proposed ordering; needs new priority.",
+          source: "guided_intake",
+        },
+      ];
+    case "secondary_emphasis_invert_prompt":
+    case "decline_invert_reprompt":
+    case "reprompt_confirmation":
+      return [
+        {
+          topic: "audience",
+          status: "provisional",
+          confidence: 0.55,
+          reason: "Awaiting explicit confirmation of audience priority.",
+          source: "guided_intake",
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/** Input before computed `active_doubt_detected` / `can_show_summary`. */
+type EngineTurnDraft = Omit<
+  TurnDecision,
+  "active_doubt_detected" | "can_show_summary" | "decision_status_updates"
+> &
+  Partial<
+    Pick<TurnDecision, "active_doubt_detected" | "can_show_summary" | "decision_status_updates">
+  >;
+
+function finalizeEngineTurn(
+  trace: LimbicInterviewTraceV1,
+  userText: string,
+  d: EngineTurnDraft,
+): TurnDecision {
+  const decision_status_updates = d.decision_status_updates ?? [];
+  const at = new Date().toISOString();
+  const projected = applyDecisionStatusPatches(
+    trace.decision_states,
+    decision_status_updates,
+    at,
+  );
+  const strategicStep = Boolean(miniStepToStrategicTopicKey(d.current_mini_step));
+  const activeDoubtsignal = detectActiveStrategicDoubt(userText);
+  const active_doubt_detected =
+    d.active_doubt_detected !== undefined
+      ? d.active_doubt_detected
+      : strategicStep &&
+        activeDoubtsignal &&
+        (d.user_intent === "strategic_validation_question" ||
+          d.user_intent === "active_doubt");
+  const explicitProceed = detectExplicitProceedWithPendingSummary(userText);
+  const can_show_summary = !pilotSummaryBlockedByDecisionStates(projected, {
+    userExplicitProceed: explicitProceed,
+  });
+  return {
+    ...d,
+    decision_status_updates,
+    target_topic: d.target_topic ?? null,
+    reopened_topic: d.reopened_topic ?? null,
+    active_doubt_detected,
+    can_show_summary,
+    requires_confirmation: d.requires_confirmation ?? false,
+    confirmation_options: d.confirmation_options ?? null,
+  };
+}
+
 function decisionForPendingAudience(
   input: ResolveGuidedIntakeTurnInput,
   reply: PendingAudienceUserReply,
 ): TurnDecision {
-  const { miniStep, trace } = input;
+  const { miniStep, trace, userText } = input;
   const notes: TurnDecisionNotesForRoute = {
     branch: "pending_audience_confirmation",
     pendingAudienceReplyKind: reply.kind,
@@ -68,6 +190,7 @@ function decisionForPendingAudience(
   };
 
   const userIntent = mapPendingAudienceReplyToIntent(reply);
+  const decision_status_updates = patchesForPendingAudienceReply(reply);
 
   let shouldAdvance = false;
   let writes = false;
@@ -103,7 +226,7 @@ function decisionForPendingAudience(
       break;
   }
 
-  return {
+  return finalizeEngineTurn(trace, userText, {
     user_intent: userIntent,
     pending_state: "pending_confirmation",
     action: "pending_audience_confirmation",
@@ -120,15 +243,34 @@ function decisionForPendingAudience(
     question_surface_type: surface,
     skip_llm_extraction: true,
     notes_for_route: notes,
-  };
+    decision_status_updates,
+    target_topic: reply.kind === "restart_strategic_audience" ? "audience" : null,
+    reopened_topic: reply.kind === "restart_strategic_audience" ? "audience" : null,
+    active_doubt_detected: false,
+    requires_confirmation: false,
+    confirmation_options: null,
+  });
 }
 
 function baseLlmDecision(
   input: ResolveGuidedIntakeTurnInput,
   pendingState: ConversationalPendingState,
 ): TurnDecision {
-  const { miniStep, trace } = input;
-  return {
+  const { miniStep, trace, userText } = input;
+  const topic = miniStepToStrategicTopicKey(miniStep);
+  const patches: DecisionStatusPatch[] =
+    topic && pendingState === "none"
+      ? [
+          {
+            topic,
+            status: "in_progress",
+            confidence: 0.55,
+            reason: "User answer routed to LLM extraction.",
+            source: "guided_intake",
+          },
+        ]
+      : [];
+  return finalizeEngineTurn(trace, userText, {
     user_intent: "answer",
     pending_state: pendingState,
     action: "llm_extraction",
@@ -145,25 +287,23 @@ function baseLlmDecision(
     question_surface_type: "primary_bank",
     skip_llm_extraction: false,
     notes_for_route: { branch: "llm_extraction" },
-  };
+    decision_status_updates: patches,
+    active_doubt_detected: false,
+    can_show_summary: false,
+    requires_confirmation: false,
+    confirmation_options: null,
+    target_topic: null,
+    reopened_topic: null,
+  });
+}
+
+function allowsDeterministicMetaResolution(trace: LimbicInterviewTraceV1): boolean {
+  return trace.phase !== "follow_up";
 }
 
 /**
- * Limbi Conversational Engine v1 — Phase 1.
- * Pure: no I/O, no persistence. Encodes intent + pending priority for guided intake text turns.
- *
- * Priority (first match wins):
- * 1. pending_confirmation (trace-held audience recommendation contract)
- * 2. return_to_previous_topic from evidence → audience (before evidence body parsing)
- * 3. pending_missing_information on evidence (uncertainty without meta-question)
- * 4. deterministic strategic validation (not on evidence when 2 fired — return wins first)
- * 5. deterministic clarification
- * 6. answer → LLM extraction
- *
- * `pending_ambiguous_actor` / `pending_correction` / `off_topic` are reserved for later phases;
- * `pending_follow_up` / `pending_clarification` / `pending_strategic_validation` are surfaced in
- * `pending_state` for observability but this resolver still defers detailed handling to the route
- * unless a higher-priority branch fires.
+ * Limbi Conversational Engine v1 — Phase 1 + Phase 2 (decision status, doubt, cross-topic).
+ * Pure: no I/O, no persistence.
  */
 export function resolveGuidedIntakeTurn(
   input: ResolveGuidedIntakeTurnInput,
@@ -179,8 +319,82 @@ export function resolveGuidedIntakeTurn(
     return decisionForPendingAudience(input, reply);
   }
 
+  const provisionalChoice =
+    trace.phase === "strategy_validation"
+      ? classifyProvisionalDecisionFollowUp(userText)
+      : null;
+  if (provisionalChoice) {
+    const choice = provisionalChoice;
+    const topic = miniStepToStrategicTopicKey(miniStep);
+    const patches: DecisionStatusPatch[] =
+      topic && choice === "confirm"
+        ? [
+            {
+              topic,
+              status: "confirmed",
+              confidence: 0.88,
+              reason: "User confirmed after provisional guidance.",
+              source: "guided_intake",
+            },
+          ]
+        : topic && choice === "leave_pending"
+          ? [
+              {
+                topic,
+                status: "pending",
+                confidence: 0.4,
+                reason: "User chose to leave this decision pending.",
+                source: "guided_intake",
+              },
+            ]
+          : topic
+            ? [
+                {
+                  topic,
+                  status: "provisional",
+                  confidence: 0.55,
+                  reason: "User asked to change priority or framing.",
+                  source: "guided_intake",
+                },
+              ]
+            : [];
+
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: choice === "confirm" ? "confirmation" : "correction",
+      pending_state: "pending_strategic_validation",
+      action: "provisional_decision_resolution",
+      current_mini_step: miniStep,
+      next_mini_step: null,
+      current_phase: trace.phase,
+      next_phase: choice === "change_priority" ? "strategy_validation" : "main",
+      should_advance: choice !== "change_priority",
+      should_not_advance: choice === "change_priority",
+      writes_to_responses: choice === "leave_pending",
+      writes_to_completed_steps: choice !== "change_priority",
+      summary_allowed: false,
+      render_policy:
+        choice === "change_priority"
+          ? "single_surface_no_competing_bank"
+          : "default",
+      question_surface_type:
+        choice === "change_priority" ? "single_merged_assistant_turn" : "primary_bank",
+      skip_llm_extraction: true,
+      notes_for_route: {
+        branch: "provisional_decision_resolution",
+        provisionalChoice: choice,
+      },
+      decision_status_updates: patches,
+      target_topic: topic ?? null,
+      reopened_topic: null,
+      active_doubt_detected: false,
+      can_show_summary: false,
+      requires_confirmation: false,
+      confirmation_options: null,
+    });
+  }
+
   if (miniStep === "evidence" && detectReturnToAudienceTopicIntent(userText)) {
-    return {
+    return finalizeEngineTurn(trace, userText, {
       user_intent: "return_to_previous_topic",
       pending_state: "pending_return_to_topic",
       action: "evidence_return_to_audience",
@@ -197,11 +411,129 @@ export function resolveGuidedIntakeTurn(
       question_surface_type: "single_merged_assistant_turn",
       skip_llm_extraction: true,
       notes_for_route: { branch: "evidence_return_to_audience" },
-    };
+      decision_status_updates: [
+        {
+          topic: "audience",
+          status: "reopened",
+          confidence: 0.55,
+          reason: "User returned to audience from evidence step.",
+          source: "guided_intake",
+        },
+      ],
+      target_topic: "audience",
+      reopened_topic: "audience",
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      active_doubt_detected: false,
+      can_show_summary: false,
+    });
+  }
+
+  const currentTopic = miniStepToStrategicTopicKey(miniStep);
+  const crossTarget = resolveCrossStrategicTopicReference({
+    userText,
+    currentMiniStep: miniStep,
+  });
+  const crossSurface = classifyCrossTopicSurface(userText);
+
+  if (
+    currentTopic &&
+    crossTarget &&
+    crossTarget !== currentTopic &&
+    allowsDeterministicMetaResolution(trace)
+  ) {
+    const substantive =
+      crossSurface === "substantive_correction" ||
+      (crossSurface === null &&
+        userText.trim().length >= 40 &&
+        !detectReturnToAudienceTopicIntent(userText));
+
+    if (substantive) {
+      const restore = miniStep;
+      const override = strategicTopicKeyToMiniStep(crossTarget);
+      return finalizeEngineTurn(trace, userText, {
+        user_intent: "correction",
+        pending_state: pendingState === "none" ? "pending_correction" : pendingState,
+        action: "cross_topic_llm_extraction",
+        current_mini_step: miniStep,
+        next_mini_step: null,
+        current_phase: trace.phase,
+        next_phase: null,
+        should_advance: false,
+        should_not_advance: false,
+        writes_to_responses: true,
+        writes_to_completed_steps: false,
+        summary_allowed: false,
+        render_policy: "default",
+        question_surface_type: "primary_bank",
+        skip_llm_extraction: false,
+        notes_for_route: {
+          branch: "cross_topic_llm_extraction",
+          overrideMiniStep: override,
+          restoreMiniStepAfter: restore,
+          rerouteTargetTopic: crossTarget,
+        },
+        decision_status_updates: [
+          {
+            topic: crossTarget,
+            status: detectActiveStrategicDoubt(userText) ? "provisional" : "confirmed",
+            confidence: detectActiveStrategicDoubt(userText) ? 0.58 : 0.82,
+            reason: "Cross-topic answer updates another strategic field.",
+            source: "guided_intake",
+          },
+        ],
+        target_topic: crossTarget,
+        reopened_topic: crossTarget,
+        active_doubt_detected: detectActiveStrategicDoubt(userText),
+        can_show_summary: false,
+        requires_confirmation: false,
+        confirmation_options: null,
+      });
+    }
+
+    if (crossSurface === "meta_reopen" || detectReturnToAudienceTopicIntent(userText)) {
+      const nextMini = strategicTopicKeyToMiniStep(crossTarget);
+      return finalizeEngineTurn(trace, userText, {
+        user_intent: "return_to_previous_topic",
+        pending_state: "pending_return_to_topic",
+        action: "strategic_topic_reroute",
+        current_mini_step: miniStep,
+        next_mini_step: nextMini,
+        current_phase: trace.phase,
+        next_phase: "strategy_validation",
+        should_advance: false,
+        should_not_advance: true,
+        writes_to_responses: false,
+        writes_to_completed_steps: false,
+        summary_allowed: false,
+        render_policy: "single_surface_no_competing_bank",
+        question_surface_type: "single_merged_assistant_turn",
+        skip_llm_extraction: true,
+        notes_for_route: {
+          branch: "strategic_topic_reroute",
+          rerouteTargetTopic: crossTarget,
+        },
+        decision_status_updates: [
+          {
+            topic: crossTarget,
+            status: "reopened",
+            confidence: 0.55,
+            reason: "User asked to revisit a prior strategic topic.",
+            source: "guided_intake",
+          },
+        ],
+        target_topic: crossTarget,
+        reopened_topic: crossTarget,
+        requires_confirmation: true,
+        confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+        active_doubt_detected: false,
+        can_show_summary: false,
+      });
+    }
   }
 
   if (miniStep === "evidence" && detectEvidenceUncertaintyWithoutMetaQuestion(userText)) {
-    return {
+    return finalizeEngineTurn(trace, userText, {
       user_intent: "missing_information",
       pending_state: "pending_missing_information",
       action: "evidence_uncertainty_advance",
@@ -218,20 +550,82 @@ export function resolveGuidedIntakeTurn(
       question_surface_type: "primary_bank",
       skip_llm_extraction: true,
       notes_for_route: { branch: "evidence_uncertainty_advance" },
-    };
+      decision_status_updates: [
+        {
+          topic: "evidence",
+          status: "pending",
+          confidence: 0.35,
+          reason: "User lacks evidence clarity; advancing with limitation.",
+          source: "guided_intake",
+        },
+      ],
+      active_doubt_detected: false,
+      target_topic: null,
+      reopened_topic: null,
+      can_show_summary: false,
+      requires_confirmation: false,
+      confirmation_options: null,
+    });
   }
 
   const deterministicStrategic =
-    trace.phase !== "follow_up" &&
+    allowsDeterministicMetaResolution(trace) &&
     detectDeterministicStrategicValidationIntent(userText, { miniStep });
 
   const deterministicClarification =
     !deterministicStrategic &&
-    trace.phase !== "follow_up" &&
+    allowsDeterministicMetaResolution(trace) &&
     detectDeterministicClarificationIntent(userText);
 
+  const strategicMini = Boolean(currentTopic);
+  const activeDoubtOnly =
+    allowsDeterministicMetaResolution(trace) &&
+    strategicMini &&
+    detectActiveStrategicDoubt(userText) &&
+    !deterministicStrategic &&
+    !deterministicClarification;
+
+  if (activeDoubtOnly) {
+    const doubtTopic = currentTopic!;
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: "active_doubt",
+      pending_state:
+        pendingState === "none" ? "pending_strategic_validation" : pendingState,
+      action: "active_strategic_doubt",
+      current_mini_step: miniStep,
+      next_mini_step: miniStep,
+      current_phase: trace.phase,
+      next_phase: "strategy_validation",
+      should_advance: false,
+      should_not_advance: true,
+      writes_to_responses: false,
+      writes_to_completed_steps: false,
+      summary_allowed: false,
+      render_policy: "single_surface_no_competing_bank",
+      question_surface_type: "single_merged_assistant_turn",
+      skip_llm_extraction: true,
+      notes_for_route: { branch: "active_strategic_doubt" },
+      decision_status_updates: [
+        {
+          topic: doubtTopic,
+          status: "provisional",
+          confidence: 0.52,
+          reason: "User expressed strategic doubt or asked for advisory input.",
+          source: "guided_intake",
+        },
+      ],
+      target_topic: doubtTopic,
+      active_doubt_detected: true,
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      can_show_summary: false,
+      reopened_topic: null,
+    });
+  }
+
   if (deterministicStrategic) {
-    return {
+    const doubtTopic = currentTopic;
+    return finalizeEngineTurn(trace, userText, {
       user_intent: "strategic_validation_question",
       pending_state:
         pendingState === "none" ? "pending_strategic_validation" : pendingState,
@@ -247,14 +641,41 @@ export function resolveGuidedIntakeTurn(
       summary_allowed: false,
       render_policy: "single_surface_no_competing_bank",
       question_surface_type: "single_merged_assistant_turn",
-      /** Route still enters the handler block; only the LLM sub-path is skipped. */
       skip_llm_extraction: false,
       notes_for_route: { branch: "deterministic_strategic_validation" },
-    };
+      decision_status_updates:
+        doubtTopic && detectActiveStrategicDoubt(userText)
+          ? [
+              {
+                topic: doubtTopic,
+                status: "provisional",
+                confidence: 0.55,
+                reason: "Strategic validation question; user not closing decision.",
+                source: "guided_intake",
+              },
+            ]
+          : doubtTopic
+            ? [
+                {
+                  topic: doubtTopic,
+                  status: "provisional",
+                  confidence: 0.58,
+                  reason: "Awaiting confirmation after validation exchange.",
+                  source: "guided_intake",
+                },
+              ]
+            : [],
+      target_topic: doubtTopic ?? null,
+      reopened_topic: null,
+      active_doubt_detected: detectActiveStrategicDoubt(userText),
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      can_show_summary: false,
+    });
   }
 
   if (deterministicClarification) {
-    return {
+    return finalizeEngineTurn(trace, userText, {
       user_intent: "clarification_question",
       pending_state:
         pendingState === "none" ? "pending_clarification" : pendingState,
@@ -272,7 +693,13 @@ export function resolveGuidedIntakeTurn(
       question_surface_type: "single_merged_assistant_turn",
       skip_llm_extraction: false,
       notes_for_route: { branch: "deterministic_clarification" },
-    };
+      active_doubt_detected: false,
+      target_topic: null,
+      reopened_topic: null,
+      can_show_summary: false,
+      requires_confirmation: false,
+      confirmation_options: null,
+    });
   }
 
   return baseLlmDecision(input, pendingState);

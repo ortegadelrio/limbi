@@ -5,6 +5,7 @@ import {
   PROBLEM_CATEGORY_OPTIONS,
   TRANSFORMATION_TYPE_OPTIONS,
 } from "@/lib/constants/wizard";
+import { readInterviewTrace } from "@/lib/intake/orchestrator";
 import { GUIDED_INTAKE_AUDIENCE_PENDING_LIM } from "@/lib/intake/strategic-interview-apply";
 
 export type StrategicInterviewPilotSummary = {
@@ -59,6 +60,11 @@ export function audienceIsCommittedForPilotSummary(
   mergedResponses: Record<string, unknown>,
   confidence: Record<string, number>,
 ): boolean {
+  const trace = readInterviewTrace(mergedResponses);
+  const audDecision = trace?.decision_states?.audience;
+  if (audDecision?.status && audDecision.status !== "confirmed") {
+    return false;
+  }
   const ab = readAb(mergedResponses);
   const sb = readSb(mergedResponses);
   const lim = readLimitations(sb);
@@ -168,6 +174,8 @@ export function buildStrategicInterviewPilotSummary(
   traceOtherChallenge: boolean,
   confidence: Record<string, number>,
 ): StrategicInterviewPilotSummary {
+  const interviewTrace = readInterviewTrace(mergedResponses);
+  const ds = interviewTrace?.decision_states;
   const sb = readSb(mergedResponses);
   const ab = readAb(mergedResponses);
   const lim = readLimitations(sb);
@@ -209,14 +217,28 @@ export function buildStrategicInterviewPilotSummary(
   }
 
   if (problemStrong && problemText) {
+    const probSt = ds?.problem?.status;
+    const probCaveat =
+      probSt === "provisional" ||
+      probSt === "low_confidence" ||
+      probSt === "reopened"
+        ? "Por ahora queda como hipótesis: "
+        : "";
     mainParagraphs.push(
-      `La situación o fricción que ubicaste: ${problemText}.`,
+      `${probCaveat}La situación o fricción que ubicaste: ${problemText}.`,
     );
   }
 
   if (transformStrong && transformText) {
+    const trSt = ds?.transformation?.status;
+    const trCaveat =
+      trSt === "provisional" ||
+      trSt === "low_confidence" ||
+      trSt === "reopened"
+        ? "Todavía falta confirmar el beneficio, pero como orientación: "
+        : "";
     mainParagraphs.push(
-      `El cambio o beneficio que buscas comunicar: ${transformText}.`,
+      `${trCaveat}El cambio o beneficio que buscas comunicar: ${transformText}.`,
     );
   }
 

@@ -2,6 +2,10 @@ import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import { GUIDED_MINI_STEPS, nextMiniStep } from "@/lib/intake/guided-interview-flow";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import type { PilotEscapeChipId } from "@/lib/intake/question-bank";
+import {
+  normalizeDecisionStates,
+  type StrategicDecisionStatesV1,
+} from "@/lib/intake/decision-state";
 
 export const LIMBIC_INTERVIEW_TRACE_KEY = "_limbic_interview_v1" as const;
 
@@ -42,6 +46,8 @@ export type LimbicInterviewTraceV1 = {
   audience_recommendation_pending?: AudienceRecommendationPendingV1;
   /** Short audit trail (not full raw chat for master). */
   turns: { at: string; role: "user" | "assistant"; summary: string }[];
+  /** Internal-only strategic decision lifecycle (Phase 2 conversational engine). */
+  decision_states?: StrategicDecisionStatesV1;
 };
 
 export function readInterviewTrace(
@@ -107,6 +113,9 @@ export function readInterviewTrace(
     }
   }
 
+  const dsRaw = o.decision_states;
+  const decision_states = normalizeDecisionStates(dsRaw);
+
   return {
     version: 1,
     pilot_id: pilotId as LimbicInterviewPilotId,
@@ -117,6 +126,7 @@ export function readInterviewTrace(
     ...(audience_recommendation_pending
       ? { audience_recommendation_pending }
       : {}),
+    ...(decision_states ? { decision_states } : {}),
     turns: Array.isArray(o.turns)
       ? (o.turns as unknown[])
           .filter(

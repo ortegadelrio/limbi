@@ -50,6 +50,13 @@ import {
   traceForLlmProcessing,
 } from "@/lib/intake/guided-intake-clarification";
 import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
+import type { TurnDecision } from "@/lib/intake/conversational-engine/types";
+import {
+  applyDecisionStatusPatches,
+  detectExplicitProceedWithPendingSummary,
+  miniStepToStrategicTopicKey,
+  pilotSummaryBlockedByDecisionStates,
+} from "@/lib/intake/decision-state";
 import {
   buildAudienceConfirmMergeAndExtraction,
   buildAudienceDeclineInvertRepromptTurnContent,
@@ -119,6 +126,33 @@ function readEvidenceBase(r: Record<string, unknown>): Record<string, unknown> {
 function normalizeCompletedSteps(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
+const GUIDED_STRATEGIC_FIELD_PENDING = "guided_intake:strategic_field_pending";
+
+function applyEngineDecisionPatchesToTrace(
+  tr: LimbicInterviewTraceV1,
+  engine: TurnDecision,
+): LimbicInterviewTraceV1 {
+  if (!engine.decision_status_updates.length) return tr;
+  return {
+    ...tr,
+    decision_states: applyDecisionStatusPatches(
+      tr.decision_states,
+      engine.decision_status_updates,
+      new Date().toISOString(),
+    ),
+  };
+}
+
+function appendStrategicConfirmationTriad(
+  message: string,
+  engine: TurnDecision,
+): string {
+  if (engine.requires_confirmation && engine.confirmation_options?.length) {
+    return `${message.trim()}\n\n${engine.confirmation_options.join("\n")}`.trim();
+  }
+  return message.trim();
 }
 
 function mergeTraceIntoResponses(
@@ -585,7 +619,8 @@ export async function POST(request: Request, { params }: Params) {
       const body = nq
         ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
         : content.interviewer_message.trim();
-      const fullMessage = `${bridge}${body}`.trim();
+      let fullMessage = `${bridge}${body}`.trim();
+      fullMessage = appendStrategicConfirmationTriad(fullMessage, engineTurn);
       extraction = buildStrategicValidationSyntheticExtraction({
         interviewer_message: fullMessage,
         next_question: null,
@@ -600,6 +635,60 @@ export async function POST(request: Request, { params }: Params) {
         ...stripAudienceRecommendationPending(traceFromDb),
         phase: "strategy_validation",
         mini_step: "audience",
+      };
+      if (content.audience_recommendation_pending) {
+        baseForTrace = {
+          ...baseForTrace,
+          audience_recommendation_pending: content.audience_recommendation_pending,
+        };
+      }
+      nextTrace = appendTurn(
+        appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+        "assistant",
+        extraction.interviewer_message.slice(0, 500),
+      );
+    }
+
+    if (engineTurn.notes_for_route.branch === "strategic_topic_reroute") {
+      const targetMs = engineTurn.notes_for_route.rerouteTargetTopic!;
+      mergedWithoutTrace = baseResponses;
+      const content = buildStrategicValidationTurnContent({
+        miniStep: targetMs,
+        userText: userTextRaw,
+        challengeType: projectChallengeType,
+        otherChallenge,
+        strategicBase: sbSnap,
+        traceUserTurns: traceFromDb.turns,
+      });
+      const topicWord =
+        targetMs === "audience"
+          ? "la audiencia"
+          : targetMs === "evidence"
+            ? "la evidencia"
+            : targetMs === "problem"
+              ? "el problema o la tensión"
+              : "el beneficio o la transformación";
+      const bridge = `De acuerdo. Antes de seguir, retomemos ${topicWord}.\n\n`;
+      const nq = content.next_question?.trim();
+      const body = nq
+        ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
+        : content.interviewer_message.trim();
+      let fullMessage = `${bridge}${body}`.trim();
+      fullMessage = appendStrategicConfirmationTriad(fullMessage, engineTurn);
+      extraction = buildStrategicValidationSyntheticExtraction({
+        interviewer_message: fullMessage,
+        next_question: null,
+        suggested_chips: content.suggested_chips,
+        audience_recommendation_pending: content.audience_recommendation_pending,
+      });
+      shouldNotAdvance = true;
+      wantsFollowUp = false;
+      interviewerMessage = fullMessage;
+      nextQuestion = null;
+      let baseForTrace: LimbicInterviewTraceV1 = {
+        ...stripAudienceRecommendationPending(traceFromDb),
+        phase: "strategy_validation",
+        mini_step: targetMs,
       };
       if (content.audience_recommendation_pending) {
         baseForTrace = {
@@ -647,11 +736,22 @@ export async function POST(request: Request, { params }: Params) {
     const offeringHint =
       typeof sbSnap.offering_type === "string" ? sbSnap.offering_type : null;
 
-    if (!engineTurn.skip_llm_extraction) {
+    const runStrategicHandlerBranch =
+      !engineTurn.skip_llm_extraction ||
+      engineTurn.notes_for_route.branch === "active_strategic_doubt" ||
+      engineTurn.notes_for_route.branch === "provisional_decision_resolution";
+
+    if (runStrategicHandlerBranch) {
+      const llmMiniStep = engineTurn.notes_for_route.overrideMiniStep ?? miniStep;
+      const traceForExtraction = traceForLlmProcessing({
+        ...traceFromDb,
+        mini_step: llmMiniStep,
+      });
+
       const system = buildStrategicInterviewSystemPrompt({
         challengeType: projectChallengeType,
         offeringTypeHint: offeringHint,
-        miniStep,
+        miniStep: llmMiniStep,
         otherChallenge,
       });
       const schemaHint = `Required JSON shape:
@@ -670,7 +770,7 @@ export async function POST(request: Request, { params }: Params) {
 }`;
 
       const userPrompt = buildStrategicInterviewUserPrompt({
-        trace,
+        trace: traceForExtraction,
         userText: userLine,
         strategicBaseSnapshot: sbSnap,
         audienceBaseSnapshot: readAudienceBase(baseResponses),
@@ -733,6 +833,14 @@ export async function POST(request: Request, { params }: Params) {
         interviewerMessage = nq
           ? `${content.interviewer_message.trim()}\n\n${nq}`.trim()
           : content.interviewer_message.trim();
+        interviewerMessage = appendStrategicConfirmationTriad(
+          interviewerMessage,
+          engineTurn,
+        );
+        extraction = {
+          ...extraction,
+          interviewer_message: interviewerMessage,
+        };
         nextQuestion = null;
         let baseForTrace: LimbicInterviewTraceV1 = {
           ...traceFromDb,
@@ -755,11 +863,113 @@ export async function POST(request: Request, { params }: Params) {
         );
       };
 
-      if (engineTurn.notes_for_route.branch === "deterministic_strategic_validation") {
+      if (engineTurn.notes_for_route.branch === "provisional_decision_resolution") {
+        const choice = engineTurn.notes_for_route.provisionalChoice!;
+        if (choice === "change_priority") {
+          applyStrategicValidationTurn();
+        } else if (choice === "leave_pending") {
+          const topicKey = miniStepToStrategicTopicKey(miniStep);
+          const lim =
+            topicKey === "audience"
+              ? GUIDED_INTAKE_AUDIENCE_PENDING_LIM
+              : GUIDED_STRATEGIC_FIELD_PENDING;
+          const nextLim = prevLimForExtraction.includes(lim)
+            ? prevLimForExtraction
+            : [...prevLimForExtraction, lim];
+          extraction = {
+            extracted_response_updates: {
+              strategic_base: {
+                ...sbSnap,
+                guided_intake_limitations_optional: nextLim,
+              },
+            },
+            confidence_by_field: {},
+            needs_follow_up: false,
+            follow_up_question: null,
+            suggested_answer_chips: [],
+            answer_status: "missing_choice",
+            target_response_paths: [
+              "strategic_base.guided_intake_limitations_optional",
+            ],
+            internal_notes: "provisional_decision_leave_pending",
+            interviewer_message:
+              "Entendido. Dejo esta decisión estratégica como pendiente para no asumir algo que todavía no está cerrado. Seguimos con el flujo y lo podremos revisar después.",
+            public_copy_allowed: false,
+            user_intent: "answer",
+          };
+          mergedWithoutTrace = applyStrategicInterviewExtraction(
+            baseResponses,
+            extraction,
+          ).mergedResponses;
+          shouldNotAdvance = false;
+          wantsFollowUp = false;
+          let t1 = appendTurn(
+            { ...traceFromDb, phase: "main", mini_step: miniStep },
+            "user",
+            userLine.slice(0, 500),
+          );
+          t1 = appendTurn(
+            t1,
+            "assistant",
+            extraction.interviewer_message.slice(0, 500),
+          );
+          nextTrace = advanceMiniStepFrom(t1);
+          interviewerMessage = extraction.interviewer_message;
+          nextQuestion =
+            nextTrace.mini_step === "complete"
+              ? null
+              : questionForMiniStep(
+                  nextTrace.mini_step ?? "challenge_type",
+                  projectChallengeType,
+                  otherChallenge,
+                );
+        } else {
+          mergedWithoutTrace = baseResponses;
+          extraction = {
+            extracted_response_updates: {},
+            confidence_by_field: {},
+            needs_follow_up: false,
+            follow_up_question: null,
+            suggested_answer_chips: [],
+            answer_status: "clear",
+            target_response_paths: [],
+            internal_notes: "provisional_decision_confirm",
+            interviewer_message:
+              "Perfecto. Tomo como confirmada esta dirección por ahora y seguimos.",
+            public_copy_allowed: false,
+            user_intent: "answer",
+          };
+          shouldNotAdvance = false;
+          wantsFollowUp = false;
+          let t1 = appendTurn(
+            { ...traceFromDb, phase: "main", mini_step: miniStep },
+            "user",
+            userLine.slice(0, 500),
+          );
+          t1 = appendTurn(
+            t1,
+            "assistant",
+            extraction.interviewer_message.slice(0, 500),
+          );
+          nextTrace = advanceMiniStepFrom(t1);
+          interviewerMessage = extraction.interviewer_message;
+          nextQuestion =
+            nextTrace.mini_step === "complete"
+              ? null
+              : questionForMiniStep(
+                  nextTrace.mini_step ?? "challenge_type",
+                  projectChallengeType,
+                  otherChallenge,
+                );
+        }
+      } else if (
+        engineTurn.notes_for_route.branch === "active_strategic_doubt" ||
+        engineTurn.notes_for_route.branch === "deterministic_strategic_validation"
+      ) {
         applyStrategicValidationTurn();
       } else if (engineTurn.notes_for_route.branch === "deterministic_clarification") {
         applyClarificationTurn();
-      } else {
+      } else if (!engineTurn.skip_llm_extraction) {
         let resolved: Awaited<ReturnType<typeof resolveGuidedIntakeExtraction>>;
         try {
           resolved = await resolveGuidedIntakeExtraction({
@@ -767,7 +977,7 @@ export async function POST(request: Request, { params }: Params) {
             system,
             schemaHint,
             userPrompt,
-            miniStep,
+            miniStep: llmMiniStep,
             challengeType: projectChallengeType,
             userText: userLine,
             prevLimitations: prevLimForExtraction,
@@ -785,7 +995,7 @@ export async function POST(request: Request, { params }: Params) {
         }
         extraction = resolved.extraction;
 
-        if (extraction.needs_follow_up && trace.follow_up_used) {
+        if (extraction.needs_follow_up && traceForExtraction.follow_up_used) {
           extraction = {
             ...extraction,
             needs_follow_up: false,
@@ -804,7 +1014,7 @@ export async function POST(request: Request, { params }: Params) {
           mergedWithoutTrace = mergedFromEx;
 
           const turn = computeTraceAfterStrategicLlmExtraction({
-            trace,
+            trace: traceForExtraction,
             extraction,
           });
           nextTrace = turn.nextTrace;
@@ -819,6 +1029,19 @@ export async function POST(request: Request, { params }: Params) {
               500,
             ),
           );
+
+          if (
+            engineTurn.notes_for_route.branch === "cross_topic_llm_extraction" &&
+            engineTurn.notes_for_route.restoreMiniStepAfter &&
+            !wantsFollowUp
+          ) {
+            nextTrace = {
+              ...nextTrace,
+              mini_step: engineTurn.notes_for_route.restoreMiniStepAfter,
+              phase: "main",
+              follow_up_used: false,
+            };
+          }
 
           interviewerMessage = extraction.interviewer_message || null;
           nextQuestion =
@@ -850,21 +1073,31 @@ export async function POST(request: Request, { params }: Params) {
           { returnTo: null },
         );
 
+    nextTrace = applyEngineDecisionPatchesToTrace(nextTrace, engineTurn);
+
     const mergedResponses = mergeTraceIntoResponses(
       mergedWithoutTrace,
       nextTrace,
     );
 
-    const summary = shouldNotAdvance
-      ? null
-      : nextTrace.mini_step === "complete" && nextTrace.phase === "done"
-        ? buildStrategicInterviewPilotSummary(
-            mergedResponses,
-            projectChallengeType,
-            otherChallenge,
-            extraction.confidence_by_field,
-          )
-        : null;
+    const summaryBlockedByDecisions = pilotSummaryBlockedByDecisionStates(
+      nextTrace.decision_states,
+      {
+        userExplicitProceed: detectExplicitProceedWithPendingSummary(userTextRaw),
+      },
+    );
+
+    const summary =
+      shouldNotAdvance || summaryBlockedByDecisions
+        ? null
+        : nextTrace.mini_step === "complete" && nextTrace.phase === "done"
+          ? buildStrategicInterviewPilotSummary(
+              mergedResponses,
+              projectChallengeType,
+              otherChallenge,
+              extraction.confidence_by_field,
+            )
+          : null;
 
     if (!existing) {
       const { data: inserted, error: insertError } = await supabase
