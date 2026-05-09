@@ -263,8 +263,27 @@ describe("buildStrategicValidationTurnContent", () => {
     expect(content.interviewer_message).not.toMatch(/consumidores finales|equipos internos/i);
     expect(content.interviewer_message).not.toMatch(/consumidor final/i);
     expect(content.interviewer_message).toMatch(
-      /foco principal|Capa complementaria|autorizaci[oó]n|confianza|pago|deseo|vivencia/i,
+      /decisi[oó]n|confianza|pago|experiencia|deseo|destrabar|encaja/i,
     );
+  });
+
+  it("recommendation ask with sparse context uses advisor roles, not wizard enums", () => {
+    const content = buildStrategicValidationTurnContent({
+      miniStep: "audience",
+      userText: "Quién me recomiendas",
+      challengeType: "service",
+      otherChallenge: false,
+      strategicBase: {
+        simple_description: "Una oferta con varios actores implícitos en el relato",
+      },
+      traceUserTurns: [],
+    });
+    expect(content.audience_recommendation_pending).not.toBeNull();
+    expect(content.interviewer_message).not.toMatch(
+      /community_citizens|end_consumers|b2b|b2c|equipos internos/i,
+    );
+    expect(content.interviewer_message).toMatch(/decisi[oó]n|confianza|pago/i);
+    expect(content.interviewer_message).toMatch(/¿Confirmas/i);
   });
 
   it("A. público/social: gobierno local + señores ambiguos — aclaración, sin confirmación ni frase completa", () => {

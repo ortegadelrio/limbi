@@ -1,7 +1,6 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
-import { audienceWizardSlugToSpanishLabel } from "@/lib/intake/segment-confirmation-actions";
 
 export type SegmentConfirmationUserReplyKind =
   | "confirm"
@@ -109,8 +108,11 @@ export function buildSegmentConfirmationStructuredCore(
         ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_type)
         : "";
     if (slug.length > 0) {
-      const human = audienceWizardSlugToSpanishLabel(slug);
-      return `La audiencia principal quedaría orientada a: ${stripTerminalPeriod(human)}.`;
+      /** Never surface wizard slugs or catalog labels in confirmation UI — describe roles instead. */
+      return (
+        "La audiencia quedaría planteada por roles: priorizar a quien decide, paga o valida frente a quien vive la experiencia o el deseo, " +
+        "y distinguir a quien recomienda o habilita cuando aplique; falta cerrar esto en una sola frase anclada a lo que ya contaste."
+      );
     }
   }
   if (miniStep === "evidence") {

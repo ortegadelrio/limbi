@@ -78,7 +78,7 @@ describe("buildSegmentConfirmationUiFromTrace", () => {
     expect(buildSegmentConfirmationUiFromTrace(trace)).toBeNull();
   });
 
-  it("maps audience_type slug to a Spanish label in synthesis, not raw enum text", () => {
+  it("does not surface wizard enum values or catalog labels when only audience_type is set", () => {
     const trace: LimbicInterviewTraceV1 = {
       version: 1,
       pilot_id: "strategic_interview_v1",
@@ -97,8 +97,9 @@ describe("buildSegmentConfirmationUiFromTrace", () => {
       },
     };
     const ui = buildSegmentConfirmationUiFromTrace(trace);
-    expect(ui?.synthesis).not.toMatch(/community_citizens/i);
-    expect(ui?.synthesis).toMatch(/ciudadanos|Comunidad/i);
+    expect(ui?.synthesis).not.toMatch(/community_citizens|end_consumers/i);
+    expect(ui?.synthesis).not.toMatch(/ciudadanos|Comunidad\/|consumidores finales/i);
+    expect(ui?.synthesis).toMatch(/roles|decisi|experiencia/i);
   });
 });
 

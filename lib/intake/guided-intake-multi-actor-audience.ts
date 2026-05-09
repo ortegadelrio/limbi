@@ -549,17 +549,15 @@ export function buildProvisionalAudienceRecommendation(params: {
 
   const lines: string[] = [];
   lines.push(
-    "Con la información que tenemos hasta ahora, mi recomendación provisional (no es pieza final de comunicación) sería:",
+    "Con lo que tenemos hasta ahora, mi recomendación provisional sería priorizar el actor que concentra decisión, confianza o pago —en tu relato encaja bien con “" +
+      primary.label +
+      "”— porque suele destrabar el mensaje.",
     "",
-  );
-
-  lines.push(
-    `– Prioridad principal "${primary.label}": suele concentrar autorización, confianza o pago cuando ese rol aparece en lo ya contado.`,
-    `– Capa complementaria "${secondary.label}": suele asociarse a deseo, uso o vivencia cuando convive con la primera.`,
+    `“${secondary.label}” sigue siendo una capa fuerte de experiencia o deseo: conviene conectar ambos sin prometer cosas incompatibles.`,
     "",
-    "No invento actores nuevos: solo ordeno y aclaro capas con lo que ya está en tu respuesta y en el contexto confirmado hasta aquí.",
+    "No invento actores nuevos: solo ordeno roles con lo ya dicho.",
     "",
-    `¿Lo dejamos así: "${primary.label}" como foco principal de mensaje y "${secondary.label}" como segunda capa, sin mezclar promesas incompatibles?`,
+    `¿Lo dejamos así con “${primary.label}” como foco principal y “${secondary.label}” como segunda capa?`,
   );
   if (tertiary) {
     lines.push(

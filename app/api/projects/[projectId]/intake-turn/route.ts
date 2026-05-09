@@ -75,7 +75,6 @@ import {
   buildSegmentCorrectionPromptAppendix,
   detectSegmentCorrectionMode,
 } from "@/lib/intake/segment-correction-mode";
-import { mergePendingSegmentCorrectionExtraction } from "@/lib/intake/merge-segment-correction-extraction";
 import {
   extractionPayloadForTrace,
   shouldOfferSegmentConfirmationAfterExtraction,
@@ -1369,21 +1368,6 @@ export async function POST(request: Request, { params }: Params) {
           );
         }
         extraction = resolved.extraction;
-
-        if (correctionAwaiting) {
-          const mode = detectSegmentCorrectionMode(userTextRaw);
-          const pendingParsed = parseIntakeExtractionOutput(
-            traceFromDb.segment_confirmation_pending!.extraction,
-          );
-          if (pendingParsed.ok && mode === "add") {
-            extraction = mergePendingSegmentCorrectionExtraction({
-              mode,
-              pending: pendingParsed.data,
-              incoming: extraction,
-              miniStep: llmMiniStep,
-            });
-          }
-        }
 
         if (extraction.needs_follow_up && traceForExtraction.follow_up_used) {
           extraction = {

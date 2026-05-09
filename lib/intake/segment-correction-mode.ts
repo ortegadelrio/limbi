@@ -99,19 +99,27 @@ export function buildSegmentCorrectionPromptAppendix(params: {
 }): string {
   const modeLine =
     params.mode === "add"
-      ? "Modo: complementar (conservar lo ya capturado e integrar lo nuevo)."
+      ? "Modo: complementar (conservar el sentido ya capturado e integrar lo nuevo en una sola redacción)."
       : params.mode === "replace"
         ? "Modo: reemplazar (la nueva respuesta sustituye la interpretación previa de este paso)."
         : "Modo: mejorar redacción (mismo contenido estratégico, redacción más clara; no inventar hechos nuevos).";
 
   const json = params.priorExtractionJson.trim().slice(0, 12_000);
 
+  const fusionBlock =
+    params.mode === "add"
+      ? `
+- Reescribe los campos de texto relevantes de este paso como UNA redacción integrada (una frase o un párrafo breve), no como “frase anterior + frase nueva” pegadas.
+- Conserva el significado ya acordado, incorpora lo nuevo, elimina redundancia y evita repetir literalmente la línea previa si ya queda absorbida en la versión fusionada.
+`.trim()
+      : "";
+
   return `
 [Ajuste dentro del mismo paso guiado — mini_step=${params.miniStep}]
 ${modeLine}
 - Devuelve un JSON de extracción completo y válido para este mini_step, coherente con las reglas del sistema.
 - El bloque JSON previo es la línea base interpretada antes del ajuste; respétalo según el modo.
-
+${fusionBlock ? `\n${fusionBlock}\n` : ""}
 JSON previo (solo referencia interna):
 ${json}
 `.trim();

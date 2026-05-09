@@ -72,7 +72,7 @@ describe("segment correction mode detection", () => {
 });
 
 describe("mergePendingSegmentCorrectionExtraction (additive)", () => {
-  it("preserves prior problem framing and appends new information", () => {
+  it("returns the LLM extraction unchanged for add mode (fusion happens in the model, not by concatenation)", () => {
     const pending = minimalExtraction("prev", "unit", {
       strategic_base: {
         problem_description_optional:
@@ -82,7 +82,7 @@ describe("mergePendingSegmentCorrectionExtraction (additive)", () => {
     const incoming = minimalExtraction("new", "unit", {
       strategic_base: {
         problem_description_optional:
-          "Otro frente es que quien recomienda el servicio evalúa opciones comparables.",
+          "Una sola redacción integrada que funde autorización y recomendación sin repetir la frase previa.",
       },
     });
     const merged = mergePendingSegmentCorrectionExtraction({
@@ -91,13 +91,14 @@ describe("mergePendingSegmentCorrectionExtraction (additive)", () => {
       incoming,
       miniStep: "problem",
     });
+    expect(merged).toBe(incoming);
     const sb = merged.extracted_response_updates?.strategic_base as Record<
       string,
       unknown
     >;
-    const p = String(sb.problem_description_optional ?? "");
-    expect(p).toContain("confianza");
-    expect(p).toContain("recomienda");
+    expect(sb.problem_description_optional).toBe(
+      "Una sola redacción integrada que funde autorización y recomendación sin repetir la frase previa.",
+    );
   });
 
   it("does not merge when mode is replace", () => {

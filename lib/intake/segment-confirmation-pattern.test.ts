@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine";
 import {
   buildSegmentConfirmationAssistantMessage,
+  buildSegmentConfirmationStructuredCore,
   classifySegmentConfirmationUserReply,
   sanitizeInterpretationCoreForSegmentConfirmation,
 } from "@/lib/intake/segment-confirmation";
@@ -183,6 +184,17 @@ describe("segment confirmation gate helpers", () => {
     expect(msg).toMatch(/fricci[oó]n central/i);
     expect(msg).toMatch(/coordinaci[oó]n interna/i);
     expect(msg).not.toMatch(/etapa de vida|alto potencial/i);
+  });
+
+  it("uses role-neutral audience synthesis when only audience_type is present (no enum labels)", () => {
+    const core = buildSegmentConfirmationStructuredCore(
+      minimalExtraction("x", "unit", {
+        audience_base: { audience_type: "end_consumers" },
+      }),
+      "audience",
+    );
+    expect(core).not.toMatch(/end_consumers|consumidores finales/i);
+    expect(core).toMatch(/roles|decisi/i);
   });
 
   it("drops generic evaluative sentences from confirmation synthesis", () => {

@@ -60,9 +60,15 @@ const RECOMMENDATION_REQUEST_RES = [
   /\ba quien priorizar\b/i,
   /\bquién me recomiendas\b/i,
   /\bquien me recomiendas\b/i,
+  /\bno\s+s[eé]\s+dime\b/i,
+  /\bno\s+se\s+dime\b/i,
+  /\bqu[eé]\s+audiencia\s+pongo\b/i,
+  /\bqu[eé]\s+p[uú]blico\s+pongo\b/i,
+  /\bay[uú]dame\s+a\s+definir\s+(la\s+)?audiencia\b/i,
 ];
 
-function isStrategicRecommendationAsk(t: string): boolean {
+/** Exported for tests and call-sites that need the same “pide recomendación” signal as validación estratégica. */
+export function isStrategicRecommendationAsk(t: string): boolean {
   return RECOMMENDATION_REQUEST_RES.some((re) => re.test(t));
 }
 
@@ -588,8 +594,7 @@ export function buildAudienceConfirmMergeAndExtraction(
       "audience_base.audience_description_optional",
     ],
     internal_notes: "audience_recommendation_confirmed",
-    interviewer_message:
-      "Quedó registrada la prioridad provisional que confirmaste entre las audiencias mencionadas. Pasemos al siguiente paso.",
+    interviewer_message: "Listo. Seguimos con el siguiente paso.",
     public_copy_allowed: false,
     user_intent: "answer",
   };
@@ -629,6 +634,39 @@ export function buildBareAudienceAffirmationHoldContent(): StrategicValidationTu
   };
 }
 
+/**
+ * Marketing-advisor recommendation when the user asks “quién me recomiendas”-style questions
+ * but we do not yet have two concrete actors from text — still no wizard enums in copy.
+ */
+function buildAudienceAdvisorRecommendationWithoutActors(params: {
+  bankQuestion: string | null;
+}): StrategicValidationTurnContent {
+  void params.bankQuestion;
+  const primary_label = "Quien concentra decisión, confianza o pago";
+  const secondary_label = "Quien vive la experiencia o el deseo";
+  const tertiary_label = "Quien recomienda, valida o habilita";
+  const narrative = [
+    "Con lo que tenemos hasta ahora, mi recomendación provisional sería priorizar a quien concentra la decisión, la confianza o el pago, porque suele destrabar el mensaje y reduce fricción al avanzar.",
+    "Quien vive la experiencia o el deseo sigue siendo una capa importante: el relato puede conectar ambos sin mezclar promesas incompatibles.",
+    "Quien recomienda, valida o habilita puede actuar como canal o influencia cuando ese rol aparece en lo ya contado.",
+  ].join("\n");
+  const pending: AudienceRecommendationPendingV1 = {
+    version: 1,
+    primary_label,
+    secondary_label,
+    tertiary_label,
+    audience_description_draft: narrative,
+    audience_type_hint: "mixed",
+  };
+  const confirmBlock = buildAudienceRecommendationConfirmation(pending);
+  return {
+    interviewer_message: `${narrative}\n\n${confirmBlock}`.trim(),
+    next_question: null,
+    suggested_chips: [],
+    audience_recommendation_pending: pending,
+  };
+}
+
 export function buildStrategicValidationTurnContent(params: {
   miniStep: GuidedMiniStepId;
   userText: string;
@@ -664,6 +702,10 @@ export function buildStrategicValidationTurnContent(params: {
         suggested_chips: resolved.suggested_chips,
         audience_recommendation_pending: resolved.audience_recommendation_pending,
       };
+    }
+
+    if (isStrategicRecommendationAsk(userText)) {
+      return buildAudienceAdvisorRecommendationWithoutActors({ bankQuestion: bank });
     }
   }
 
