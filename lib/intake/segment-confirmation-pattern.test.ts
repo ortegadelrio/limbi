@@ -194,7 +194,37 @@ describe("segment confirmation gate helpers", () => {
       "audience",
     );
     expect(core).not.toMatch(/end_consumers|consumidores finales/i);
-    expect(core).toMatch(/roles|decisi/i);
+    expect(core).toMatch(/etiqueta interna|frase concreta|actores/i);
+  });
+
+  it("evidence segment synthesis maps internal type slugs to Spanish, never raw experience", () => {
+    const core = buildSegmentConfirmationStructuredCore(
+      minimalExtraction("x", "unit", {
+        evidence_base: {
+          evidence_types: ["experience", "testimonials"],
+          evidence_details: {},
+        },
+      }),
+      "evidence",
+    );
+    expect(core).not.toMatch(/\bexperience\b|\btestimonials\b/i);
+    expect(core).toMatch(/testimonio|trayectoria|experiencia/i);
+  });
+
+  it("evidence segment synthesis prefers user detail strings over type slugs", () => {
+    const core = buildSegmentConfirmationStructuredCore(
+      minimalExtraction("x", "unit", {
+        evidence_base: {
+          evidence_types: ["experience"],
+          evidence_details: {
+            experience: "Más de diez años vendiendo servicios similares en el sector.",
+          },
+        },
+      }),
+      "evidence",
+    );
+    expect(core).not.toMatch(/\bexperience\b/i);
+    expect(core).toMatch(/diez a[nñ]os|sector/i);
   });
 
   it("drops generic evaluative sentences from confirmation synthesis", () => {

@@ -61,7 +61,7 @@ describe("buildStrategicValidationTurnContent audience guidance", () => {
       traceUserTurns: [],
     });
     expect(content.audience_recommendation_pending).not.toBeNull();
-    expect(content.interviewer_message).toMatch(/¿Confirmas/i);
+    expect(content.interviewer_message).toMatch(/¿Lo dejamos as[ií]/i);
     const p = content.audience_recommendation_pending!;
     expect(p.primary_label).not.toMatch(/recomi|dudas|pero|dir[ií]a/i);
     expect(p.secondary_label).not.toMatch(/recomi|dudas|pero|dir[ií]a/i);

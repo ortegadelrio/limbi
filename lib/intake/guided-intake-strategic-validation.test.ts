@@ -14,12 +14,21 @@ import {
   detectAudienceRecommendationConfirm,
   detectDeterministicStrategicValidationIntent,
   detectReturnToAudienceTopicIntent,
+  isStrategicRecommendationAsk,
 } from "@/lib/intake/guided-intake-strategic-validation";
 import {
   applyStrategicInterviewExtraction,
   GUIDED_INTAKE_AUDIENCE_PENDING_LIM,
 } from "@/lib/intake/strategic-interview-apply";
 import { buildStrategicInterviewPilotSummary } from "@/lib/intake/strategic-interview-summary";
+
+describe("isStrategicRecommendationAsk", () => {
+  it("treats marketing-expert phrasing as a recommendation request", () => {
+    expect(
+      isStrategicRecommendationAsk("Cuál consideras tú, de acuerdo a tu experiencia"),
+    ).toBe(true);
+  });
+});
 
 describe("detectDeterministicStrategicValidationIntent", () => {
   it("detects agreement-seeking combined with hypothesis (evidence step scenario)", () => {
@@ -236,7 +245,7 @@ describe("buildStrategicValidationTurnContent", () => {
     expect(content.interviewer_message).toContain(
       content.audience_recommendation_pending!.secondary_label,
     );
-    expect(content.interviewer_message).toMatch(/¿Confirmas/i);
+    expect(content.interviewer_message).toMatch(/¿Lo dejamos as[ií]/i);
   });
 
   it("B2B: gerentes comerciales y usuarios del equipo de ventas — no inventa consumidores finales", () => {
@@ -263,11 +272,11 @@ describe("buildStrategicValidationTurnContent", () => {
     expect(content.interviewer_message).not.toMatch(/consumidores finales|equipos internos/i);
     expect(content.interviewer_message).not.toMatch(/consumidor final/i);
     expect(content.interviewer_message).toMatch(
-      /decisi[oó]n|confianza|pago|experiencia|deseo|destrabar|encaja/i,
+      /decisi[oó]n|confianza|pago|experiencia|deseo|concentrar|prometes/i,
     );
   });
 
-  it("recommendation ask with sparse context uses advisor roles, not wizard enums", () => {
+  it("recommendation ask with sparse context asks for two concrete actors; no synthetic pending", () => {
     const content = buildStrategicValidationTurnContent({
       miniStep: "audience",
       userText: "Quién me recomiendas",
@@ -278,12 +287,12 @@ describe("buildStrategicValidationTurnContent", () => {
       },
       traceUserTurns: [],
     });
-    expect(content.audience_recommendation_pending).not.toBeNull();
+    expect(content.audience_recommendation_pending).toBeNull();
     expect(content.interviewer_message).not.toMatch(
-      /community_citizens|end_consumers|b2b|b2c|equipos internos/i,
+      /community_citizens|end_consumers|b2b|b2c|equipos internos|Quien concentra/i,
     );
-    expect(content.interviewer_message).toMatch(/decisi[oó]n|confianza|pago/i);
-    expect(content.interviewer_message).toMatch(/¿Confirmas/i);
+    expect(content.interviewer_message).toMatch(/dos actores|frase/i);
+    expect(content.interviewer_message).not.toMatch(/¿Confirmas/i);
   });
 
   it("A. público/social: gobierno local + señores ambiguos — aclaración, sin confirmación ni frase completa", () => {

@@ -212,6 +212,31 @@ const cases: Case[] = [
       skip_llm_extraction: false,
     },
   },
+  {
+    id: "evidence_step_actor_language_routes_to_audience_redirect",
+    trace: traceBase({ mini_step: "evidence", phase: "main" }),
+    userText:
+      "La institución que contrata el servicio y sus equipos clave. También es un actor importante en cómo se escucha la propuesta.",
+    expect: {
+      branch: "evidence_audience_actor_redirect",
+      user_intent: "correction",
+      summary_allowed: false,
+      skip_llm_extraction: true,
+      render_policy: "single_surface_no_competing_bank",
+    },
+  },
+  {
+    id: "evidence_step_premium_positioning_routes_to_positioning_redirect",
+    trace: traceBase({ mini_step: "evidence", phase: "main" }),
+    userText: "Es un servicio premium con propuesta de valor diferenciada.",
+    expect: {
+      branch: "evidence_positioning_claim_redirect",
+      user_intent: "strategic_validation_question",
+      summary_allowed: false,
+      skip_llm_extraction: true,
+      render_policy: "single_surface_no_competing_bank",
+    },
+  },
 ];
 
 describe("resolveGuidedIntakeTurn (pattern table)", () => {
@@ -228,7 +253,12 @@ describe("resolveGuidedIntakeTurn (pattern table)", () => {
     if (x.not_branch) {
       expect(d.notes_for_route.branch).not.toBe(x.not_branch);
     }
-    if (x.branch === "deterministic_clarification" || x.branch === "deterministic_strategic_validation") {
+    if (
+      x.branch === "deterministic_clarification" ||
+      x.branch === "deterministic_strategic_validation" ||
+      x.branch === "evidence_audience_actor_redirect" ||
+      x.branch === "evidence_positioning_claim_redirect"
+    ) {
       expect(d.should_not_advance).toBe(true);
     }
     if (x.branch === "pending_audience_confirmation" && x.pendingAudienceReplyKind) {

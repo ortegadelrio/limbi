@@ -10,6 +10,10 @@ import {
   type PendingAudienceUserReply,
 } from "@/lib/intake/guided-intake-strategic-validation";
 import {
+  detectEvidenceStepAudienceStakeholderInput,
+  detectEvidenceStepPositioningClaim,
+} from "@/lib/intake/guided-intake-evidence-input-classifier";
+import {
   stripSegmentConfirmationPending,
   type LimbicInterviewTraceV1,
 } from "@/lib/intake/orchestrator";
@@ -692,6 +696,86 @@ export function resolveGuidedIntakeTurn(
       requires_confirmation: true,
       confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
       active_doubt_detected: false,
+      can_show_summary: false,
+    });
+  }
+
+  if (miniStep === "evidence" && detectEvidenceStepPositioningClaim(userText)) {
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: "strategic_validation_question",
+      pending_state:
+        pendingState === "none" ? "pending_strategic_validation" : pendingState,
+      action: "evidence_positioning_claim_redirect",
+      current_mini_step: miniStep,
+      next_mini_step: miniStep,
+      current_phase: trace.phase,
+      next_phase: "strategy_validation",
+      should_advance: false,
+      should_not_advance: true,
+      writes_to_responses: false,
+      writes_to_completed_steps: false,
+      summary_allowed: false,
+      render_policy: "single_surface_no_competing_bank",
+      question_surface_type: "single_merged_assistant_turn",
+      skip_llm_extraction: true,
+      notes_for_route: { branch: "evidence_positioning_claim_redirect" },
+      decision_status_updates: [
+        {
+          topic: "evidence",
+          status: "provisional",
+          confidence: 0.48,
+          reason: "Positioning-style claim during evidence step; not stored as proof yet.",
+          source: "guided_intake",
+        },
+      ],
+      target_topic: "evidence",
+      reopened_topic: null,
+      active_doubt_detected: true,
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
+      can_show_summary: false,
+    });
+  }
+
+  if (miniStep === "evidence" && detectEvidenceStepAudienceStakeholderInput(userText)) {
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: "correction",
+      pending_state: pendingState === "none" ? "pending_correction" : pendingState,
+      action: "evidence_audience_actor_redirect",
+      current_mini_step: miniStep,
+      next_mini_step: miniStep,
+      current_phase: trace.phase,
+      next_phase: "strategy_validation",
+      should_advance: false,
+      should_not_advance: true,
+      writes_to_responses: true,
+      writes_to_completed_steps: false,
+      summary_allowed: false,
+      render_policy: "single_surface_no_competing_bank",
+      question_surface_type: "single_merged_assistant_turn",
+      skip_llm_extraction: true,
+      notes_for_route: { branch: "evidence_audience_actor_redirect" },
+      decision_status_updates: [
+        {
+          topic: "audience",
+          status: "provisional",
+          confidence: 0.55,
+          reason: "Stakeholder or actor wording captured under audience during evidence step.",
+          source: "guided_intake",
+        },
+        {
+          topic: "evidence",
+          status: "in_progress",
+          confidence: 0.5,
+          reason: "Evidence step: substantive line routed to audience context.",
+          source: "guided_intake",
+        },
+      ],
+      target_topic: "audience",
+      reopened_topic: null,
+      active_doubt_detected: false,
+      requires_confirmation: true,
+      confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
       can_show_summary: false,
     });
   }

@@ -99,7 +99,7 @@ describe("buildSegmentConfirmationUiFromTrace", () => {
     const ui = buildSegmentConfirmationUiFromTrace(trace);
     expect(ui?.synthesis).not.toMatch(/community_citizens|end_consumers/i);
     expect(ui?.synthesis).not.toMatch(/ciudadanos|Comunidad\/|consumidores finales/i);
-    expect(ui?.synthesis).toMatch(/roles|decisi|experiencia/i);
+    expect(ui?.synthesis).toMatch(/etiqueta interna|frase concreta|actores/i);
   });
 });
 

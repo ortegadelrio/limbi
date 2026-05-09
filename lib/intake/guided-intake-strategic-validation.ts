@@ -60,6 +60,11 @@ const RECOMMENDATION_REQUEST_RES = [
   /\ba quien priorizar\b/i,
   /\bquién me recomiendas\b/i,
   /\bquien me recomiendas\b/i,
+  /\bcu[aá]l consideras\b/i,
+  /\bcual consideras\b/i,
+  /\bde acuerdo a tu experiencia\b/i,
+  /\bseg[uú]n tu experiencia\b/i,
+  /\bcomo experto en marketing\b/i,
   /\bno\s+s[eé]\s+dime\b/i,
   /\bno\s+se\s+dime\b/i,
   /\bqu[eé]\s+audiencia\s+pongo\b/i,
@@ -635,35 +640,22 @@ export function buildBareAudienceAffirmationHoldContent(): StrategicValidationTu
 }
 
 /**
- * Marketing-advisor recommendation when the user asks “quién me recomiendas”-style questions
- * but we do not yet have two concrete actors from text — still no wizard enums in copy.
+ * When the user asks for a recommendation but we cannot name two concrete actors yet:
+ * one clarifying question — no synthetic pending with abstract role placeholders.
  */
-function buildAudienceAdvisorRecommendationWithoutActors(params: {
+function buildAudienceAdvisorClarifyWhenActorsUnclear(params: {
   bankQuestion: string | null;
 }): StrategicValidationTurnContent {
-  void params.bankQuestion;
-  const primary_label = "Quien concentra decisión, confianza o pago";
-  const secondary_label = "Quien vive la experiencia o el deseo";
-  const tertiary_label = "Quien recomienda, valida o habilita";
-  const narrative = [
-    "Con lo que tenemos hasta ahora, mi recomendación provisional sería priorizar a quien concentra la decisión, la confianza o el pago, porque suele destrabar el mensaje y reduce fricción al avanzar.",
-    "Quien vive la experiencia o el deseo sigue siendo una capa importante: el relato puede conectar ambos sin mezclar promesas incompatibles.",
-    "Quien recomienda, valida o habilita puede actuar como canal o influencia cuando ese rol aparece en lo ya contado.",
-  ].join("\n");
-  const pending: AudienceRecommendationPendingV1 = {
-    version: 1,
-    primary_label,
-    secondary_label,
-    tertiary_label,
-    audience_description_draft: narrative,
-    audience_type_hint: "mixed",
-  };
-  const confirmBlock = buildAudienceRecommendationConfirmation(pending);
+  const nq = params.bankQuestion?.trim();
+  const core =
+    "Para recomendarte con criterio sin inventar audiencias, dime en una sola frase al menos dos actores distintos que ya hayas mencionado en el relato (por ejemplo quién habilita o valida frente a quién vive el resultado o influye en la decisión). Con eso te propongo una prioridad provisional con nombres concretos.";
+  const interviewer_message =
+    nq && nq.length > 0 ? `${core}\n\n${nq}`.trim() : core;
   return {
-    interviewer_message: `${narrative}\n\n${confirmBlock}`.trim(),
+    interviewer_message,
     next_question: null,
     suggested_chips: [],
-    audience_recommendation_pending: pending,
+    audience_recommendation_pending: null,
   };
 }
 
@@ -705,8 +697,17 @@ export function buildStrategicValidationTurnContent(params: {
     }
 
     if (isStrategicRecommendationAsk(userText)) {
-      return buildAudienceAdvisorRecommendationWithoutActors({ bankQuestion: bank });
+      return buildAudienceAdvisorClarifyWhenActorsUnclear({ bankQuestion: bank });
     }
+
+    return {
+      interviewer_message: `${audienceRecommendationAdvisorPreamble()} Solo uso actores que ya aparecieron en lo que contaste: no invento audiencias nuevas. Si quieres, dime en una frase a quién priorizarías y por qué, y lo contrastamos con lo que ya dijiste.`,
+      next_question: bank
+        ? `Volvamos a la pregunta: ${bank}`
+        : "Volvamos a la pregunta del paso actual cuando puedas aportar el detalle.",
+      suggested_chips: [],
+      audience_recommendation_pending: null,
+    };
   }
 
   if (miniStep === "evidence") {
@@ -716,17 +717,6 @@ export function buildStrategicValidationTurnContent(params: {
         ? `Sigamos con evidencia: ${bank}`
         : `Sigamos con evidencia: ${GUIDED_QUESTION_EVIDENCE}`,
       suggested_chips: [...EVIDENCE_CLARIFICATION_SUGGESTED_CHIPS],
-      audience_recommendation_pending: null,
-    };
-  }
-
-  if (miniStep === "audience") {
-    return {
-      interviewer_message: `${audienceRecommendationAdvisorPreamble()} Solo uso actores que ya aparecieron en lo que contaste: no invento audiencias nuevas. Si quieres, dime en una frase a quién priorizarías y por qué, y lo contrastamos con lo que ya dijiste.`,
-      next_question: bank
-        ? `Volvamos a la pregunta: ${bank}`
-        : "Volvamos a la pregunta del paso actual cuando puedas aportar el detalle.",
-      suggested_chips: [],
       audience_recommendation_pending: null,
     };
   }

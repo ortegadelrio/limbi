@@ -92,22 +92,6 @@ const ROLE_PRIORITY: Record<ActorAudienceRole, number> = {
   blocker: 0,
 };
 
-const ROLE_LABEL_ES: Record<ActorAudienceRole, string> = {
-  experiencer: "quienes viven la experiencia o el uso",
-  payer: "quienes pagan o financian",
-  decision_maker: "quienes deciden la compra o el avance",
-  authorizer: "quienes autorizan o validan",
-  organizer: "quienes organizan, habilitan volumen o canal",
-  influencer: "quienes influyen en la decisión",
-  blocker: "posibles vetos o fricción",
-  enabler: "quienes habilitan operación o adopción interna",
-  funder: "quienes aportan recursos o financiamiento",
-  beneficiary: "quienes reciben el beneficio directo",
-  user: "quienes usan la herramienta o el servicio en el día a día",
-  buyer: "quienes compran o formalizan la adquisición",
-  recommender: "quienes recomiendan o validan profesionalmente",
-};
-
 const AMBIGUOUS_ACTOR_RES: RegExp[] = [
   /\b(los|las)\s+señores?\b/i,
   /\bseñores?\b/i,
@@ -485,11 +469,6 @@ export function detectMultiActorRecommendationContext(
   return clean.length >= 2 && ambiguous.length === 0;
 }
 
-function formatRoles(actor: ClassifiedActor): string {
-  if (actor.roles.length === 0) return "un rol que habría que afinar con más contexto";
-  return actor.roles.map((r) => ROLE_LABEL_ES[r]).join("; ");
-}
-
 function buildDescriptionDraft(
   ordered: ClassifiedActor[],
   primary: ClassifiedActor,
@@ -498,11 +477,11 @@ function buildDescriptionDraft(
   const others = ordered.filter((a) => a.label !== primary.label && a.label !== secondary.label);
   const tail =
     others.length > 0
-      ? ` Otros actores mencionados (${others.map((o) => o.label).join(", ")}): conviene darles capas de mensaje acorde a su rol, sin mezclar promesas incompatibles.`
+      ? ` Otros actores mencionados (${others.map((o) => o.label).join(", ")}): conviene capas de mensaje coherentes con su rol, sin promesas cruzadas contradictorias.`
       : "";
   return (
-    `Prioridad principal (${primary.label}): comunicación orientada a ${formatRoles(primary)}. ` +
-    `Audiencia clave complementaria (${secondary.label}): ${formatRoles(secondary)}.${tail}`
+    `Prioridad principal (“${primary.label}”): foco en decisión, confianza o pago cuando eso encaja con lo ya contado. ` +
+    `Capa complementaria (“${secondary.label}”): experiencia, uso o deseo, alineada con lo que le prometes al foco principal.${tail}`
   );
 }
 
@@ -549,22 +528,15 @@ export function buildProvisionalAudienceRecommendation(params: {
 
   const lines: string[] = [];
   lines.push(
-    "Con lo que tenemos hasta ahora, mi recomendación provisional sería priorizar el actor que concentra decisión, confianza o pago —en tu relato encaja bien con “" +
-      primary.label +
-      "”— porque suele destrabar el mensaje.",
-    "",
-    `“${secondary.label}” sigue siendo una capa fuerte de experiencia o deseo: conviene conectar ambos sin prometer cosas incompatibles.`,
-    "",
-    "No invento actores nuevos: solo ordeno roles con lo ya dicho.",
-    "",
-    `¿Lo dejamos así con “${primary.label}” como foco principal y “${secondary.label}” como segunda capa?`,
+    `Mi recomendación provisional sería priorizar a “${primary.label}” porque suele concentrar decisión, confianza o pago cuando ese rol ya aparece en lo contado.`,
+    `También mantendría a “${secondary.label}” como segunda capa (experiencia, uso o deseo) sin prometer lo opuesto a lo que le prometes al foco principal.`,
   );
   if (tertiary) {
     lines.push(
-      "",
-      `Si también quieres dar peso explícito a "${tertiary.label}", lo alineamos en el tono sin contradecir lo que le prometes al foco principal.`,
+      `Y a “${tertiary.label}” lo situaría como influencia, validación u habilitación cuando aplique en el relato.`,
     );
   }
+  lines.push("", "¿Lo dejamos así?");
 
   const interviewer_message = lines.join("\n").trim();
 
@@ -641,9 +613,8 @@ export function resolveAudienceMultiActorStrategicTurn(params: {
   });
   if (!provisional) return null;
 
-  const confirmBlock = buildAudienceRecommendationConfirmation(provisional.pending);
   return {
-    interviewer_message: `${provisional.interviewer_message}\n\n${confirmBlock}`.trim(),
+    interviewer_message: provisional.interviewer_message.trim(),
     next_question: null,
     suggested_chips: [],
     audience_recommendation_pending: provisional.pending,

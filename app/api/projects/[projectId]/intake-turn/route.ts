@@ -164,6 +164,15 @@ function readEvidenceBase(r: Record<string, unknown>): Record<string, unknown> {
   return {};
 }
 
+function firstStoredEvidenceDetailSentence(eb: Record<string, unknown>): string {
+  const details = eb.evidence_details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return "";
+  for (const v of Object.values(details as Record<string, unknown>)) {
+    if (typeof v === "string" && v.trim().length > 6) return v.trim().slice(0, 280);
+  }
+  return "";
+}
+
 function normalizeCompletedSteps(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
@@ -968,6 +977,99 @@ export async function POST(request: Request, { params }: Params) {
       }
       nextTrace = appendTurn(
         appendTurn(baseForTrace, "user", userLine.slice(0, 500)),
+        "assistant",
+        extraction.interviewer_message.slice(0, 500),
+      );
+    }
+
+    if (engineTurn.notes_for_route.branch === "evidence_audience_actor_redirect") {
+      const ab0 = readAudienceBase(baseResponses);
+      const prior =
+        typeof ab0.audience_description_optional === "string"
+          ? ab0.audience_description_optional.trim()
+          : "";
+      const note = userLine.trim().slice(0, 1200);
+      const mergedDesc =
+        prior.length > 0
+          ? `${prior}\n\n(Integrado desde el paso de evidencia, enfoque audiencia/actores.) ${note}`
+          : `(Integrado desde el paso de evidencia, enfoque audiencia/actores.) ${note}`;
+      mergedWithoutTrace = deepMergeResponses(baseResponses, {
+        audience_base: {
+          ...ab0,
+          audience_description_optional: mergedDesc.slice(0, 4000),
+        },
+      });
+      const core =
+        "Eso pertenece más a audiencia que a evidencia: no lo guardé como prueba y lo sumé al contexto de audiencia pendiente para ordenar actores.";
+      const ask =
+        "\n\n¿Seguimos con evidencia o prefieres confirmar primero este ajuste de audiencia?";
+      const fullMessage = appendStrategicConfirmationTriad(
+        `${core}${ask}`.trim(),
+        engineTurn,
+      );
+      extraction = buildStrategicValidationSyntheticExtraction({
+        interviewer_message: fullMessage,
+        next_question: null,
+        suggested_chips: [],
+        audience_recommendation_pending: null,
+      });
+      shouldNotAdvance = true;
+      wantsFollowUp = false;
+      interviewerMessage = fullMessage;
+      nextQuestion = null;
+      nextTrace = appendTurn(
+        appendTurn(
+          {
+            ...applyEngineDecisionPatchesToTrace(traceFromDb, engineTurn),
+            phase: "strategy_validation",
+            mini_step: "evidence",
+          },
+          "user",
+          userLine.slice(0, 500),
+        ),
+        "assistant",
+        extraction.interviewer_message.slice(0, 500),
+      );
+    }
+
+    if (engineTurn.notes_for_route.branch === "evidence_positioning_claim_redirect") {
+      mergedWithoutTrace = baseResponses;
+      const eb0 = readEvidenceBase(baseResponses);
+      const priorDetail = firstStoredEvidenceDetailSentence(eb0);
+      const evidenceTail = priorDetail
+        ? `Con lo que ya dijiste, podría dejarse como evidencia destacable: ${priorDetail.replace(/\.\s*$/, "")}.`
+        : "Para evidencia necesitamos pruebas del tipo trayectoria, casos, testimonios, cifras o clientes que ya hayas mencionado.";
+      const core =
+        "Eso suena más a posicionamiento que a evidencia. Puedo guardarlo como atributo de valor, pero no lo dejé aún como prueba concreta.";
+      const closing = "\n\n¿Lo dejamos así?";
+      const fullMessage = appendStrategicConfirmationTriad(
+        `${core}\n\n${evidenceTail}${closing}`.trim(),
+        engineTurn,
+      );
+      extraction = {
+        ...buildStrategicValidationSyntheticExtraction({
+          interviewer_message: fullMessage,
+          next_question: null,
+          suggested_chips: [],
+          audience_recommendation_pending: null,
+        }),
+        interviewer_message: fullMessage,
+        internal_notes: "evidence_positioning_claim_redirect",
+      };
+      shouldNotAdvance = true;
+      wantsFollowUp = false;
+      interviewerMessage = fullMessage;
+      nextQuestion = null;
+      nextTrace = appendTurn(
+        appendTurn(
+          {
+            ...applyEngineDecisionPatchesToTrace(traceFromDb, engineTurn),
+            phase: "strategy_validation",
+            mini_step: "evidence",
+          },
+          "user",
+          userLine.slice(0, 500),
+        ),
         "assistant",
         extraction.interviewer_message.slice(0, 500),
       );

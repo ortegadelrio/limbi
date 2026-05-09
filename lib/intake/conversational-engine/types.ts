@@ -38,6 +38,8 @@ export type ConversationalPendingState =
 export type ConversationalEngineRouteBranch =
   | "pending_audience_confirmation"
   | "evidence_return_to_audience"
+  | "evidence_audience_actor_redirect"
+  | "evidence_positioning_claim_redirect"
   | "strategic_topic_reroute"
   | "cross_topic_llm_extraction"
   | "provisional_decision_resolution"

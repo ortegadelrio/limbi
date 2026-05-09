@@ -1,6 +1,7 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
+import { formatEvidenceTypeSlugsForUserFacingSummary } from "@/lib/intake/evidence-public-labels";
 
 export type SegmentConfirmationUserReplyKind =
   | "confirm"
@@ -108,10 +109,10 @@ export function buildSegmentConfirmationStructuredCore(
         ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_type)
         : "";
     if (slug.length > 0) {
-      /** Never surface wizard slugs or catalog labels in confirmation UI — describe roles instead. */
+      /** Never surface wizard slugs; ask for concrete actors in the user's words. */
       return (
-        "La audiencia quedaría planteada por roles: priorizar a quien decide, paga o valida frente a quien vive la experiencia o el deseo, " +
-        "y distinguir a quien recomienda o habilita cuando aplique; falta cerrar esto en una sola frase anclada a lo que ya contaste."
+        "Solo aparece una etiqueta interna de audiencia, sin una frase concreta con los actores o grupos; " +
+        "hace falta nombrarlos con tus palabras antes de cerrar este segmento."
       );
     }
   }
@@ -120,17 +121,26 @@ export function buildSegmentConfirmationStructuredCore(
     if (Array.isArray(types) && types.includes("no_clear_evidence")) {
       return "La evidencia queda pendiente.";
     }
-    if (Array.isArray(types) && types.length > 0) {
-      const joined = types.map((x) => String(x).trim()).filter(Boolean).join(", ");
-      if (joined.length > 0) return `La evidencia registrada incluye estos tipos: ${joined}.`;
-    }
     const details = eb.evidence_details;
     if (details && typeof details === "object" && !Array.isArray(details)) {
-      const keys = Object.keys(details as Record<string, unknown>).filter((k) => {
-        const v = (details as Record<string, unknown>)[k];
-        return typeof v === "string" && String(v).trim().length > 0;
-      });
-      if (keys.length > 0) return `La evidencia disponible está anotada en: ${keys.join(", ")}.`;
+      const stringValues = Object.values(details as Record<string, unknown>)
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .map((v) => sanitizeInterpretationCoreForSegmentConfirmation(v.trim()))
+        .filter(Boolean);
+      if (stringValues.length === 1) {
+        return `La evidencia disponible es ${stripTerminalPeriod(stringValues[0]!)}.`;
+      }
+      if (stringValues.length > 1) {
+        return `La evidencia disponible recoge: ${stringValues.map(stripTerminalPeriod).join("; ")}.`;
+      }
+    }
+    if (Array.isArray(types) && types.length > 0) {
+      const human = formatEvidenceTypeSlugsForUserFacingSummary(
+        types.map((x) => String(x).trim()).filter(Boolean),
+      );
+      if (human.length > 0) {
+        return `La evidencia disponible se orienta principalmente a ${human}.`;
+      }
     }
   }
 
