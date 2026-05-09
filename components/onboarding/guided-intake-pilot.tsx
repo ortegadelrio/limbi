@@ -75,6 +75,8 @@ export function GuidedIntakePilot() {
   const [suggestedChips, setSuggestedChips] = useState<string[]>([]);
   const [segmentConfirmUi, setSegmentConfirmUi] =
     useState<SegmentConfirmationUiPayloadV1 | null>(null);
+  /** Hides segment buttons from the moment a button is clicked until the server responds. */
+  const [segmentConfirmBusy, setSegmentConfirmBusy] = useState(false);
   const [tracePhase, setTracePhase] =
     useState<LimbicInterviewTraceV1["phase"]>("main");
   const [miniStep, setMiniStep] = useState<string | null>(null);
@@ -236,6 +238,9 @@ export function GuidedIntakePilot() {
     }) => {
       if (!projectId) return;
       setError(null);
+      if (opts.segment_confirmation_action) {
+        setSegmentConfirmBusy(true);
+      }
       setSending(true);
       const controller = new AbortController();
       const timeoutId = window.setTimeout(
@@ -313,6 +318,7 @@ export function GuidedIntakePilot() {
       } finally {
         window.clearTimeout(timeoutId);
         setSending(false);
+        setSegmentConfirmBusy(false);
       }
     },
     [projectId, applyIntakeJson],
@@ -565,7 +571,7 @@ export function GuidedIntakePilot() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-              {segmentConfirmUi ? (
+              {segmentConfirmUi && !segmentConfirmBusy ? (
                 <div className="space-y-3 border-b border-border/60 p-3">
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     {segmentConfirmUi.synthesis}
@@ -577,7 +583,7 @@ export function GuidedIntakePilot() {
                         type="button"
                         variant="secondary"
                         className="h-auto min-h-[2.75rem] justify-start whitespace-normal px-3 py-2 text-left text-sm font-normal leading-snug"
-                        disabled={sending}
+                        disabled={sending || segmentConfirmBusy}
                         onClick={() =>
                           void sendTurn({ segment_confirmation_action: a.id })
                         }
@@ -586,6 +592,10 @@ export function GuidedIntakePilot() {
                       </Button>
                     ))}
                   </div>
+                </div>
+              ) : segmentConfirmBusy ? (
+                <div className="border-b border-border/60 px-3 py-2 text-center text-xs text-muted-foreground">
+                  Enviando…
                 </div>
               ) : null}
               <Textarea

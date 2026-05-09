@@ -32,6 +32,7 @@ import {
   resolveCrossStrategicTopicReference,
 } from "@/lib/intake/conversational-engine/strategic-topic-router";
 import { classifySegmentConfirmationUserReply } from "@/lib/intake/segment-confirmation";
+import { shouldResolveSegmentWhileCorrectionPending } from "@/lib/intake/segment-correction-mode";
 import type {
   ConversationalPendingState,
   ConversationalQuestionSurfaceType,
@@ -555,7 +556,10 @@ export function resolveGuidedIntakeTurn(
     const crossFlowCorrection =
       trace.phase === "segment_confirmation" && segPen0.mini_step !== miniStep;
     if (sameStep0 || crossFlowCorrection) {
-      return baseLlmDecision(input, pendingState);
+      const awaitingAck = Boolean(segPen0.awaiting_pending_ack);
+      if (!shouldResolveSegmentWhileCorrectionPending(input.userText, awaitingAck)) {
+        return baseLlmDecision(input, pendingState);
+      }
     }
   }
 

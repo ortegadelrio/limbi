@@ -72,6 +72,11 @@ import {
 } from "@/lib/intake/segment-confirmation-actions";
 import { suppressNextQuestionForSegmentConfirmationUi } from "@/lib/intake/segment-confirmation-ui";
 import {
+  buildSegmentCorrectionPromptAppendix,
+  detectSegmentCorrectionMode,
+} from "@/lib/intake/segment-correction-mode";
+import { mergePendingSegmentCorrectionExtraction } from "@/lib/intake/merge-segment-correction-extraction";
+import {
   extractionPayloadForTrace,
   shouldOfferSegmentConfirmationAfterExtraction,
 } from "@/lib/intake/segment-confirmation-gate";
@@ -812,7 +817,8 @@ export async function POST(request: Request, { params }: Params) {
               );
       } else if (kind === "correct") {
         mergedWithoutTrace = baseResponses;
-        const msg = "Claro. ¿Cómo lo ajustarías?".trim();
+        const msg =
+          "Claro. ¿Quieres agregar algo, reemplazar la idea o mejorar la redacción? Cuéntame cómo debería quedar.".trim();
         extraction = {
           ...ext0,
           extracted_response_updates: {},
@@ -1100,14 +1106,40 @@ export async function POST(request: Request, { params }: Params) {
   "user_intent": "answer" | "clarification_question" | "strategic_validation_question" | "skip"
 }`;
 
-      const userPrompt = buildStrategicInterviewUserPrompt({
+      const correctionAwaiting =
+        traceFromDb.segment_confirmation_pending?.version === 1 &&
+        traceFromDb.segment_confirmation_pending.awaiting_segment_correction ===
+          true;
+
+      const llmUserTextForPrompt = correctionAwaiting ? userTextRaw : userLine;
+
+      let userPrompt = buildStrategicInterviewUserPrompt({
         trace: traceForExtraction,
-        userText: userLine,
+        userText: llmUserTextForPrompt,
         strategicBaseSnapshot: sbSnap,
         audienceBaseSnapshot: readAudienceBase(baseResponses),
         evidenceBaseSnapshot: readEvidenceBase(baseResponses),
         resumeAfterClarification,
       });
+
+      if (correctionAwaiting) {
+        const mode = detectSegmentCorrectionMode(userTextRaw);
+        let priorJson = "{}";
+        try {
+          priorJson = JSON.stringify(
+            traceFromDb.segment_confirmation_pending!.extraction,
+            null,
+            2,
+          );
+        } catch {
+          priorJson = "{}";
+        }
+        userPrompt += `\n\n${buildSegmentCorrectionPromptAppendix({
+          miniStep: llmMiniStep,
+          mode,
+          priorExtractionJson: priorJson,
+        })}`;
+      }
 
       const prevLimForExtraction = Array.isArray(
         sbSnap.guided_intake_limitations_optional,
@@ -1322,7 +1354,7 @@ export async function POST(request: Request, { params }: Params) {
             userPrompt,
             miniStep: llmMiniStep,
             challengeType: projectChallengeType,
-            userText: userLine,
+            userText: llmUserTextForPrompt,
             prevLimitations: prevLimForExtraction,
           });
         } catch (e) {
@@ -1337,6 +1369,21 @@ export async function POST(request: Request, { params }: Params) {
           );
         }
         extraction = resolved.extraction;
+
+        if (correctionAwaiting) {
+          const mode = detectSegmentCorrectionMode(userTextRaw);
+          const pendingParsed = parseIntakeExtractionOutput(
+            traceFromDb.segment_confirmation_pending!.extraction,
+          );
+          if (pendingParsed.ok && mode === "add") {
+            extraction = mergePendingSegmentCorrectionExtraction({
+              mode,
+              pending: pendingParsed.data,
+              incoming: extraction,
+              miniStep: llmMiniStep,
+            });
+          }
+        }
 
         if (extraction.needs_follow_up && traceForExtraction.follow_up_used) {
           extraction = {
