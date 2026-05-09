@@ -40,6 +40,9 @@ import {
   parseIntakeTurnResponseOrThrow,
   type IntakeTurnResponse,
 } from "@/lib/intake/guided-intake-pilot-response";
+import type { SegmentConfirmationActionPayload } from "@/lib/intake/segment-confirmation-actions";
+import { SEGMENT_CONFIRMATION_UI_ACTIONS } from "@/lib/intake/segment-confirmation-actions";
+import type { SegmentConfirmationUiPayloadV1 } from "@/lib/intake/segment-confirmation-ui";
 import {
   buildStrategicInterviewPilotSummary,
   type StrategicInterviewPilotSummary,
@@ -70,6 +73,8 @@ export function GuidedIntakePilot() {
   const [answer, setAnswer] = useState("");
   const [sending, setSending] = useState(false);
   const [suggestedChips, setSuggestedChips] = useState<string[]>([]);
+  const [segmentConfirmUi, setSegmentConfirmUi] =
+    useState<SegmentConfirmationUiPayloadV1 | null>(null);
   const [tracePhase, setTracePhase] =
     useState<LimbicInterviewTraceV1["phase"]>("main");
   const [miniStep, setMiniStep] = useState<string | null>(null);
@@ -186,10 +191,12 @@ export function GuidedIntakePilot() {
     setSuggestedChips(json.suggested_chips ?? []);
     setTracePhase(json.trace.phase);
     if (json.trace.mini_step) setMiniStep(json.trace.mini_step);
+    setSegmentConfirmUi(json.segment_confirmation_ui ?? null);
     if (json.should_not_advance) {
       setSummary(null);
     }
     const followUp = json.follow_up_question?.trim();
+    const blockExtraQuestions = Boolean(json.segment_confirmation_ui);
     if (followUp) {
       if (json.interviewer_message?.trim()) {
         setLines((prev) => [
@@ -197,7 +204,9 @@ export function GuidedIntakePilot() {
           { role: "limbi", text: json.interviewer_message!.trim() },
         ]);
       }
-      setLines((prev) => [...prev, { role: "limbi", text: followUp }]);
+      if (!blockExtraQuestions) {
+        setLines((prev) => [...prev, { role: "limbi", text: followUp }]);
+      }
     } else {
       if (json.interviewer_message?.trim()) {
         setLines((prev) => [
@@ -205,7 +214,7 @@ export function GuidedIntakePilot() {
           { role: "limbi", text: json.interviewer_message!.trim() },
         ]);
       }
-      if (json.next_question?.trim()) {
+      if (json.next_question?.trim() && !blockExtraQuestions) {
         setLines((prev) => [
           ...prev,
           { role: "limbi", text: json.next_question!.trim() },
@@ -223,6 +232,7 @@ export function GuidedIntakePilot() {
       action?: PilotEscapeChipId;
       challenge_type_pick?: string;
       challenge_type_other?: boolean;
+      segment_confirmation_action?: SegmentConfirmationActionPayload["action"];
     }) => {
       if (!projectId) return;
       setError(null);
@@ -251,18 +261,31 @@ export function GuidedIntakePilot() {
           ...prev,
           { role: "user", text: "No tengo la información" },
         ]);
+      } else if (opts.segment_confirmation_action) {
+        const label =
+          SEGMENT_CONFIRMATION_UI_ACTIONS.find(
+            (a) => a.id === opts.segment_confirmation_action,
+          )?.label ?? opts.segment_confirmation_action;
+        setLines((prev) => [...prev, { role: "user", text: label }]);
       }
       try {
         const res = await fetch(`/api/projects/${projectId}/intake-turn`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: opts.text?.trim() || undefined,
-            action: opts.action,
-            challenge_type_pick: opts.challenge_type_pick,
-            challenge_type_other: opts.challenge_type_other ? true : undefined,
-          }),
+          body: JSON.stringify(
+            opts.segment_confirmation_action
+              ? {
+                  type: "segment_confirmation_action",
+                  action: opts.segment_confirmation_action,
+                }
+              : {
+                  text: opts.text?.trim() || undefined,
+                  action: opts.action,
+                  challenge_type_pick: opts.challenge_type_pick,
+                  challenge_type_other: opts.challenge_type_other ? true : undefined,
+                },
+          ),
           signal: controller.signal,
         });
         const jsonRaw = await res.json().catch(() => ({}));
@@ -542,6 +565,29 @@ export function GuidedIntakePilot() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+              {segmentConfirmUi ? (
+                <div className="space-y-3 border-b border-border/60 p-3">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {segmentConfirmUi.synthesis}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {segmentConfirmUi.actions.map((a) => (
+                      <Button
+                        key={a.id}
+                        type="button"
+                        variant="secondary"
+                        className="h-auto min-h-[2.75rem] justify-start whitespace-normal px-3 py-2 text-left text-sm font-normal leading-snug"
+                        disabled={sending}
+                        onClick={() =>
+                          void sendTurn({ segment_confirmation_action: a.id })
+                        }
+                      >
+                        {a.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <Textarea
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}

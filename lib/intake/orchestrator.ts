@@ -36,6 +36,8 @@ export type SegmentConfirmationPendingV1 = {
   extraction: Record<string, unknown>;
   /** When true, last turn asked user to confirm leaving the segment pending. */
   awaiting_pending_ack?: boolean;
+  /** After “Quiero ajustar”; next free-text turn runs LLM for this segment instead of re-classifying the button triad. */
+  awaiting_segment_correction?: boolean;
 };
 
 export type LimbicInterviewTraceV1 = {
@@ -152,6 +154,9 @@ export function readInterviewTrace(
         mini_step: ms,
         extraction: ext as Record<string, unknown>,
         ...(sc.awaiting_pending_ack === true ? { awaiting_pending_ack: true } : {}),
+        ...(sc.awaiting_segment_correction === true
+          ? { awaiting_segment_correction: true }
+          : {}),
       };
     }
   }

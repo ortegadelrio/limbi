@@ -428,7 +428,7 @@ function resolveSegmentConfirmationTurnInner(
       current_mini_step: miniStep,
       next_mini_step: segMini,
       current_phase: trace.phase,
-      next_phase: "main",
+      next_phase: "segment_confirmation",
       should_advance: false,
       should_not_advance: true,
       writes_to_responses: false,
@@ -548,6 +548,16 @@ export function resolveGuidedIntakeTurn(
 ): TurnDecision {
   const { userText, miniStep, trace } = input;
   const pendingState = derivePendingState(trace, miniStep);
+
+  const segPen0 = trace.segment_confirmation_pending;
+  if (segPen0?.version === 1 && segPen0.awaiting_segment_correction) {
+    const sameStep0 = segPen0.mini_step === miniStep;
+    const crossFlowCorrection =
+      trace.phase === "segment_confirmation" && segPen0.mini_step !== miniStep;
+    if (sameStep0 || crossFlowCorrection) {
+      return baseLlmDecision(input, pendingState);
+    }
+  }
 
   if (trace.segment_confirmation_pending?.version === 1) {
     const p = trace.segment_confirmation_pending;

@@ -167,6 +167,11 @@ function genericProvisionalPreamble(miniStep: GuidedMiniStepId): string {
   return `Con la información que tenemos hasta ahora, mi lectura provisional es que tu planteamiento puede ser defendible, pero todavía falta validarlo con lo que pedimos sobre ${label}. Cuando completemos el Sistema Límbico podré darte un diagnóstico más completo, con prioridades y riesgos mejor fundados. No genero todavía piezas finales de comunicación en esta etapa.`;
 }
 
+/** When the user asks for a read on audience priority: marketing-style provisional framing (not generic “defendible” hedging). */
+function audienceRecommendationAdvisorPreamble(): string {
+  return "Con lo que ya compartiste, te doy una lectura provisional de marketing sobre prioridades de audiencia y tensiones entre quien vive la experiencia y quien autoriza o paga. No es pieza publicitaria final; es criterio para decidir foco y mensaje.";
+}
+
 /**
  * User asks for agreement / judgment, or a short recommendation request.
  * Checked before clarification detection in the API.
@@ -675,7 +680,7 @@ export function buildStrategicValidationTurnContent(params: {
 
   if (miniStep === "audience") {
     return {
-      interviewer_message: `${genericProvisionalPreamble("audience")} Solo uso actores que ya aparecieron en lo que contaste: no asigno categorías genéricas ni audiencias que no hayas nombrado. Si quieres, dime en una frase a quién priorizarías y por qué, y lo contrastamos con lo que ya dijiste.`,
+      interviewer_message: `${audienceRecommendationAdvisorPreamble()} Solo uso actores que ya aparecieron en lo que contaste: no invento audiencias nuevas. Si quieres, dime en una frase a quién priorizarías y por qué, y lo contrastamos con lo que ya dijiste.`,
       next_question: bank
         ? `Volvamos a la pregunta: ${bank}`
         : "Volvamos a la pregunta del paso actual cuando puedas aportar el detalle.",

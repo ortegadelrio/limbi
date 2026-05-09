@@ -146,7 +146,7 @@ describe("segment confirmation gate helpers", () => {
     );
     expect(msg).toContain("Lo guardaría así:");
     expect(msg).toContain("interpretación resumida");
-    expect(msg).toMatch(/ajustamos|pendiente/i);
+    expect(msg).not.toMatch(/¿Lo dejamos así, lo ajustamos o lo dejamos pendiente/i);
   });
 
   it("prefers structured simple_description over interviewer_message for tailored_what", () => {
@@ -248,6 +248,30 @@ describe("stale segment_confirmation_pending", () => {
     });
     expect(d.action).toBe("llm_extraction");
     expect(d.notes_for_route.branch).toBe("llm_extraction");
+  });
+
+  it("uses LLM extraction when awaiting_segment_correction on the same mini_step", () => {
+    const trace: LimbicInterviewTraceV1 = {
+      version: 1,
+      pilot_id: "strategic_interview_v1",
+      phase: "segment_confirmation",
+      follow_up_used: false,
+      mini_step: "audience",
+      turns: [],
+      segment_confirmation_pending: {
+        version: 1,
+        mini_step: "audience",
+        extraction: extractionPayloadForTrace(minimalExtraction("captura")),
+        awaiting_segment_correction: true,
+      },
+    };
+    const d = resolveGuidedIntakeTurn({
+      userText: "Priorizamos a los padres que autorizan el gasto.",
+      miniStep: "audience",
+      trace,
+    });
+    expect(d.action).toBe("llm_extraction");
+    expect(d.skip_llm_extraction).toBe(false);
   });
 
   it("still resolves segment confirmation when phase is segment_confirmation and pending targets another step (cross-flow)", () => {
@@ -426,6 +450,15 @@ describe("classifySegmentConfirmationUserReply", () => {
         awaitingPendingAck: false,
       }),
     ).toBe("help");
+  });
+
+  it("treats the pending button phrase as explicit pending", () => {
+    expect(
+      classifySegmentConfirmationUserReply({
+        userText: "Dejémoslo pendiente",
+        awaitingPendingAck: false,
+      }),
+    ).toBe("pending_missing_info");
   });
 
   it("treats frustration as its own class", () => {

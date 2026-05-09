@@ -64,6 +64,13 @@ import {
   buildSegmentConfirmationAssistantMessage,
   buildSegmentConfirmationHelpAssistantReply,
 } from "@/lib/intake/segment-confirmation";
+import type { SegmentConfirmationActionPayload } from "@/lib/intake/segment-confirmation-actions";
+import {
+  SEGMENT_CONFIRMATION_ACTION_PAYLOAD_SCHEMA,
+  segmentConfirmationActionToClassifierText,
+  segmentConfirmationActionToTraceLine,
+} from "@/lib/intake/segment-confirmation-actions";
+import { suppressNextQuestionForSegmentConfirmationUi } from "@/lib/intake/segment-confirmation-ui";
 import {
   extractionPayloadForTrace,
   shouldOfferSegmentConfirmationAfterExtraction,
@@ -108,6 +115,24 @@ const bodySchema = z
       !(d.challenge_type_pick !== undefined && d.challenge_type_other === true),
     { message: "Elige un tipo de reto u “Otro”, no ambos." },
   );
+
+function parseIntakeTurnRequestBody(body: unknown):
+  | { ok: true; segmentAction: SegmentConfirmationActionPayload | null; classic: z.infer<typeof bodySchema> }
+  | { ok: false; zodError: z.ZodError } {
+  const seg = SEGMENT_CONFIRMATION_ACTION_PAYLOAD_SCHEMA.safeParse(body);
+  if (seg.success) {
+    const t = segmentConfirmationActionToClassifierText(seg.data.action);
+    const text = seg.data.optional_text?.trim()
+      ? `${t}\n\n${seg.data.optional_text.trim()}`
+      : t;
+    const classicParsed = bodySchema.safeParse({ text });
+    if (!classicParsed.success) return { ok: false, zodError: classicParsed.error };
+    return { ok: true, segmentAction: seg.data, classic: classicParsed.data };
+  }
+  const classicParsed = bodySchema.safeParse(body);
+  if (!classicParsed.success) return { ok: false, zodError: classicParsed.error };
+  return { ok: true, segmentAction: null, classic: classicParsed.data };
+}
 
 function readStrategicBase(
   r: Record<string, unknown>,
@@ -196,13 +221,14 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const parsedBody = bodySchema.safeParse(body);
-  if (!parsedBody.success) {
+  const parsedBody = parseIntakeTurnRequestBody(body);
+  if (!parsedBody.ok) {
     return NextResponse.json(
-      { error: parsedBody.error.flatten().fieldErrors },
+      { error: parsedBody.zodError.flatten().fieldErrors },
       { status: 400 },
     );
   }
+  const { segmentAction, classic } = parsedBody;
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -240,6 +266,17 @@ export async function POST(request: Request, { params }: Params) {
   );
   const trace = traceForLlmProcessing(traceFromDb);
 
+  if (
+    segmentAction &&
+    (!traceFromDb.segment_confirmation_pending ||
+      traceFromDb.segment_confirmation_pending.version !== 1)
+  ) {
+    return NextResponse.json(
+      { error: "No hay una confirmación de segmento abierta." },
+      { status: 400 },
+    );
+  }
+
   if (traceFromDb.phase === "done" && traceFromDb.mini_step === "complete") {
     return NextResponse.json(
       { error: "Esta entrevista piloto ya está cerrada." },
@@ -259,14 +296,22 @@ export async function POST(request: Request, { params }: Params) {
   let nextQuestion: string | null = null;
 
   const userLine =
-    parsedBody.data.action !== undefined
-      ? `[Acción del usuario: ${parsedBody.data.action}]`
-      : (parsedBody.data.text ?? "").trim();
+    classic.action !== undefined
+      ? `[Acción del usuario: ${classic.action}]`
+      : segmentAction
+        ? [
+            segmentConfirmationActionToTraceLine(segmentAction.action),
+            segmentAction.optional_text?.trim(),
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .trim()
+        : (classic.text ?? "").trim();
 
   /** --- Challenge type pick (no LLM) --- */
   if (
-    parsedBody.data.challenge_type_pick !== undefined ||
-    parsedBody.data.challenge_type_other === true
+    classic.challenge_type_pick !== undefined ||
+    classic.challenge_type_other === true
   ) {
     if (miniStep !== "challenge_type") {
       return NextResponse.json(
@@ -275,8 +320,8 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    const other = parsedBody.data.challenge_type_other === true;
-    const pick = parsedBody.data.challenge_type_pick;
+    const other = classic.challenge_type_other === true;
+    const pick = classic.challenge_type_pick;
 
     const updateProject: { challenge_type: string | null } = other
       ? { challenge_type: null }
@@ -353,7 +398,7 @@ export async function POST(request: Request, { params }: Params) {
       projectChallengeType,
       other,
     );
-  } else if (parsedBody.data.action !== undefined) {
+  } else if (classic.action !== undefined) {
     /** --- Escape chip: never blocks; advance one mini-step --- */
     const sbForLim = readStrategicBase(baseResponses);
     const prevLim = Array.isArray(sbForLim.guided_intake_limitations_optional)
@@ -362,7 +407,7 @@ export async function POST(request: Request, { params }: Params) {
         )
       : [];
     extraction = buildSyntheticExtractionForChip(
-      parsedBody.data.action as PilotEscapeChipId,
+      classic.action as PilotEscapeChipId,
       prevLim,
     );
 
@@ -424,7 +469,7 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    const userTextRaw = (parsedBody.data.text ?? "").trim();
+    const userTextRaw = (classic.text ?? "").trim();
     const sbSnap = readStrategicBase(baseResponses);
     const limitationSnapshotForIntake = Array.isArray(
       sbSnap.guided_intake_limitations_optional,
@@ -674,7 +719,7 @@ export async function POST(request: Request, { params }: Params) {
           ],
           internal_notes: "segment_confirm_pending_confirmed",
           interviewer_message:
-            "Queda registrado como pendiente explícito: Limbi no lo tratará como un dato cerrado hasta que lo revisemos.",
+            "Perfecto. Lo dejamos pendiente por ahora. Limbi no lo tratará como dato cerrado.",
           public_copy_allowed: false,
           user_intent: "answer",
         }).mergedResponses;
@@ -742,12 +787,16 @@ export async function POST(request: Request, { params }: Params) {
         t1 = appendTurn(
           t1,
           "assistant",
-          "Queda como pendiente confirmado. Seguimos.".slice(0, 500),
+          "Perfecto. Lo dejamos pendiente por ahora. Limbi no lo tratará como dato cerrado. Seguimos.".slice(
+            0,
+            500,
+          ),
         );
         nextTrace = crossResumeSameJourney ? t1 : advanceMiniStepFrom(t1);
         extraction = {
           ...ext0,
-          interviewer_message: "Queda como pendiente confirmado. Seguimos.",
+          interviewer_message:
+            "Perfecto. Lo dejamos pendiente por ahora. Limbi no lo tratará como dato cerrado. Seguimos.",
           internal_notes: "segment_confirm_pending_ack",
         };
         shouldNotAdvance = false;
@@ -776,11 +825,16 @@ export async function POST(request: Request, { params }: Params) {
         nextQuestion = null;
         nextTrace = appendTurn(
           appendTurn(
-            stripSegmentConfirmationPending({
+            {
               ...traceFromDb,
-              phase: "main",
+              phase: "segment_confirmation",
               mini_step: segMini,
-            }),
+              segment_confirmation_pending: {
+                ...pending0,
+                awaiting_pending_ack: false,
+                awaiting_segment_correction: true,
+              },
+            },
             "user",
             userLine.slice(0, 500),
           ),
@@ -1474,20 +1528,28 @@ export async function POST(request: Request, { params }: Params) {
         );
       }
 
+      const pilotOut = suppressNextQuestionForSegmentConfirmationUi({
+        nextTrace,
+        nextQuestion,
+      });
       return NextResponse.json({
         project_responses: inserted,
         extraction,
         trace: nextTrace,
         interviewer_message: interviewerMessage,
-        next_question: nextQuestion,
-        follow_up_question: wantsFollowUp
-          ? extraction.follow_up_question
-          : null,
+        next_question: pilotOut.next_question,
+        follow_up_question:
+          pilotOut.suppress_extra_question_surfaces || !wantsFollowUp
+            ? null
+            : extraction.follow_up_question,
         suggested_chips: extraction.suggested_answer_chips,
         summary,
         summary_gate_message,
         project_challenge_type: projectChallengeType,
         should_not_advance: effectiveShouldNotAdvance,
+        ...(pilotOut.segment_confirmation_ui
+          ? { segment_confirmation_ui: pilotOut.segment_confirmation_ui }
+          : {}),
       });
     }
 
@@ -1505,18 +1567,28 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    const pilotOutUpdated = suppressNextQuestionForSegmentConfirmationUi({
+      nextTrace,
+      nextQuestion,
+    });
     return NextResponse.json({
       project_responses: updated,
       extraction,
       trace: nextTrace,
       interviewer_message: interviewerMessage,
-      next_question: nextQuestion,
-      follow_up_question: wantsFollowUp ? extraction.follow_up_question : null,
+      next_question: pilotOutUpdated.next_question,
+      follow_up_question:
+        pilotOutUpdated.suppress_extra_question_surfaces || !wantsFollowUp
+          ? null
+          : extraction.follow_up_question,
       suggested_chips: extraction.suggested_answer_chips,
       summary,
       summary_gate_message,
       project_challenge_type: projectChallengeType,
       should_not_advance: effectiveShouldNotAdvance,
+      ...(pilotOutUpdated.segment_confirmation_ui
+        ? { segment_confirmation_ui: pilotOutUpdated.segment_confirmation_ui }
+        : {}),
     });
   }
 
@@ -1580,17 +1652,24 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
+    const pilotPickInsert = suppressNextQuestionForSegmentConfirmationUi({
+      nextTrace,
+      nextQuestion,
+    });
     return NextResponse.json({
       project_responses: inserted,
       extraction,
       trace: nextTrace,
       interviewer_message: interviewerMessage,
-      next_question: nextQuestion,
+      next_question: pilotPickInsert.next_question,
       follow_up_question: null,
       suggested_chips: extraction.suggested_answer_chips,
       summary,
       summary_gate_message,
       project_challenge_type: projectChallengeType,
+      ...(pilotPickInsert.segment_confirmation_ui
+        ? { segment_confirmation_ui: pilotPickInsert.segment_confirmation_ui }
+        : {}),
     });
   }
 
@@ -1608,16 +1687,23 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
+  const pilotPickUpdated = suppressNextQuestionForSegmentConfirmationUi({
+    nextTrace,
+    nextQuestion,
+  });
   return NextResponse.json({
     project_responses: updated,
     extraction,
     trace: nextTrace,
     interviewer_message: interviewerMessage,
-    next_question: nextQuestion,
+    next_question: pilotPickUpdated.next_question,
     follow_up_question: null,
     suggested_chips: extraction.suggested_answer_chips,
     summary,
     summary_gate_message,
     project_challenge_type: projectChallengeType,
+    ...(pilotPickUpdated.segment_confirmation_ui
+      ? { segment_confirmation_ui: pilotPickUpdated.segment_confirmation_ui }
+      : {}),
   });
 }

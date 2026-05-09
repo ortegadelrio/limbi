@@ -49,4 +49,31 @@ describe("parseIntakeTurnResponseOrThrow", () => {
       parseIntakeTurnResponseOrThrow({ error: "falló algo" }),
     ).toThrow(/falló algo/);
   });
+
+  it("parses segment_confirmation_ui when present", () => {
+    const json = {
+      extraction: minimalExtraction,
+      trace: { ...initialTrace(), mini_step: "problem" as const },
+      follow_up_question: null,
+      suggested_chips: [],
+      summary: null,
+      interviewer_message: "Lo guardaría así:\n…",
+      next_question: null,
+      project_challenge_type: "service",
+      segment_confirmation_ui: {
+        version: 1,
+        synthesis: "La fricción central es stockouts.",
+        actions: [
+          { id: "confirm", label: "Sí, así está bien" },
+          { id: "adjust", label: "Quiero ajustar" },
+          { id: "help", label: "Ayúdame a mejorarlo" },
+          { id: "pending", label: "Dejémoslo pendiente" },
+        ],
+      },
+    };
+    const r = parseIntakeTurnResponseOrThrow(json);
+    expect(r.segment_confirmation_ui?.version).toBe(1);
+    expect(r.segment_confirmation_ui?.synthesis).toContain("fricción");
+    expect(r.segment_confirmation_ui?.actions).toHaveLength(4);
+  });
 });

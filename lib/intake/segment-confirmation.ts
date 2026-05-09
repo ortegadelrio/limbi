@@ -1,6 +1,7 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { detectStrategicHelpOrHowToRequest } from "@/lib/intake/conversational-engine/strategic-help-request";
+import { audienceWizardSlugToSpanishLabel } from "@/lib/intake/segment-confirmation-actions";
 
 export type SegmentConfirmationUserReplyKind =
   | "confirm"
@@ -11,10 +12,9 @@ export type SegmentConfirmationUserReplyKind =
   | "frustration"
   | "unknown";
 
-export const SEGMENT_CONFIRM_UI_HINT_ES = [
-  "Por ejemplo: «sí, así está bien», «quiero ajustar», «ayúdame a mejorarlo» o «dejémoslo pendiente».",
-  "También valen «confirmar», «sí» o «dejémoslo pendiente».",
-].join("\n");
+/** @deprecated Long free-text hints; UI uses action buttons. Kept for backwards-compatible tests only. */
+export const SEGMENT_CONFIRM_UI_HINT_ES =
+  "Puedes usar los botones de confirmación cuando aparezcan, o responder con tus palabras.";
 
 /** Generic praise, market diagnosis, or evaluative boilerplate — not persisted in confirmation unless the user said it. */
 const SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES: RegExp[] = [
@@ -108,7 +108,10 @@ export function buildSegmentConfirmationStructuredCore(
       typeof ab.audience_type === "string"
         ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_type)
         : "";
-    if (slug.length > 0) return `La audiencia principal quedaría categorizada como: ${stripTerminalPeriod(slug)}.`;
+    if (slug.length > 0) {
+      const human = audienceWizardSlugToSpanishLabel(slug);
+      return `La audiencia principal quedaría orientada a: ${stripTerminalPeriod(human)}.`;
+    }
   }
   if (miniStep === "evidence") {
     const types = eb.evidence_types;
@@ -146,7 +149,7 @@ export function buildSegmentConfirmationAssistantMessage(
     structured.length > 0
       ? structured
       : sanitizeInterpretationCoreForSegmentConfirmation(extraction.interviewer_message.trim());
-  return `Lo guardaría así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
+  return `Lo guardaría así:\n${core}`.trim();
 }
 
 /** Help during segment confirmation: grounded structured line + same triad (no generic strategic validation essay). */
@@ -155,7 +158,7 @@ export function buildSegmentConfirmationHelpAssistantReply(
   miniStep: GuidedMiniStepId,
 ): string {
   const core = buildSegmentConfirmationStructuredCore(extraction, miniStep);
-  return `Con lo que registramos en este paso, te propongo dejarlo así:\n${core}\n\n¿Lo dejamos así, lo ajustamos o lo dejamos pendiente?\n\n${SEGMENT_CONFIRM_UI_HINT_ES}`.trim();
+  return `Te propongo dejarlo así:\n${core}`.trim();
 }
 
 export function buildPendingSegmentAckQuestion(): string {
