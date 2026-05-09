@@ -10,7 +10,10 @@ import {
   segmentConfirmationActionToClassifierText,
   SEGMENT_CONFIRMATION_UI_ACTIONS,
 } from "@/lib/intake/segment-confirmation-actions";
-import { classifySegmentConfirmationUserReply } from "@/lib/intake/segment-confirmation";
+import {
+  buildSegmentConfirmationStructuredCore,
+  classifySegmentConfirmationUserReply,
+} from "@/lib/intake/segment-confirmation";
 
 function minimalExtraction(
   interviewer_message: string,
@@ -99,7 +102,21 @@ describe("buildSegmentConfirmationUiFromTrace", () => {
     const ui = buildSegmentConfirmationUiFromTrace(trace);
     expect(ui?.synthesis).not.toMatch(/community_citizens|end_consumers/i);
     expect(ui?.synthesis).not.toMatch(/ciudadanos|Comunidad\/|consumidores finales/i);
-    expect(ui?.synthesis).toMatch(/etiqueta interna|frase concreta|actores/i);
+    expect(ui?.synthesis).not.toMatch(/etiqueta interna|slug|audience_type|\benum\b/i);
+    expect(ui?.synthesis).toMatch(/actores|convencer|comunicaci/i);
+  });
+});
+
+describe("buildSegmentConfirmationStructuredCore (audience)", () => {
+  it("uses natural follow-up when only wizard audience_type is present", () => {
+    const core = buildSegmentConfirmationStructuredCore(
+      minimalExtraction("x", "unit", {
+        audience_base: { audience_type: "community_citizens" },
+      }),
+      "audience",
+    );
+    expect(core).not.toMatch(/etiqueta interna|slug|audience_type/i);
+    expect(core).toMatch(/actores/i);
   });
 });
 

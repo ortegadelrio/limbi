@@ -1,5 +1,6 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
 import { questionForMiniStep } from "@/lib/intake/guided-interview-flow";
+import { isStrategicRecommendationOrDelegateAsk } from "@/lib/intake/guided-intake-recommendation-ask";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
 
@@ -51,6 +52,8 @@ export function detectDeterministicClarificationIntent(userText: string): boolea
   const t = userText.trim();
   if (t.length < 4) return false;
   if (EVIDENCE_CHIP_SET.has(t)) return false;
+  /** Let capture-phase orientation handle “¿qué pongo?” / “¿a quién me recomiendas?” — not prompt gloss. */
+  if (isStrategicRecommendationOrDelegateAsk(t)) return false;
 
   for (const re of CLARIFICATION_PHRASE_RES) {
     if (re.test(t)) return true;

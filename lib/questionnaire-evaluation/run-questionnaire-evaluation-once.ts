@@ -2,6 +2,7 @@ import { generateQuestionnaireEvaluationJson } from "@/lib/openai/questionnaire-
 import { parseQuestionnaireEvaluationJson } from "@/lib/questionnaire-evaluation/parse-evaluation";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
 import type { QuestionnaireEvaluationPayload } from "@/lib/questionnaire-evaluation/schema";
+import { stripInternalResponseKeys } from "@/lib/master-document/responses-public";
 import { buildQuestionnaireEvaluationPrompt } from "@/lib/prompts/questionnaire-evaluation";
 
 export type RunQuestionnaireEvaluationOnceResult =
@@ -20,11 +21,15 @@ export async function runQuestionnaireEvaluationOnce(params: {
   responses: Record<string, unknown>;
   /** JSON o texto estructurado con respuestas de aclaración ya dadas por el usuario. */
   post_clarification_block?: string | null;
+  guided_strategic_intake_post_capture?: boolean;
 }): Promise<RunQuestionnaireEvaluationOnceResult> {
+  const responsesForPrompt = stripInternalResponseKeys(params.responses);
   const prompt = buildQuestionnaireEvaluationPrompt({
     project_summary: params.project_summary,
-    responses_json: JSON.stringify(params.responses, null, 2),
+    responses_json: JSON.stringify(responsesForPrompt, null, 2),
     post_clarification_block: params.post_clarification_block ?? null,
+    guided_strategic_intake_post_capture:
+      params.guided_strategic_intake_post_capture ?? false,
   });
 
   let raw_json_text: string;

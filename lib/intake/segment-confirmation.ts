@@ -16,6 +16,19 @@ export type SegmentConfirmationUserReplyKind =
 export const SEGMENT_CONFIRM_UI_HINT_ES =
   "Puedes usar los botones de confirmación cuando aparezcan, o responder con tus palabras.";
 
+const SEGMENT_CONFIRM_ADVANCE_ACKS_ES = [
+  "Listo. Seguimos.",
+  "Queda registrado. Sigamos.",
+  "Perfecto. Siguiente paso.",
+] as const;
+
+/** Short, non-analytical line after the user confirms a segment during first capture. */
+export function segmentConfirmAdvanceAckMessage(seed?: string): string {
+  const s = (seed ?? "").length;
+  const i = s % SEGMENT_CONFIRM_ADVANCE_ACKS_ES.length;
+  return SEGMENT_CONFIRM_ADVANCE_ACKS_ES[i]!;
+}
+
 /** Generic praise, market diagnosis, or evaluative boilerplate — not persisted in confirmation unless the user said it. */
 const SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES: RegExp[] = [
   /\balt[oa]s?\s+potencial(es)?\b/i,
@@ -32,6 +45,27 @@ const SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES: RegExp[] = [
   /\bdiferenciaci[oó]n\s+clave\b/i,
   /\bvalor\s+estratégico\b/i,
   /\boportunidad(es)?\s+de\s+mercado\b/i,
+  /\bpara\s+construir\s+bien\s+el\s+sistema\s+l[ií]mbico\b/i,
+  /\b(sistema\s+l[ií]mbico|sistema\s+limbico)\b.*\b(fundamental|importante|clave)\b/i,
+  /\bpodr[ií]a\s+conectarse\s+emocionalmente\b/i,
+  /\bno\s+hay\s+m[aá]s\s+detalles\s+vagos\b/i,
+  /\besto\s+implica\b/i,
+  /\bes\s+fundamental\b/i,
+  /\besto\s+presenta\s+una\s+oportunidad\b/i,
+  /\besto\s+requiere\s+una\s+adaptaci[oó]n\b/i,
+  /\besto\s+puede\s+ser\s+un\s+punto\s+central\b/i,
+];
+
+/** Never surface wizard/enum diagnostics or system jargon in segment confirmation copy. */
+const USER_FACING_INTERNAL_DIAGNOSTIC_RES: RegExp[] = [
+  /\betiqueta\s+interna\b/i,
+  /\bslug\b/i,
+  /\benum\b/i,
+  /\baudience_type\b/i,
+  /solo\s+aparece\s+una\s+etiqueta/i,
+  /\bcommunity_citizens\b/i,
+  /\bend_consumers\b/i,
+  /\bprofessional_audience\b/i,
 ];
 
 /**
@@ -48,10 +82,19 @@ export function sanitizeInterpretationCoreForSegmentConfirmation(core: string): 
     .filter(Boolean);
   const chunks = sentences.length > 0 ? sentences : [t];
   const kept = chunks.filter(
-    (sentence) => !SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES.some((re) => re.test(sentence)),
+    (sentence) =>
+      !SEGMENT_CONFIRM_EVAL_BOILERPLATE_RES.some((re) => re.test(sentence)) &&
+      !USER_FACING_INTERNAL_DIAGNOSTIC_RES.some((re) => re.test(sentence)),
   );
   const joined = kept.join(" ").replace(/\s+/g, " ").trim();
-  return joined.length > 0 ? joined : t;
+  if (joined.length > 0) return joined;
+  const withoutInternals = chunks
+    .filter((sentence) => !USER_FACING_INTERNAL_DIAGNOSTIC_RES.some((re) => re.test(sentence)))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (withoutInternals.length > 0) return withoutInternals;
+  return t;
 }
 
 function readRecord(v: unknown): Record<string, unknown> {
@@ -104,17 +147,14 @@ export function buildSegmentConfirmationStructuredCore(
         ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_description_optional)
         : "";
     if (desc.length > 0) return `La audiencia quedaría así: ${stripTerminalPeriod(desc)}.`;
-    const slug =
-      typeof ab.audience_type === "string"
-        ? sanitizeInterpretationCoreForSegmentConfirmation(ab.audience_type)
-        : "";
-    if (slug.length > 0) {
-      /** Never surface wizard slugs; ask for concrete actors in the user's words. */
-      return (
-        "Solo aparece una etiqueta interna de audiencia, sin una frase concreta con los actores o grupos; " +
-        "hace falta nombrarlos con tus palabras antes de cerrar este segmento."
-      );
-    }
+    const fromInterviewer = sanitizeInterpretationCoreForSegmentConfirmation(
+      extraction.interviewer_message.trim(),
+    );
+    if (fromInterviewer.length >= 12) return fromInterviewer;
+    /** Wizard-only audience fields are never echoed; ask for concrete actors in natural language. */
+    return (
+      "Me falta una frase concreta con los actores: ¿a quién debe convencer primero la comunicación y quiénes influyen o pagan?"
+    );
   }
   if (miniStep === "evidence") {
     const types = eb.evidence_types;

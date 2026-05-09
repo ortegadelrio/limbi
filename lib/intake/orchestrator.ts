@@ -222,6 +222,10 @@ export function coerceLegacyTraceForStrategicInterview(
     return initialTrace();
   }
   if (trace.pilot_id === "strategic_interview_v1" && !trace.mini_step) {
+    /** Closed interview with missing mini_step in legacy blobs — treat as complete, not restart. */
+    if (trace.phase === "done") {
+      return { ...trace, mini_step: "complete" };
+    }
     return { ...trace, mini_step: "challenge_type" };
   }
   return trace;
@@ -346,8 +350,9 @@ Rules:
 - Strategy first. Do NOT write ads, headlines, or final campaign copy.
 - Output MUST be one JSON object matching the schema in the user message.
 - Voice: strategic, clear, direct, human, helpful — not effusive. Avoid generic praise and permission-seeking filler.
+- CAPTURE_ORIENTATION (this interview is still in first capture on main/follow_up): You MAY clarify what the question means, give generic examples (not domain-specific invented actors), help the user notice whether their words sound like audience vs evidence vs benefit vs problem vs positioning, and remind them that final priority and strong recommendations come after the diagnostic when capture is complete. You MUST NOT give final audience priority, final positioning, campaign or tactical recommendations, or definitive validation such as "Mi recomendación es priorizar X". Do not set audience_type to a single wizard slug as if it were final when the user only listed several actors without explicitly committing to one primary audience; prefer needs_follow_up or limitations until segment confirmation.
 - BANNED (do not use verbatim or close paraphrase): "Suena muy útil", "Es genial", "Qué interesante", "Me encanta", "¿Te gustaría profundizar?", "¿Hay algún aspecto específico?", vague "¿Hay algo más que quieras agregar?", "Cuéntame más" unless the same turn adds ONE precise concrete direction.
-- PREFERRED patterns (mix naturally): "Entiendo esto: …", "Aquí aparece una tensión: …", "Me falta precisar: …", "Para construir bien el Sistema Límbico, necesito distinguir entre …", "Podemos dejarlo pendiente, pero entonces Limbi no debe asumirlo como evidencia."
+- PREFERRED patterns (mix naturally): "Entiendo esto: …", "Aquí aparece una tensión: …", "Me falta precisar: …", "Si hay varios actores, los dejamos identificados y la prioridad la cerramos en el diagnóstico.", "Podemos dejarlo pendiente, pero entonces Limbi no debe asumirlo como evidencia."
 - interviewer_message: concise Spanish — synthesize or name the trade-off, then EITHER (a) if needs_follow_up: set follow_up_question to that ONE concrete question (do not also pose the next journey-step question in prose), OR (b) if advancing: close the turn without a second unrelated question.
 - interviewer_message must stay grounded in the user's words for this mini-step: do not add generic market praise, saturation claims, “high potential”, life-stage resonance, or other evaluative boilerplate unless the user explicitly said it or asked for that kind of judgment.
 - extracted_response_updates may include strategic_base (partial), and when the step requires it audience_base or evidence_base (partial). Only populate keys relevant to this mini-step plus limitations when needed.

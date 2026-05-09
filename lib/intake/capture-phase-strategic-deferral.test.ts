@@ -1,14 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { buildCapturePhaseStrategicDeferralInterviewerMessage } from "@/lib/intake/capture-phase-strategic-deferral";
+import {
+  buildCapturePhaseStrategicDeferralInterviewerMessage,
+  extractIdentifiedActorLabelsFromUserText,
+} from "@/lib/intake/capture-phase-strategic-deferral";
 import { initialTrace } from "@/lib/intake/orchestrator";
 import { resolveGuidedIntakeTurn } from "@/lib/intake/conversational-engine/resolve-guided-intake-turn";
 
 describe("buildCapturePhaseStrategicDeferralInterviewerMessage", () => {
-  it("defers recommendations and adds generic actor examples only", () => {
-    const msg = buildCapturePhaseStrategicDeferralInterviewerMessage();
-    expect(msg).toMatch(/Todavía no es el momento de recomendar/i);
+  it("gives guided orientation without a final recommendation", () => {
+    const msg = buildCapturePhaseStrategicDeferralInterviewerMessage({
+      userText: "¿A quién me recomiendas?",
+    });
+    expect(msg).toMatch(/^Puedo orientarte/i);
+    expect(msg).toMatch(/orientarte|orientar/i);
+    expect(msg).toMatch(/diagn[oó]stico/i);
     expect(msg).toMatch(/quién compra|quién usa|autoriza/i);
-    expect(msg).not.toMatch(/colegios|padres/i);
+    expect(msg).not.toMatch(/mi recomendaci[oó]n es priorizar/i);
+  });
+
+  it("summarizes named actors as identified, not final priority", () => {
+    const msg = buildCapturePhaseStrategicDeferralInterviewerMessage({
+      userText: "¿A quién me recomiendas? Tengo colegios, padres y estudiantes.",
+    });
+    expect(msg).toMatch(/Hasta ahora aparecen/i);
+    expect(msg).toMatch(/colegios/i);
+    expect(msg).toMatch(/padres/i);
+    expect(msg).toMatch(/estudiantes/i);
+    expect(msg).toMatch(/actores identificados/i);
+    expect(msg).toMatch(/prioridad.*diagn[oó]stico/i);
+    expect(msg).not.toMatch(/mi recomendaci[oó]n es priorizar/i);
+  });
+});
+
+describe("extractIdentifiedActorLabelsFromUserText", () => {
+  it("dedupes and orders by first hit", () => {
+    const labels = extractIdentifiedActorLabelsFromUserText(
+      "Padres y colegios; luego estudiantes.",
+    );
+    expect(labels).toEqual(["padres", "colegios", "estudiantes"]);
   });
 });
 

@@ -33,7 +33,11 @@ import {
 } from "@/lib/intake/guided-interview-flow";
 import { isGuidedIntakePilotEnabled } from "@/lib/intake/guided-intake-flag";
 import type { LimbicInterviewTraceV1 } from "@/lib/intake/orchestrator";
-import { readInterviewTrace } from "@/lib/intake/orchestrator";
+import {
+  coerceLegacyTraceForStrategicInterview,
+  initialTrace,
+  readInterviewTrace,
+} from "@/lib/intake/orchestrator";
 import { EXTRACTION_USER_RECOVERY_NOTICE } from "@/lib/intake/guided-intake-extraction-recovery";
 import {
   INTAKE_TURN_TIMEOUT_MS,
@@ -42,7 +46,18 @@ import {
 } from "@/lib/intake/guided-intake-pilot-response";
 import type { SegmentConfirmationActionPayload } from "@/lib/intake/segment-confirmation-actions";
 import { SEGMENT_CONFIRMATION_UI_ACTIONS } from "@/lib/intake/segment-confirmation-actions";
-import type { SegmentConfirmationUiPayloadV1 } from "@/lib/intake/segment-confirmation-ui";
+import {
+  buildSegmentConfirmationUiFromTrace,
+  type SegmentConfirmationUiPayloadV1,
+} from "@/lib/intake/segment-confirmation-ui";
+import { pilotHidesOpenComposerDuringSegmentConfirmation } from "@/lib/intake/guided-intake-segment-confirm-ui-state";
+import {
+  guidedIntakeDebugCompletionSummaryFixture,
+  isGuidedIntakeDebugCompleteShortcut,
+} from "@/lib/intake/guided-intake-debug-complete";
+import { runGuidedIntakeInitialQuestionnaireDiagnosis } from "@/lib/intake/guided-intake-initial-questionnaire-diagnosis";
+import { shouldShowGuidedIntakeDiagnosticCompletionPanel } from "@/lib/intake/guided-intake-completion-ui";
+import { GuidedIntakeDiagnosticCompletionPanel } from "@/components/onboarding/guided-intake-diagnostic-completion-panel";
 import {
   buildStrategicInterviewPilotSummary,
   type StrategicInterviewPilotSummary,
@@ -64,6 +79,8 @@ export function GuidedIntakePilot() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("projectId");
+  const guidedParam = searchParams.get("guided");
+  const debugCompleteParam = searchParams.get("debugComplete");
 
   const [nameOrDescriptor, setNameOrDescriptor] = useState("");
   const [nameStatus, setNameStatus] = useState<NameStatus | null>("provisional");
@@ -84,6 +101,8 @@ export function GuidedIntakePilot() {
   const [summary, setSummary] = useState<StrategicInterviewPilotSummary | null>(
     null,
   );
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -93,6 +112,16 @@ export function GuidedIntakePilot() {
     return i < 0 ? 0 : i;
   }, [miniStep]);
 
+  const showDiagnosticCompletionPanel = useMemo(
+    () =>
+      shouldShowGuidedIntakeDiagnosticCompletionPanel({
+        tracePhase,
+        miniStep,
+        summary,
+      }),
+    [tracePhase, miniStep, summary],
+  );
+
   useEffect(() => {
     if (!isGuidedIntakePilotEnabled()) {
       router.replace("/projects/new");
@@ -101,6 +130,20 @@ export function GuidedIntakePilot() {
 
   useEffect(() => {
     if (!projectId) return;
+    if (
+      isGuidedIntakeDebugCompleteShortcut({
+        guidedPilotEnabled: isGuidedIntakePilotEnabled(),
+        guidedParam,
+        debugCompleteParam,
+      })
+    ) {
+      setTracePhase("done");
+      setMiniStep("complete");
+      setSummary(guidedIntakeDebugCompletionSummaryFixture());
+      setSegmentConfirmUi(null);
+      setLines([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -122,19 +165,27 @@ export function GuidedIntakePilot() {
         if (cancelled) return;
         const ct = pJson.project?.challenge_type ?? null;
         const resp = rJson.project_responses?.responses ?? {};
-        const tr = readInterviewTrace(resp);
-        if (tr?.mini_step) setMiniStep(tr.mini_step);
-        setTracePhase(tr?.phase ?? "main");
-        if (tr?.phase === "done" && tr.mini_step === "complete") {
+        const rawTrace = readInterviewTrace(resp);
+        const tr = coerceLegacyTraceForStrategicInterview(
+          rawTrace ?? initialTrace(),
+        );
+        setMiniStep(tr.mini_step ?? null);
+        setTracePhase(tr.phase);
+        if (tr.phase === "segment_confirmation") {
+          setSegmentConfirmUi(buildSegmentConfirmationUiFromTrace(tr));
+        } else {
+          setSegmentConfirmUi(null);
+        }
+        if (tr.phase === "done" && tr.mini_step === "complete") {
           setSummary(
             buildStrategicInterviewPilotSummary(
               resp,
               ct,
-              Boolean(tr?.other_challenge),
+              Boolean(tr.other_challenge),
               {},
             ),
           );
-        } else if (tr?.turns?.length) {
+        } else if (tr.turns?.length) {
           setLines(
             tr.turns.map((t) => ({
               role: t.role === "user" ? "user" : "limbi",
@@ -149,7 +200,7 @@ export function GuidedIntakePilot() {
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, guidedParam, debugCompleteParam]);
 
   useLayoutEffect(() => {
     const el = chatScrollRef.current;
@@ -189,16 +240,43 @@ export function GuidedIntakePilot() {
     }
   }, [nameOrDescriptor, nameStatus, router]);
 
+  const runInitialQuestionnaireDiagnosis = useCallback(async () => {
+    if (!projectId) return;
+    setDiagnosisError(null);
+    setDiagnosisLoading(true);
+    try {
+      const result = await runGuidedIntakeInitialQuestionnaireDiagnosis({ projectId });
+      if (result.ok) {
+        router.push(result.clarifyPath);
+      } else {
+        setDiagnosisError(result.errorMessage);
+      }
+    } catch (e) {
+      setDiagnosisError(
+        e instanceof Error
+          ? e.message
+          : "No se pudo ejecutar el diagnóstico inicial.",
+      );
+    } finally {
+      setDiagnosisLoading(false);
+    }
+  }, [projectId, router]);
+
   const applyIntakeJson = useCallback((json: IntakeTurnResponse) => {
     setSuggestedChips(json.suggested_chips ?? []);
-    setTracePhase(json.trace.phase);
-    if (json.trace.mini_step) setMiniStep(json.trace.mini_step);
+    const tr = coerceLegacyTraceForStrategicInterview(json.trace);
+    setTracePhase(tr.phase);
+    setMiniStep(tr.mini_step ?? null);
     setSegmentConfirmUi(json.segment_confirmation_ui ?? null);
     if (json.should_not_advance) {
       setSummary(null);
     }
     const followUp = json.follow_up_question?.trim();
-    const blockExtraQuestions = Boolean(json.segment_confirmation_ui);
+    const awaitingSegmentCorrection = Boolean(
+      tr.segment_confirmation_pending?.awaiting_segment_correction,
+    );
+    const blockExtraQuestions =
+      Boolean(json.segment_confirmation_ui) || awaitingSegmentCorrection;
     if (followUp) {
       if (json.interviewer_message?.trim()) {
         setLines((prev) => [
@@ -406,7 +484,7 @@ export function GuidedIntakePilot() {
     );
   }
 
-  if (tracePhase === "done" && miniStep === "complete") {
+  if (showDiagnosticCompletionPanel) {
     if (!summary) {
       return (
         <div className="mx-auto max-w-xl px-4 py-16 text-center text-sm text-muted-foreground">
@@ -417,61 +495,13 @@ export function GuidedIntakePilot() {
     const continueBaseHref = `/projects/new?projectId=${encodeURIComponent(projectId)}`;
 
     return (
-      <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6">
-        <Card className="rounded-[22px] border border-limbi-border shadow-limbi">
-          <CardHeader>
-            <CardTitle className="font-heading text-xl">
-              {summary.title}
-            </CardTitle>
-            <CardDescription className="whitespace-pre-wrap text-base leading-relaxed text-muted-foreground">
-              {summary.body}
-            </CardDescription>
-          </CardHeader>
-          {summary.weakLine ? (
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{summary.weakLine}</p>
-            </CardContent>
-          ) : null}
-          <CardFooter className="flex w-full flex-col gap-3">
-            <div className="w-full space-y-1.5">
-              <Button
-                type="button"
-                className={`${limbiPrimaryButtonClass} w-full`}
-                asChild
-              >
-                <Link href={continueBaseHref}>
-                  Seguir construyendo el Sistema
-                </Link>
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Seguiremos completando la base estratégica.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${limbiOutlineButtonClass} w-full`}
-              asChild
-            >
-              <Link href={continueBaseHref}>Completar lo que falta</Link>
-            </Button>
-            <Link
-              href="/projects"
-              className="text-center text-sm text-muted-foreground underline underline-offset-4"
-            >
-              Guardar y salir
-            </Link>
-            <p className="pt-2 text-center text-xs text-muted-foreground">
-              <Link
-                href={continueBaseHref}
-                className="underline underline-offset-2"
-              >
-                Continuar con cuestionario clásico
-              </Link>
-            </p>
-          </CardFooter>
-        </Card>
-      </div>
+      <GuidedIntakeDiagnosticCompletionPanel
+        summary={summary}
+        diagnosisLoading={diagnosisLoading}
+        diagnosisError={diagnosisError}
+        continueBaseHref={continueBaseHref}
+        onRunDiagnosis={runInitialQuestionnaireDiagnosis}
+      />
     );
   }
 
@@ -488,6 +518,11 @@ export function GuidedIntakePilot() {
 
   const optionBtnClass =
     "h-auto min-h-[2.75rem] w-full justify-start whitespace-normal px-3 py-2 text-left text-sm font-normal leading-snug";
+
+  const hideOpenComposer = pilotHidesOpenComposerDuringSegmentConfirmation({
+    segmentConfirmationUi: segmentConfirmUi,
+    segmentConfirmBusy,
+  });
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6">
@@ -598,16 +633,18 @@ export function GuidedIntakePilot() {
                   Enviando…
                 </div>
               ) : null}
-              <Textarea
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Escribe con naturalidad; no hace falta que sea perfecto."
-                rows={5}
-                className="min-h-[120px] resize-y rounded-none border-0 border-b border-border/80 bg-transparent px-3 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
-                disabled={sending}
-              />
-              {suggestedChips.length > 0 ? (
-                <div className="flex flex-wrap gap-2 border-b border-border/60 px-3 py-2">
+              {!hideOpenComposer ? (
+                <>
+                  <Textarea
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    placeholder="Escribe con naturalidad; no hace falta que sea perfecto."
+                    rows={5}
+                    className="min-h-[120px] resize-y rounded-none border-0 border-b border-border/80 bg-transparent px-3 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
+                    disabled={sending}
+                  />
+                  {suggestedChips.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 border-b border-border/60 px-3 py-2">
                   {suggestedChips.map((c) => (
                     <Button
                       key={c}
@@ -615,38 +652,41 @@ export function GuidedIntakePilot() {
                       size="sm"
                       variant="secondary"
                       className="text-xs"
+                      data-testid="guided-intake-suggested-answer-chip"
                       disabled={sending}
                       onClick={() => setAnswer((a) => (a ? `${a} ${c}` : c))}
                     >
-                      {c}
+                          {c}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="px-3 py-2">
+                    {PILOT_ESCAPE_CHIPS.map((c) => (
+                      <Button
+                        key={c.id}
+                        type="button"
+                        variant="ghost"
+                        className="h-auto w-full justify-start px-2 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
+                        disabled={sending}
+                        onClick={() => void sendTurn({ action: c.id })}
+                      >
+                        {c.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="border-t border-border bg-muted/30 p-2">
+                    <Button
+                      type="button"
+                      className={`${limbiPrimaryButtonClass} w-full`}
+                      disabled={sending || !answer.trim()}
+                      onClick={() => void sendTurn({ text: answer })}
+                    >
+                      {sending ? "Enviando…" : "Enviar"}
                     </Button>
-                  ))}
-                </div>
+                  </div>
+                </>
               ) : null}
-              <div className="px-3 py-2">
-                {PILOT_ESCAPE_CHIPS.map((c) => (
-                  <Button
-                    key={c.id}
-                    type="button"
-                    variant="ghost"
-                    className="h-auto w-full justify-start px-2 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
-                    disabled={sending}
-                    onClick={() => void sendTurn({ action: c.id })}
-                  >
-                    {c.label}
-                  </Button>
-                ))}
-              </div>
-              <div className="border-t border-border bg-muted/30 p-2">
-                <Button
-                  type="button"
-                  className={`${limbiPrimaryButtonClass} w-full`}
-                  disabled={sending || !answer.trim()}
-                  onClick={() => void sendTurn({ text: answer })}
-                >
-                  {sending ? "Enviando…" : "Enviar"}
-                </Button>
-              </div>
             </div>
           )}
         </CardContent>

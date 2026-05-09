@@ -28,6 +28,11 @@ describe("isStrategicRecommendationAsk", () => {
       isStrategicRecommendationAsk("Cuál consideras tú, de acuerdo a tu experiencia"),
     ).toBe(true);
   });
+
+  it("treats open-field delegate asks as recommendation requests", () => {
+    expect(isStrategicRecommendationAsk("¿Qué debería poner?")).toBe(true);
+    expect(isStrategicRecommendationAsk("Dime tú cuál es mejor")).toBe(true);
+  });
 });
 
 describe("detectDeterministicStrategicValidationIntent", () => {

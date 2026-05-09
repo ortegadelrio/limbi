@@ -16,7 +16,9 @@ import {
   insertQuestionnaireEvaluation,
   supersedeQuestionnaireEvaluationsForProject,
 } from "@/lib/questionnaire-evaluation/supabase-questionnaire";
+import { isGuidedStrategicIntakeFirstCaptureComplete } from "@/lib/intake/guided-intake-completion";
 import { computeSourceResponsesHash } from "@/lib/master-document/source-responses-hash";
+import { stripInternalResponseKeys } from "@/lib/master-document/responses-public";
 import { buildQuestionnaireEvaluationPrompt } from "@/lib/prompts/questionnaire-evaluation";
 import { generateQuestionnaireEvaluationJson } from "@/lib/openai/questionnaire-evaluation";
 
@@ -78,17 +80,22 @@ export async function POST(request: Request, { params }: Params) {
   const completed = Array.isArray(pr.completed_steps)
     ? pr.completed_steps.filter((x): x is string => typeof x === "string")
     : [];
-  if (!completed.includes(WIZARD_COMPLETE_STEP)) {
+  const responses: Record<string, unknown> =
+    pr.responses && isPlainObject(pr.responses)
+      ? (pr.responses as Record<string, unknown>)
+      : {};
+
+  const guidedFirstCaptureComplete =
+    isGuidedStrategicIntakeFirstCaptureComplete(responses);
+  if (
+    !completed.includes(WIZARD_COMPLETE_STEP) &&
+    !guidedFirstCaptureComplete
+  ) {
     return NextResponse.json(
       { error: "El cuestionario principal aún no está completo." },
       { status: 400 },
     );
   }
-
-  const responses: Record<string, unknown> =
-    pr.responses && isPlainObject(pr.responses)
-      ? (pr.responses as Record<string, unknown>)
-      : {};
 
   const hash = computeSourceResponsesHash(responses);
 
@@ -136,9 +143,11 @@ export async function POST(request: Request, { params }: Params) {
     status: project.status,
   };
 
+  const responsesForPrompt = stripInternalResponseKeys(responses);
   const prompt = buildQuestionnaireEvaluationPrompt({
     project_summary,
-    responses_json: JSON.stringify(responses, null, 2),
+    responses_json: JSON.stringify(responsesForPrompt, null, 2),
+    guided_strategic_intake_post_capture: guidedFirstCaptureComplete,
   });
 
   let raw_json_text: string;

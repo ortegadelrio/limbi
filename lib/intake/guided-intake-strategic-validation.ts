@@ -18,6 +18,7 @@ import {
   buildAudienceRecommendationConfirmation,
   resolveAudienceMultiActorStrategicTurn,
 } from "@/lib/intake/guided-intake-multi-actor-audience";
+import { isStrategicRecommendationOrDelegateAsk } from "@/lib/intake/guided-intake-recommendation-ask";
 
 const STRATEGIC_VALIDATION_RES = [
   /\best(ás|as) de acuerdo\b/i,
@@ -36,45 +37,9 @@ const STRATEGIC_VALIDATION_RES = [
   /\b(tu opinión|tu lectura|tu visión)\b.*\b(es|está|sería|correcto)\b/i,
 ];
 
-/** Short asks for Limbi’s strategic recommendation (not a definition of the prompt). */
-const RECOMMENDATION_REQUEST_RES = [
-  /\bme recomendarías\b/i,
-  /\bme recomiendas\b/i,
-  /\bcuál me recomiendas\b/i,
-  /\bcual me recomiendas\b/i,
-  /\bcuál debería priorizar\b/i,
-  /\bcual debería priorizar\b/i,
-  /\ba quién debería convencer primero\b/i,
-  /\ba quien debería convencer primero\b/i,
-  /\bqué público ves más importante\b/i,
-  /\bque publico ves mas importante\b/i,
-  /\bqué me sugieres\b/i,
-  /\bque me sugieres\b/i,
-  /\bcuál crees que es mejor\b/i,
-  /\bcual crees que es mejor\b/i,
-  /\btú qué harías\b/i,
-  /\btu que harías\b/i,
-  /\bqué harías tú\b/i,
-  /\bque harías tu\b/i,
-  /\ba quién priorizar\b/i,
-  /\ba quien priorizar\b/i,
-  /\bquién me recomiendas\b/i,
-  /\bquien me recomiendas\b/i,
-  /\bcu[aá]l consideras\b/i,
-  /\bcual consideras\b/i,
-  /\bde acuerdo a tu experiencia\b/i,
-  /\bseg[uú]n tu experiencia\b/i,
-  /\bcomo experto en marketing\b/i,
-  /\bno\s+s[eé]\s+dime\b/i,
-  /\bno\s+se\s+dime\b/i,
-  /\bqu[eé]\s+audiencia\s+pongo\b/i,
-  /\bqu[eé]\s+p[uú]blico\s+pongo\b/i,
-  /\bay[uú]dame\s+a\s+definir\s+(la\s+)?audiencia\b/i,
-];
-
 /** Exported for tests and call-sites that need the same “pide recomendación” signal as validación estratégica. */
 export function isStrategicRecommendationAsk(t: string): boolean {
-  return RECOMMENDATION_REQUEST_RES.some((re) => re.test(t));
+  return isStrategicRecommendationOrDelegateAsk(t);
 }
 
 const RETURN_TO_AUDIENCE_TOPIC_RES = [

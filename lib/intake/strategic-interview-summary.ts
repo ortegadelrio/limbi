@@ -170,15 +170,33 @@ function snippetIdentifiedActors(ab: Record<string, unknown>): string | null {
     typeof ab.audience_description_optional === "string"
       ? ab.audience_description_optional.trim()
       : "";
-  if (raw.length < 8) return null;
+  if (raw.length < 5) return null;
   const collapsed = raw
     .split(/\n/)
     .filter((ln) => !/^\(Integrado desde el paso de evidencia/i.test(ln.trim()))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
-  if (collapsed.length < 8) return null;
+  if (collapsed.length < 5) return null;
   return collapsed.length > 260 ? `${collapsed.slice(0, 257)}…` : collapsed;
+}
+
+/** When the structured field is empty, reuse recent user turn summaries (user-facing text only). */
+function snippetFallbackActorsFromTrace(mergedResponses: Record<string, unknown>): string | null {
+  const tr = readInterviewTrace(mergedResponses);
+  if (!tr?.turns?.length) return null;
+  const userSummaries: string[] = [];
+  for (let i = tr.turns.length - 1; i >= 0 && userSummaries.length < 2; i--) {
+    const t = tr.turns[i]!;
+    if (t.role !== "user") continue;
+    const s = t.summary.trim();
+    if (s.length < 6) continue;
+    userSummaries.unshift(s);
+  }
+  if (userSummaries.length === 0) return null;
+  const blob = userSummaries.join(" ").replace(/\s+/g, " ").trim();
+  if (blob.length < 10) return null;
+  return blob.length > 260 ? `${blob.slice(0, 257)}…` : blob;
 }
 
 function hasConcreteEvidenceMention(mergedResponses: Record<string, unknown>): boolean {
@@ -240,7 +258,8 @@ export function buildStrategicInterviewPilotSummary(
   );
   const audienceType =
     typeof ab.audience_type === "string" ? ab.audience_type.trim() : "";
-  const identifiedActors = snippetIdentifiedActors(ab);
+  const identifiedActors =
+    snippetIdentifiedActors(ab) ?? snippetFallbackActorsFromTrace(mergedResponses);
 
   const skippedTransform = lim.some((s) =>
     /transform|transformation|transformación/i.test(s),
@@ -266,7 +285,7 @@ export function buildStrategicInterviewPilotSummary(
   lines.push("Vista previa diagnóstica.");
   lines.push("");
   lines.push(
-    "Ahora Limbi puede hacer un diagnóstico inicial para identificar qué está fuerte, qué falta y qué conviene precisar antes de construir el Sistema Límbico.",
+    "Ahora Limbi puede hacer un diagnóstico inicial para ver qué está fuerte, qué falta y dónde conviene profundizar. Antes de construir el Sistema Límbico, suele convenir fortalecer algunos puntos: el diagnóstico te ayudará a priorizar el siguiente foco.",
   );
   lines.push("");
   lines.push("1. Lo que entendí");
@@ -312,12 +331,16 @@ export function buildStrategicInterviewPilotSummary(
 
   lines.push("");
   lines.push("4. Audiencia y actores");
-  if (audienceCommitted && audienceType) {
+  if (identifiedActors) {
+    lines.push(
+      audienceCommitted && audienceType
+        ? `Actores identificados: ${identifiedActors} Prioridad consignada en captura; en el diagnóstico se contrastará la jerarquía del mensaje.`
+        : `Actores identificados: ${identifiedActors} Falta definir prioridad en el diagnóstico.`,
+    );
+  } else if (audienceCommitted && audienceType) {
     lines.push(
       `Prioridad de audiencia alineada con lo confirmado: ${labelAudience(audienceType)}.`,
     );
-  } else if (identifiedActors) {
-    lines.push(`Actores identificados: ${identifiedActors} Falta definir prioridad.`);
   } else if (
     audienceType &&
     (audienceType === "b2b" || audienceType === "professional_audience") &&

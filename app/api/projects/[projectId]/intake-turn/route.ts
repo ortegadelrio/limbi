@@ -60,9 +60,11 @@ import {
   miniStepToStrategicTopicKey,
   pilotSummaryBlockedByDecisionStates,
 } from "@/lib/intake/decision-state";
+import { normalizeEvidenceStepExtractionOutput } from "@/lib/intake/guided-intake-evidence-narrative";
 import {
   buildSegmentConfirmationAssistantMessage,
   buildSegmentConfirmationHelpAssistantReply,
+  segmentConfirmAdvanceAckMessage,
 } from "@/lib/intake/segment-confirmation";
 import type { SegmentConfirmationActionPayload } from "@/lib/intake/segment-confirmation-actions";
 import {
@@ -771,13 +773,10 @@ export async function POST(request: Request, { params }: Params) {
             mini_step: traceFromDb.mini_step ?? segMini,
           });
           t1 = appendTurn(t1, "user", userLine.slice(0, 500));
-          t1 = appendTurn(
-            t1,
-            "assistant",
-            (ext0.interviewer_message || "").slice(0, 500),
-          );
+          const advanceAck = segmentConfirmAdvanceAckMessage(userLine);
+          t1 = appendTurn(t1, "assistant", advanceAck.slice(0, 500));
           nextTrace = crossResumeSameJourney ? t1 : advanceMiniStepFrom(t1);
-          extraction = ext0;
+          extraction = { ...ext0, interviewer_message: advanceAck };
         }
         shouldNotAdvance = false;
         wantsFollowUp = false;
@@ -798,19 +797,13 @@ export async function POST(request: Request, { params }: Params) {
           mini_step: traceFromDb.mini_step ?? segMini,
         });
         t1 = appendTurn(t1, "user", userLine.slice(0, 500));
-        t1 = appendTurn(
-          t1,
-          "assistant",
-          "Perfecto. Lo dejamos pendiente por ahora. Limbi no lo tratará como dato cerrado. Seguimos.".slice(
-            0,
-            500,
-          ),
-        );
+        const pendingAck =
+          "Queda pendiente por ahora, sin tratarlo como dato cerrado. Sigamos.";
+        t1 = appendTurn(t1, "assistant", pendingAck.slice(0, 500));
         nextTrace = crossResumeSameJourney ? t1 : advanceMiniStepFrom(t1);
         extraction = {
           ...ext0,
-          interviewer_message:
-            "Perfecto. Lo dejamos pendiente por ahora. Limbi no lo tratará como dato cerrado. Seguimos.",
+          interviewer_message: pendingAck,
           internal_notes: "segment_confirm_pending_ack",
         };
         shouldNotAdvance = false;
@@ -1078,7 +1071,9 @@ export async function POST(request: Request, { params }: Params) {
 
     if (engineTurn.notes_for_route.branch === "capture_phase_strategic_deferral") {
       mergedWithoutTrace = baseResponses;
-      const msg = buildCapturePhaseStrategicDeferralInterviewerMessage();
+      const msg = buildCapturePhaseStrategicDeferralInterviewerMessage({
+        userText: userTextRaw,
+      });
       extraction = {
         ...buildStrategicValidationSyntheticExtraction({
           interviewer_message: msg,
@@ -1510,6 +1505,13 @@ export async function POST(request: Request, { params }: Params) {
             needs_follow_up: false,
             follow_up_question: null,
           };
+        }
+
+        if (llmMiniStep === "evidence") {
+          extraction = normalizeEvidenceStepExtractionOutput(
+            llmUserTextForPrompt,
+            extraction,
+          );
         }
 
         const intent = extraction.user_intent ?? "answer";

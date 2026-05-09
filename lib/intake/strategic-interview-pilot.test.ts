@@ -4,6 +4,7 @@ import {
   buildSyntheticExtractionForChip,
   computeTraceAfterStrategicLlmExtraction,
   initialTrace,
+  LIMBIC_INTERVIEW_TRACE_KEY,
   type LimbicInterviewTraceV1,
 } from "@/lib/intake/orchestrator";
 import { interviewerCopyContainsGenericPhrases } from "@/lib/intake/limbi-interviewer-copy";
@@ -181,6 +182,40 @@ describe("buildStrategicInterviewPilotSummary", () => {
     expect(summary.body.toLowerCase()).not.toContain("consumidor");
   });
 
+  it("lists actores from trace summaries when audience_description_optional is absent", () => {
+    const trace: LimbicInterviewTraceV1 = {
+      ...initialTrace(),
+      phase: "done",
+      mini_step: "complete",
+      turns: [
+        {
+          at: "2026-01-01T00:00:00.000Z",
+          role: "user",
+          summary:
+            "Quienes firman el contrato no suelen ser quienes usan la herramienta cada semana.",
+        },
+      ],
+    };
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "Plataforma de reportes para equipos de operaciones",
+        offering_type: "service",
+        problem_category: "lack_clarity",
+        problem_description_optional: "Datos dispersos entre ventas y operaciones.",
+        transformation_type: "understand_better",
+        transformation_to: "Una vista única con responsables por etapa.",
+      },
+      audience_base: {},
+      evidence_base: { evidence_types: ["survey"] },
+      [LIMBIC_INTERVIEW_TRACE_KEY]: trace as unknown as Record<string, unknown>,
+    };
+    const s = buildStrategicInterviewPilotSummary(merged, "service", false, {
+      "strategic_base.simple_description": 0.88,
+    });
+    expect(s.body).toMatch(/Actores identificados:/i);
+    expect(s.body).not.toMatch(/No constan aún actores/i);
+  });
+
   it("shows actores identificados when description exists without committed priority", () => {
     const merged: Record<string, unknown> = {
       strategic_base: {
@@ -212,6 +247,28 @@ describe("buildStrategicInterviewPilotSummary", () => {
     expect(s.body).not.toMatch(/No constan aún actores/i);
     expect(s.body).toMatch(/Evidencia mencionada/i);
     expect(s.body).not.toMatch(/\btestimonials\b/i);
+  });
+
+  it("keeps a short concrete audience_description as identified actors", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "Servicio de acompañamiento para decisiones de compra",
+        offering_type: "service",
+        problem_category: "lack_trust",
+        problem_description_optional: "Dudas antes de comprometerse.",
+        transformation_type: "decide_confidently",
+        transformation_to: "Elegir con información ordenada y comparables claros.",
+      },
+      audience_base: {
+        audience_description_optional: "Hijos",
+      },
+      evidence_base: { evidence_types: ["no_clear_evidence"] },
+    };
+    const s = buildStrategicInterviewPilotSummary(merged, "service", false, {
+      "strategic_base.simple_description": 0.88,
+    });
+    expect(s.body).toMatch(/Actores identificados:.*Hijos/i);
+    expect(s.body).not.toMatch(/No constan aún actores/i);
   });
 
   it("does not treat end_consumers as committed when confidence is low", () => {

@@ -238,6 +238,14 @@ describe("segment confirmation gate helpers", () => {
     expect(msg).not.toMatch(/alto potencial|mercado saturado/i);
     expect(msg).toMatch(/operativo|entregas/i);
   });
+
+  it("strips internal diagnostic wording from segment confirmation copy", () => {
+    const raw =
+      "Solo aparece una etiqueta interna de audiencia sin una frase concreta. El resto encaja.";
+    const out = sanitizeInterpretationCoreForSegmentConfirmation(raw);
+    expect(out).not.toMatch(/etiqueta interna|slug|audience_type/i);
+    expect(out).toMatch(/resto encaja/i);
+  });
 });
 
 describe("mergeResponsesWithInterviewTrace", () => {

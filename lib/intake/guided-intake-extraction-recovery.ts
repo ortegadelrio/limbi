@@ -1,4 +1,6 @@
 import type { GuidedMiniStepId } from "@/lib/intake/guided-interview-flow";
+import { explicitEvidenceAbsenceDeclaration } from "@/lib/intake/guided-intake-evidence-input-classifier";
+import { inferWizardEvidenceTypesFromProofNarrative } from "@/lib/intake/guided-intake-evidence-narrative";
 import type { IntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { parseIntakeExtractionOutput } from "@/lib/intake/extraction-schema";
 import { evidenceBaseNoClearPatch } from "@/lib/intake/strategic-interview-apply";
@@ -195,14 +197,13 @@ export function buildDeterministicFallbackExtraction(
   }
 
   if (miniStep === "evidence") {
-    const noEvidence = /no\s+tengo|sin\s+evidencia|no\s+hay\s+evidencia|nada\s+de\s+evidencia|todav[ií]a\s+no/i.test(
-      clean,
-    );
+    const noEvidence = explicitEvidenceAbsenceDeclaration(clean);
     const lim = mergeLim(prevLimitations, [
       noEvidence
         ? "guided_intake:fallback_evidence_none_declared"
         : `guided_intake:fallback_evidence_note:${clean.slice(0, 400)}`,
     ]);
+    const inferredTypes = noEvidence ? [] : inferWizardEvidenceTypesFromProofNarrative(clean);
     return {
       extracted_response_updates: {
         strategic_base: {
@@ -211,9 +212,9 @@ export function buildDeterministicFallbackExtraction(
         evidence_base: noEvidence
           ? evidenceBaseNoClearPatch()
           : {
-              evidence_types: ["testimonials"],
+              evidence_types: inferredTypes,
               evidence_details: {
-                testimonials: clean.slice(0, 2000),
+                narrativa_usuario: clean.slice(0, 2000),
               },
             },
       },

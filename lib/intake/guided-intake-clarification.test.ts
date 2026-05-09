@@ -33,6 +33,11 @@ describe("detectEvidenceUncertaintyWithoutMetaQuestion", () => {
 });
 
 describe("detectDeterministicClarificationIntent", () => {
+  it("does not treat delegate-choice asks as prompt gloss (capture orientation handles them)", () => {
+    expect(detectDeterministicClarificationIntent("¿Qué debería poner?")).toBe(false);
+    expect(detectDeterministicClarificationIntent("¿A quién me recomiendas?")).toBe(false);
+  });
+
   it("detects meta-questions about the prompt", () => {
     expect(detectDeterministicClarificationIntent("¿A qué te refieres con evidencia?")).toBe(
       true,

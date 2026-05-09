@@ -102,6 +102,21 @@ describe("buildDeterministicFallbackExtraction", () => {
   it("advances mini_step conceptually: next step after problem is transformation", () => {
     expect(nextMiniStep("problem")).toBe("transformation");
   });
+
+  it("evidence: ‘no tengo más que …’ keeps proof narrative instead of no_clear_evidence", () => {
+    const text =
+      "No tengo más que mi experiencia de más de 10 años y 450 viajes realizados para otros colegios.";
+    const ex = buildDeterministicFallbackExtraction("evidence", text, []);
+    const p = parseIntakeExtractionOutput(ex);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    const eb = p.data.extracted_response_updates?.evidence_base as Record<string, unknown>;
+    const types = eb.evidence_types as string[];
+    expect(types.includes("no_clear_evidence")).toBe(false);
+    expect(types.length).toBeGreaterThan(0);
+    const det = eb.evidence_details as Record<string, string>;
+    expect(det.narrativa_usuario).toContain("450");
+  });
 });
 
 describe("combinedFallbackInterviewerMessage", () => {

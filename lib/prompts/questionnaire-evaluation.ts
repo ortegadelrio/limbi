@@ -9,6 +9,11 @@ export function buildQuestionnaireEvaluationPrompt(params: {
   responses_json: string;
   /** Respuestas ya dadas en el flujo de aclaración (re-evaluación post–primera ronda). */
   post_clarification_block?: string | null;
+  /**
+   * Guided strategic interview: first capture is done; this evaluation may include
+   * concrete suggestions in prose fields (unlike strict deferral during live capture).
+   */
+  guided_strategic_intake_post_capture?: boolean;
 }): string {
   const postClar =
     params.post_clarification_block && params.post_clarification_block.trim().length > 0
@@ -21,11 +26,24 @@ ${params.post_clarification_block.trim()}
 `.trim()
       : "";
 
+  const guidedPost =
+    params.guided_strategic_intake_post_capture === true
+      ? `
+
+GUIDED_STRATEGIC_INTAKE_POST_CAPTURE
+The user completed Limbi's guided strategic interview first capture (the classic questionnaire wizard may still be incomplete). This pass is the deepening stage: you may include concrete, actionable suggestions in limbi_detection, why_it_matters, and option labels when they help the user answer. Still ground every clarification question strictly in STRUCTURED_RESPONSES_JSON; never invent audiences, sectors, or roles absent from the user's text.
+- If multiple audience actors or stakeholder labels appear without a clear ordering of who enables resources, who pays, who experiences the offering, or who can block decisions, ask one sharp Spanish question that forces that prioritization using only vocabulary already present.
+- If strategic or emotional claims lack supporting evidence in the captured fields, ask what tangible proofs exist today (e.g. track record, clients, cases, testimonials, figures, or allies) without inventing benchmarks.
+- If the promised benefit or transformation remains vague relative to the stated challenge, ask what would make that benefit clearly worth perceived trade-offs (including price or effort).
+`.trim()
+      : "";
+
   return `You are Limbi's intake quality reviewer for a strategic narrative questionnaire (pre–Master Document).
 
 ${GLOBAL_AI_RULES}
 
 ${LIMBI_EDITORIAL_STRATEGIC_CANON_INTAKE_EN}
+${guidedPost}
 
 TASK
 - Read the full questionnaire answers (Spanish user content) in STRUCTURED_RESPONSES_JSON.
