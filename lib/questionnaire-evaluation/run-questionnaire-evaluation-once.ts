@@ -2,6 +2,7 @@ import { generateQuestionnaireEvaluationJson } from "@/lib/openai/questionnaire-
 import { parseQuestionnaireEvaluationJson } from "@/lib/questionnaire-evaluation/parse-evaluation";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
 import type { QuestionnaireEvaluationPayload } from "@/lib/questionnaire-evaluation/schema";
+import { isGuidedStrategicIntakeFirstCaptureComplete } from "@/lib/intake/guided-intake-completion";
 import { stripInternalResponseKeys } from "@/lib/master-document/responses-public";
 import { buildQuestionnaireEvaluationPrompt } from "@/lib/prompts/questionnaire-evaluation";
 
@@ -24,12 +25,16 @@ export async function runQuestionnaireEvaluationOnce(params: {
   guided_strategic_intake_post_capture?: boolean;
 }): Promise<RunQuestionnaireEvaluationOnceResult> {
   const responsesForPrompt = stripInternalResponseKeys(params.responses);
+  const guidedPost =
+    params.guided_strategic_intake_post_capture !== undefined
+      ? params.guided_strategic_intake_post_capture
+      : isGuidedStrategicIntakeFirstCaptureComplete(params.responses);
+
   const prompt = buildQuestionnaireEvaluationPrompt({
     project_summary: params.project_summary,
     responses_json: JSON.stringify(responsesForPrompt, null, 2),
     post_clarification_block: params.post_clarification_block ?? null,
-    guided_strategic_intake_post_capture:
-      params.guided_strategic_intake_post_capture ?? false,
+    guided_strategic_intake_post_capture: guidedPost,
   });
 
   let raw_json_text: string;

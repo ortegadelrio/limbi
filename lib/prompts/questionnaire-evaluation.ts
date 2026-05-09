@@ -32,8 +32,9 @@ ${params.post_clarification_block.trim()}
 
 GUIDED_STRATEGIC_INTAKE_POST_CAPTURE
 The user completed Limbi's guided strategic interview first capture (the classic questionnaire wizard may still be incomplete). This pass is the deepening stage: you may include concrete, actionable suggestions in limbi_detection, why_it_matters, and option labels when they help the user answer. Still ground every clarification question strictly in STRUCTURED_RESPONSES_JSON; never invent audiences, sectors, or roles absent from the user's text.
+- Ordering: if the challenge, audience, friction, or promised benefit is still unclear or very thin, ask about those foundations first. Do not lead with evidence-only questions until the core challenge, who it is for, and the central tension are minimally understandable from the user's own words.
 - If multiple audience actors or stakeholder labels appear without a clear ordering of who enables resources, who pays, who experiences the offering, or who can block decisions, ask one sharp Spanish question that forces that prioritization using only vocabulary already present.
-- If strategic or emotional claims lack supporting evidence in the captured fields, ask what tangible proofs exist today (e.g. track record, clients, cases, testimonials, figures, or allies) without inventing benchmarks.
+- If strategic or emotional claims lack supporting evidence in the captured fields, ask what tangible proofs exist today (e.g. track record, clients, cases, testimonials, figures, or allies) without inventing benchmarks — only after the core challenge and audience are sufficiently concrete.
 - If the promised benefit or transformation remains vague relative to the stated challenge, ask what would make that benefit clearly worth perceived trade-offs (including price or effort).
 `.trim()
       : "";

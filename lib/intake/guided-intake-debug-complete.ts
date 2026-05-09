@@ -36,7 +36,7 @@ export function guidedIntakeDebugCompletionSummaryFixture(): StrategicInterviewP
   return {
     title: "Completamos la primera captura del reto.",
     body:
-      "Vista previa diagnóstica.\n\n1. Lo que entendí\n\n(Vista de prueba en entorno no productivo; el diagnóstico usará los datos guardados del proyecto.)",
+      "Vista previa diagnóstica.\n\n1. Lo que entend\u00ed\n\nVista de prueba: usa datos guardados del proyecto para ejecutar el diagnóstico real.",
     weakLine: null,
   };
 }

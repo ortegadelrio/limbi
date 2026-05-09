@@ -57,11 +57,11 @@ export function GuidedIntakeDiagnosticCompletionPanel(
             </p>
           </CardContent>
         ) : null}
-        <CardFooter className="flex w-full flex-col gap-3">
-          <div className="w-full space-y-1.5">
+        <CardFooter className="flex w-full flex-col gap-3 border-t border-border/60 pt-4">
+          <div className="w-full space-y-2">
             <Button
               type="button"
-              className={`${limbiPrimaryButtonClass} w-full`}
+              className={`${limbiPrimaryButtonClass} w-full min-h-[2.85rem] text-base`}
               data-testid="guided-intake-diagnosis-primary-cta"
               disabled={diagnosisLoading}
               onClick={() => void onRunDiagnosis()}
@@ -81,42 +81,39 @@ export function GuidedIntakeDiagnosticCompletionPanel(
             <Button
               type="button"
               variant="outline"
-              className={`${limbiOutlineButtonClass} w-full`}
+              className={`${limbiOutlineButtonClass} w-full min-h-[2.5rem] text-sm font-normal`}
               data-testid="guided-intake-diagnosis-secondary-cta"
               disabled={diagnosisLoading}
               onClick={() => void onRunDiagnosis()}
             >
               {GUIDED_INTAKE_DIAGNOSIS_SECONDARY_CTA_ES}
             </Button>
-            <p className="text-center text-xs text-muted-foreground">
+            <p className="pt-1 text-center text-xs leading-snug text-muted-foreground">
               Limbi revisará coherencia entre audiencia, promesa y pruebas. Luego podrás
               responder aclaraciones puntuales, sin repetir toda la entrevista.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className={`${limbiOutlineButtonClass} w-full`}
-            asChild
-          >
-            <Link href={continueBaseHref}>Completar lo que falta</Link>
-          </Button>
-          <Link
-            href="/projects"
-            className="text-center text-sm text-muted-foreground underline underline-offset-4"
-          >
-            Guardar y salir
-          </Link>
-          <p className="pt-2 text-center text-xs text-muted-foreground">
-            <Link
-              href={continueBaseHref}
-              className="underline underline-offset-2"
-            >
-              Continuar con cuestionario clásico
-            </Link>
-          </p>
         </CardFooter>
       </Card>
+
+      <nav
+        className="mt-6 flex flex-col items-center gap-2 border-t border-transparent pt-1"
+        data-testid="guided-intake-diagnostic-escape-links"
+        aria-label="Otras opciones"
+      >
+        <Link
+          href="/projects"
+          className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        >
+          Guardar y salir
+        </Link>
+        <Link
+          href={continueBaseHref}
+          className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        >
+          Continuar con cuestionario clásico
+        </Link>
+      </nav>
     </div>
   );
 }

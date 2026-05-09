@@ -19,6 +19,7 @@ import {
 } from "@/lib/questionnaire-evaluation/clarification-skip-constants";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
 import { getClarificationQuestionCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
+import type { GuidedCaptureContextTier } from "@/lib/questionnaire-evaluation/strategic-capture-context";
 import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import {
   questionnaireEvaluationPayloadSchema,
@@ -155,11 +156,21 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     Record<string, unknown>
   >({});
   const [stepError, setStepError] = useState<string | null>(null);
+  const [suppressNumericScore, setSuppressNumericScore] = useState(false);
+  const [guidedCaptureTier, setGuidedCaptureTier] =
+    useState<GuidedCaptureContextTier | null>(null);
 
   const total = questions.length;
   const current = total > 0 ? questions[step] : null;
 
-  const suggestedCap = score !== null ? getClarificationQuestionCap(score) : 5;
+  const roundDisplayCap = useMemo(() => {
+    if (suppressNumericScore) {
+      if (guidedCaptureTier === "insufficient") return 1;
+      if (guidedCaptureTier === "thin") return 3;
+      return 3;
+    }
+    return score !== null ? getClarificationQuestionCap(score) : 5;
+  }, [suppressNumericScore, guidedCaptureTier, score]);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -228,6 +239,8 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setWizardResponses(responses);
 
       const finalized = finalizeEvaluationPayload(parsed.data, responses);
+      setSuppressNumericScore(finalized.suppress_numeric_quality_score === true);
+      setGuidedCaptureTier(finalized.guided_capture_context_tier ?? null);
 
       if (!shouldRequireClarificationScreen(finalized)) {
         router.replace(`/projects/${projectId}`);
@@ -244,7 +257,11 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
         Array.isArray(clarObj.answers) &&
         clarObj.answers.length > 0;
 
-      setScore(finalized.overall_quality_score);
+      setScore(
+        finalized.suppress_numeric_quality_score === true
+          ? null
+          : finalized.overall_quality_score,
+      );
       const withChips = finalized.clarification_questions.map((q) =>
         mergeClarificationSuggestionChips(q, responses),
       );
@@ -401,6 +418,8 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           score_after?: number;
           dimension_improvement_notes?: string[];
           critical_follow_up_questions?: ClarificationQuestion[];
+          suppress_numeric_quality_score?: boolean;
+          guided_capture_context_tier?: GuidedCaptureContextTier | null;
         };
         error?: unknown;
       };
@@ -422,7 +441,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             mergeClarificationSuggestionChips(x, wizardResponses),
           ),
         );
-        if (typeof pr.score_after === "number") setScore(pr.score_after);
+        const sup = pr.suppress_numeric_quality_score === true;
+        setSuppressNumericScore(sup);
+        setGuidedCaptureTier(pr.guided_capture_context_tier ?? null);
+        if (!sup && typeof pr.score_after === "number") {
+          setScore(pr.score_after);
+        } else if (sup) {
+          setScore(null);
+        }
       }
       setPhase("after_round1");
     } catch (e) {
@@ -616,7 +642,13 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           <h1 className="font-heading text-xl font-semibold text-limbi-text">
             Afinemos tu Sistema Límbico
           </h1>
-          {sa < 80 ? (
+          {suppressNumericScore ? (
+            <p className="text-sm leading-relaxed text-limbi-muted">
+              Incorporamos tus respuestas en esta ronda. Puedes seguir con otra ronda
+              breve de profundización, o generar la Lectura con cautela donde la base
+              siga fina.
+            </p>
+          ) : sa < 80 ? (
             <p className="text-sm leading-relaxed text-limbi-muted">
               Podemos generar la Lectura con esta base, pero algunos puntos
               quedarán marcados como débiles para evitar promesas exageradas.
@@ -719,7 +751,29 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             <p className="text-sm text-limbi-muted">
               Encontré algunos puntos que pueden hacer más precisa la Lectura.
             </p>
-            {score !== null ? (
+            {suppressNumericScore ? (
+              <div
+                className="space-y-1 text-sm text-limbi-muted"
+                data-testid="guided-quality-no-numeric"
+              >
+                <p className="font-medium text-limbi-text">
+                  {guidedCaptureTier === "insufficient"
+                    ? "Base actual: captura incompleta"
+                    : "Base actual: información insuficiente para puntuar"}
+                </p>
+                <p className="text-xs leading-relaxed">
+                  <span className="font-medium text-limbi-text">
+                    Ronda de profundización
+                  </span>
+                  {" · "}
+                  Preguntas sugeridas para esta ronda:{" "}
+                  <span className="font-semibold text-limbi-text">{total}</span>
+                  {roundDisplayCap ? (
+                    <span className="text-limbi-muted"> (hasta {roundDisplayCap})</span>
+                  ) : null}
+                </p>
+              </div>
+            ) : score !== null ? (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-limbi-muted">
                 <span>
                   Base actual:{" "}
@@ -727,10 +781,16 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                     {score}/100
                   </span>
                 </span>
-                <span>
-                  Preguntas sugeridas:{" "}
+                <span className="text-xs leading-relaxed sm:text-sm">
+                  <span className="font-medium text-limbi-text">
+                    Ronda de profundización
+                  </span>
+                  {" · "}
+                  Preguntas para esta ronda:{" "}
                   <span className="font-semibold text-limbi-text">{total}</span>
-                  <span className="text-limbi-muted"> / máx. {suggestedCap}</span>
+                  {roundDisplayCap ? (
+                    <span className="text-limbi-muted"> (hasta {roundDisplayCap})</span>
+                  ) : null}
                 </span>
               </div>
             ) : null}

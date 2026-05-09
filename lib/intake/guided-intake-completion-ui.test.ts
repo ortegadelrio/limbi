@@ -15,7 +15,7 @@ import type { StrategicInterviewPilotSummary } from "@/lib/intake/strategic-inte
 
 const sampleSummary: StrategicInterviewPilotSummary = {
   title: "Completamos la primera captura del reto.",
-  body: "Vista previa diagnóstica.\n\n1. Lo que entendí",
+  body: "Vista previa diagnóstica.\n\n1. Lo que entend\u00ed",
   weakLine: null,
 };
 

@@ -11,7 +11,7 @@ import type { StrategicInterviewPilotSummary } from "@/lib/intake/strategic-inte
 
 const diagnosticPreviewSummary: StrategicInterviewPilotSummary = {
   title: "Completamos la primera captura del reto.",
-  body: "Vista previa diagnóstica.\n\n1. Lo que entendí",
+  body: "Vista previa diagnóstica.\n\n1. Lo que entend\u00ed",
   weakLine: null,
 };
 
@@ -43,6 +43,40 @@ describe("GuidedIntakeDiagnosticCompletionPanel", () => {
     expect(html).toContain('data-testid="guided-intake-diagnosis-primary-cta"');
     expect(html).toContain('data-testid="guided-intake-diagnosis-secondary-cta"');
     expect(html).not.toContain("guided-intake-suggested-answer-chip");
+  });
+
+  it('does not offer "Completar lo que falta" on the diagnostic completion path', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GuidedIntakeDiagnosticCompletionPanel, {
+        summary: diagnosticPreviewSummary,
+        diagnosisLoading: false,
+        diagnosisError: null,
+        continueBaseHref: "/projects/new?projectId=test",
+        onRunDiagnosis: () => {},
+      }),
+    );
+    expect(html).not.toContain("Completar lo que falta");
+  });
+
+  it("places quiet escape links below the card, not inside the CTA footer", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GuidedIntakeDiagnosticCompletionPanel, {
+        summary: diagnosticPreviewSummary,
+        diagnosisLoading: false,
+        diagnosisError: null,
+        continueBaseHref: "/projects/new?projectId=z",
+        onRunDiagnosis: () => {},
+      }),
+    );
+    expect(html).toContain('data-testid="guided-intake-diagnostic-escape-links"');
+    expect(html).toContain("Guardar y salir");
+    expect(html).toContain("Continuar con cuestionario clásico");
+    expect(html).toContain("text-xs");
+    expect(html.indexOf("guided-intake-diagnostic-escape-links")).toBeGreaterThan(
+      html.indexOf("guided-intake-diagnosis-secondary-cta"),
+    );
+    const [beforeEscapeNav] = html.split('data-testid="guided-intake-diagnostic-escape-links"');
+    expect(beforeEscapeNav).not.toContain("Guardar y salir");
   });
 });
 

@@ -19,6 +19,7 @@ describe("buildQuestionnaireEvaluationPrompt", () => {
     expect(prompt).toContain("tangible proofs");
     expect(prompt).toContain("promised benefit or transformation");
     expect(prompt).toMatch(/concrete, actionable suggestions/i);
+    expect(prompt).toMatch(/Ordering:|foundations first/i);
   });
 
   it("omits guided post-capture block when flag is false or omitted", () => {

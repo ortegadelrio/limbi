@@ -1,5 +1,11 @@
 import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
-import { clipClarificationQuestionsToScoreCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
+import { isGuidedStrategicIntakeFirstCaptureComplete } from "@/lib/intake/guided-intake-completion";
+import {
+  analyzeStrategicCaptureContext,
+  applyGuidedStrategicCaptureGuards,
+  buildFoundationClarificationQuestion,
+  clipClarificationQuestionsToRoundCap,
+} from "@/lib/questionnaire-evaluation/strategic-capture-context";
 import type {
   ClarificationQuestion,
   QuestionnaireEvaluationPayload,
@@ -190,6 +196,13 @@ export function ensureClarificationQuestionsMinimum(
 ): ClarificationQuestion[] {
   if (questions.length > 0) return questions;
 
+  if (isGuidedStrategicIntakeFirstCaptureComplete(responses)) {
+    const tier = analyzeStrategicCaptureContext(responses).tier;
+    if (tier !== "adequate") {
+      return [buildFoundationClarificationQuestion()];
+    }
+  }
+
   const sb =
     responses.strategic_base && typeof responses.strategic_base === "object"
       ? (responses.strategic_base as Record<string, unknown>)
@@ -243,15 +256,19 @@ export function finalizeEvaluationPayload(
     data.clarification_questions,
     responses,
   );
-  const withMinimum = ensureClarificationQuestionsMinimum(cleaned, responses);
-  const capped = clipClarificationQuestionsToScoreCap(
-    withMinimum,
-    data.overall_quality_score,
+  const guarded = applyGuidedStrategicCaptureGuards(
+    { ...data, clarification_questions: cleaned },
+    responses,
   );
+  const withMinimum = ensureClarificationQuestionsMinimum(
+    guarded.clarification_questions,
+    responses,
+  );
+  const capped = clipClarificationQuestionsToRoundCap(withMinimum, guarded);
   const withSanitizedChips = capped.map((q) =>
     mergeClarificationSuggestionChips(q, responses),
   );
-  const merged = { ...data, clarification_questions: withSanitizedChips };
+  const merged = { ...guarded, clarification_questions: withSanitizedChips };
   const again = questionnaireEvaluationPayloadSchema.safeParse(merged);
   return again.success ? again.data : merged;
 }

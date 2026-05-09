@@ -288,7 +288,7 @@ export function buildStrategicInterviewPilotSummary(
     "Ahora Limbi puede hacer un diagnóstico inicial para ver qué está fuerte, qué falta y dónde conviene profundizar. Antes de construir el Sistema Límbico, suele convenir fortalecer algunos puntos: el diagnóstico te ayudará a priorizar el siguiente foco.",
   );
   lines.push("");
-  lines.push("1. Lo que entendí");
+  lines.push("1. Lo que entend\u00ed");
   if (descStrong) {
     lines.push(
       `Construyes ${tipo}. Lo central registrado: ${desc.length > 320 ? `${desc.slice(0, 317)}…` : desc}.`,

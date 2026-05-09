@@ -5,7 +5,8 @@ import {
   jsonNotFound,
 } from "@/lib/api/route-auth";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
-import { clipClarificationQuestionsToScoreCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
+import { isGuidedStrategicIntakeFirstCaptureComplete } from "@/lib/intake/guided-intake-completion";
+import { clipClarificationQuestionsToRoundCap } from "@/lib/questionnaire-evaluation/strategic-capture-context";
 import { formatClarificationAnswersForEvaluationPrompt } from "@/lib/questionnaire-evaluation/format-clarification-answers-for-prompt";
 import { buildPostClarificationDimensionNotes } from "@/lib/questionnaire-evaluation/post-clarification-dimension-notes";
 import { runQuestionnaireEvaluationOnce } from "@/lib/questionnaire-evaluation/run-questionnaire-evaluation-once";
@@ -271,6 +272,8 @@ export async function POST(request: Request, { params }: Params) {
     project_summary,
     responses,
     post_clarification_block: clarBlock,
+    guided_strategic_intake_post_capture:
+      isGuidedStrategicIntakeFirstCaptureComplete(responses),
   });
   if (reEval.ok) {
     postRound = reEval.evaluation;
@@ -287,9 +290,9 @@ export async function POST(request: Request, { params }: Params) {
 
   let critical_follow_up_questions: ClarificationQuestion[] = [];
   if (postRound !== null && scoreAfter < 80) {
-    critical_follow_up_questions = clipClarificationQuestionsToScoreCap(
+    critical_follow_up_questions = clipClarificationQuestionsToRoundCap(
       postRound.clarification_questions,
-      postRound.overall_quality_score,
+      postRound,
     )
       .slice(0, 2)
       .map((q) => mergeClarificationSuggestionChips(q, responses));
@@ -330,6 +333,13 @@ export async function POST(request: Request, { params }: Params) {
       dimension_improvement_notes: dimensionNotes,
       critical_follow_up_questions,
       re_evaluated: postRound !== null,
+      suppress_numeric_quality_score:
+        postRound?.suppress_numeric_quality_score === true ||
+        finalizedEval.suppress_numeric_quality_score === true,
+      guided_capture_context_tier:
+        postRound?.guided_capture_context_tier ??
+        finalizedEval.guided_capture_context_tier ??
+        null,
     },
   });
 }

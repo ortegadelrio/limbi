@@ -35,6 +35,11 @@ export const questionnaireEvaluationPayloadSchema = z
     missing_information: z.array(z.string().min(1)),
     clarification_questions: z.array(clarificationQuestionSchema),
     recommended_next_action: recommendedNextActionSchema,
+    /** Guided first-capture: hide numeric score in UI when the stored base is too thin. */
+    suppress_numeric_quality_score: z.boolean().optional(),
+    guided_capture_context_tier: z
+      .enum(["insufficient", "thin", "adequate"])
+      .optional(),
   })
   .superRefine((val, ctx) => {
     if (Object.keys(val.dimension_scores).length === 0) {
