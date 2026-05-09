@@ -20,7 +20,10 @@ import {
   provisionalQualityLevelFromScore,
   provisionalQualityLevelLabelEs,
 } from "@/lib/questionnaire-evaluation/clarification-dimension-ui";
-import { isClarificationHelpSeekingUserMessage } from "@/lib/questionnaire-evaluation/clarification-help-intent";
+import {
+  isClarificationHelpSeekingUserMessage,
+  sanitizeClarificationSubmitFreeText,
+} from "@/lib/questionnaire-evaluation/clarification-help-intent";
 import {
   CLARIFICATION_SKIP_CONTINUE_BASE_ID,
   CLARIFICATION_SKIP_IMPROVE_LATER_ID,
@@ -43,6 +46,30 @@ type Props = { projectId: string };
 
 type AnswerDraft = { optionId?: string; freeText: string };
 
+type ClarificationCoachTurn = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
+function appendClarificationCoachExchange(
+  prev: Record<string, ClarificationCoachTurn[]>,
+  questionId: string,
+  userText: string,
+  reply: string,
+): Record<string, ClarificationCoachTurn[]> {
+  const idBase = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const prior = prev[questionId] ?? [];
+  return {
+    ...prev,
+    [questionId]: [
+      ...prior,
+      { id: `${idBase}_u`, role: "user", text: userText },
+      { id: `${idBase}_a`, role: "assistant", text: reply },
+    ],
+  };
+}
+
 type Phase =
   | "loading"
   | "form"
@@ -57,7 +84,7 @@ function answerCombinedText(
   q: ClarificationQuestion,
   d: AnswerDraft | undefined,
 ): string {
-  const ft = (d?.freeText ?? "").trim();
+  const ft = sanitizeClarificationSubmitFreeText(d?.freeText ?? "");
   const opts = q.options ?? [];
   if (d?.optionId && opts.length > 0) {
     const lab = opts.find((o) => o.id === d.optionId)?.label?.trim() ?? "";
@@ -76,8 +103,9 @@ function buildAnswersPayload(
 ): ClarificationAnswer[] {
   return questions.map((q) => {
     const d = drafts[q.id] ?? { freeText: "" };
-    let ft = d.freeText.trim();
-    const extra = (pendingInline[q.id] ?? "").trim();
+    let ft = sanitizeClarificationSubmitFreeText(d.freeText);
+    const extraRaw = (pendingInline[q.id] ?? "").trim();
+    const extra = sanitizeClarificationSubmitFreeText(extraRaw);
     if (extra.length > 0) {
       ft = ft.length > 0 ? `${ft}\n\n(Aclaración adicional): ${extra}` : extra;
     }
@@ -168,8 +196,8 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   const [suppressNumericScore, setSuppressNumericScore] = useState(false);
   const [guidedCaptureTier, setGuidedCaptureTier] =
     useState<GuidedCaptureContextTier | null>(null);
-  const [strategistCoachByQuestionId, setStrategistCoachByQuestionId] = useState<
-    Record<string, string>
+  const [coachThreadByQuestionId, setCoachThreadByQuestionId] = useState<
+    Record<string, ClarificationCoachTurn[]>
   >({});
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
@@ -288,7 +316,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setFollowUpsUsed(0);
       setFollowUpUsedIds(new Set());
       setStep(0);
-      setStrategistCoachByQuestionId({});
+      setCoachThreadByQuestionId({});
       setCoachError(null);
       setCoachLoading(false);
 
@@ -612,7 +640,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             userMessage: t,
             round: followUp ? "follow_up" : "initial",
           });
-          setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+          setCoachThreadByQuestionId((prev) =>
+            appendClarificationCoachExchange(prev, current.id, t, reply),
+          );
+          setInlineFollowDraft("");
         } catch (e) {
           setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
         } finally {
@@ -634,10 +665,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
 
     const d = drafts[current.id] ?? { freeText: "" };
     const ftOnly = d.freeText.trim();
-    const skipChose = Boolean(
+    const universalSkip = Boolean(
       d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
     );
-    if (!skipChose && isClarificationHelpSeekingUserMessage(ftOnly)) {
+    if (ftOnly.length > 0 && isClarificationHelpSeekingUserMessage(ftOnly) && !universalSkip) {
       setCoachError(null);
       setCoachLoading(true);
       try {
@@ -646,7 +677,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           userMessage: ftOnly,
           round: followUp ? "follow_up" : "initial",
         });
-        setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+        setCoachThreadByQuestionId((prev) =>
+          appendClarificationCoachExchange(prev, current.id, ftOnly, reply),
+        );
+        setDraft(current.id, { freeText: "" });
       } catch (e) {
         setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
       } finally {
@@ -678,6 +712,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     phase,
     requestStrategicCoach,
     skipUniversalVagueGate,
+    setDraft,
     total,
   ]);
 
@@ -697,7 +732,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             userMessage: t,
             round: followUp ? "follow_up" : "initial",
           });
-          setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+          setCoachThreadByQuestionId((prev) =>
+            appendClarificationCoachExchange(prev, current.id, t, reply),
+          );
+          setInlineFollowDraft("");
         } catch (e) {
           setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
         } finally {
@@ -720,10 +758,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
 
     const d = drafts[current.id] ?? { freeText: "" };
     const ftOnly = d.freeText.trim();
-    const skipChose = Boolean(
+    const universalSkip = Boolean(
       d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
     );
-    if (!skipChose && isClarificationHelpSeekingUserMessage(ftOnly)) {
+    if (ftOnly.length > 0 && isClarificationHelpSeekingUserMessage(ftOnly) && !universalSkip) {
       setCoachError(null);
       setCoachLoading(true);
       try {
@@ -732,7 +770,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           userMessage: ftOnly,
           round: followUp ? "follow_up" : "initial",
         });
-        setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+        setCoachThreadByQuestionId((prev) =>
+          appendClarificationCoachExchange(prev, current.id, ftOnly, reply),
+        );
+        setDraft(current.id, { freeText: "" });
       } catch (e) {
         setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
       } finally {
@@ -766,6 +807,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     skipUniversalVagueGate,
     submitFollowUp,
     submitRound1,
+    setDraft,
   ]);
 
   const startFollowUpRound = useCallback(() => {
@@ -787,7 +829,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     setInlineFollowDraft("");
     setFollowUpsUsed(0);
     setFollowUpUsedIds(new Set());
-    setStrategistCoachByQuestionId({});
+    setCoachThreadByQuestionId({});
     setCoachError(null);
     setCoachLoading(false);
     setPhase("form_followup");
@@ -1038,17 +1080,33 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 </p>
               ) : null}
 
-              {strategistCoachByQuestionId[current.id] ? (
+              {(coachThreadByQuestionId[current.id]?.length ?? 0) > 0 ? (
                 <div
-                  className="rounded-xl border border-limbi-green/30 bg-limbi-green/[0.06] p-3 text-sm text-limbi-text"
-                  data-testid="clarification-strategist-coach"
+                  className="space-y-2 rounded-xl border border-limbi-border/70 bg-limbi-bg-soft/40 p-3"
+                  data-testid="clarification-coach-thread"
                 >
-                  <p className="mb-1 text-xs font-medium text-limbi-muted">
-                    Orientación de Limbi (no sustituye tu respuesta)
+                  <p className="text-xs font-medium text-limbi-muted">
+                    Conversación con Limbi (orientación; no se guarda como tu respuesta)
                   </p>
-                  <p className="whitespace-pre-wrap">
-                    {strategistCoachByQuestionId[current.id]}
-                  </p>
+                  <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
+                    {coachThreadByQuestionId[current.id]!.map((turn) => (
+                      <div
+                        key={turn.id}
+                        data-turn-role={turn.role}
+                        className={cn(
+                          "max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                          turn.role === "user"
+                            ? "self-end bg-limbi-bg-soft text-limbi-text ring-1 ring-limbi-border/60"
+                            : "self-start border border-limbi-green/35 bg-limbi-green/[0.08] text-limbi-text",
+                        )}
+                      >
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-limbi-muted">
+                          {turn.role === "user" ? "Tú" : "Limbi"}
+                        </p>
+                        <p className="whitespace-pre-wrap leading-relaxed">{turn.text}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 

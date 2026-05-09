@@ -31,6 +31,10 @@ const HELP_PATTERNS: RegExp[] = [
   /\bno\s+sé\s+qué\s+poner\b/i,
   /\bcomo\s+respondo\b/i,
   /\bcómo\s+respondo\b/i,
+  /\bcómo\s+respondo\s+esto\b/i,
+  /\bcomo\s+respondo\s+esto\b/i,
+  /\bexplicame\b/i,
+  /\bexplícame\b/i,
   /\bque\s+hago\b/i,
   /\bqué\s+hago\b/i,
 ];
@@ -48,4 +52,22 @@ export function isClarificationHelpSeekingUserMessage(text: string): boolean {
     if (re.test(t)) return true;
   }
   return false;
+}
+
+/**
+ * Strips help-only or meta lines so advisory chat is never persisted as a
+ * clarification answer. Keeps substantive lines (e.g. facts after a coach turn).
+ */
+export function sanitizeClarificationSubmitFreeText(raw: string): string {
+  const t = raw.trim();
+  if (t.length === 0) return "";
+  const lines = raw.split(/\n/);
+  const kept: string[] = [];
+  for (const line of lines) {
+    const s = line.trim();
+    if (s.length === 0) continue;
+    if (isClarificationHelpSeekingUserMessage(s)) continue;
+    kept.push(s);
+  }
+  return kept.join("\n").trim();
 }

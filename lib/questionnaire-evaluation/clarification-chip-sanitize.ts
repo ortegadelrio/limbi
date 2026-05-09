@@ -393,15 +393,15 @@ export function getContextualUniversalSkipOptions(
       return [
         {
           id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
-          label: "No tengo la audiencia definida todavía",
+          label: "No tengo claridad sobre la audiencia",
         },
         {
           id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
-          label: "Continuar con esta intuición de audiencia",
+          label: "Continuar sin definir prioridad",
         },
         {
           id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
-          label: "La afinaré después",
+          label: "La puedo precisar después",
         },
       ];
     case "differentiation_product":
@@ -438,15 +438,15 @@ export function getContextualUniversalSkipOptions(
       return [
         {
           id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
-          label: "No tengo el reto acotado todavía",
+          label: "No tengo más contexto del reto",
         },
         {
           id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
-          label: "Continuar con este nivel de detalle del reto",
+          label: "Continuar con esta base",
         },
         {
           id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
-          label: "Lo precisaré después",
+          label: "Lo ampliaré después",
         },
       ];
     case "transformation_experience":
@@ -454,15 +454,15 @@ export function getContextualUniversalSkipOptions(
       return [
         {
           id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
-          label: "No tengo el beneficio claro todavía",
+          label: "No tengo claro el beneficio",
         },
         {
           id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
-          label: "Continuar con este beneficio a alto nivel",
+          label: "Continuar con este beneficio",
         },
         {
           id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
-          label: "Lo afinaré después",
+          label: "Lo mejoraré después",
         },
       ];
     default:
