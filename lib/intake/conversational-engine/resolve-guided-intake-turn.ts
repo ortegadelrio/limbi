@@ -181,10 +181,13 @@ function finalizeEngineTurn(
     (segKind === "confirm" || segKind === "pending_ack_confirm");
   const hasOpenSegmentConfirmation =
     Boolean(trace.segment_confirmation_pending) && !clearsSegmentConfirm;
-  const can_show_summary = !pilotSummaryBlockedByDecisionStates(projected, {
+  let can_show_summary = !pilotSummaryBlockedByDecisionStates(projected, {
     userExplicitProceed: explicitProceed,
     hasOpenSegmentConfirmation,
   });
+  if (d.action === "capture_phase_strategic_deferral") {
+    can_show_summary = false;
+  }
   return {
     ...d,
     decision_status_updates,
@@ -969,12 +972,72 @@ export function resolveGuidedIntakeTurn(
   const helpOrHow = detectStrategicHelpOrHowToRequest(userText);
   const activeDoubtSignal = detectActiveStrategicDoubt(userText);
 
+  const deterministicClarification =
+    allowsDeterministicMetaResolution(trace) &&
+    detectDeterministicClarificationIntent(userText);
+
+  if (deterministicClarification) {
+    return finalizeEngineTurn(trace, userText, {
+      user_intent: "clarification_question",
+      pending_state:
+        pendingState === "none" ? "pending_clarification" : pendingState,
+      action: "deterministic_clarification",
+      current_mini_step: miniStep,
+      next_mini_step: miniStep,
+      current_phase: trace.phase,
+      next_phase: "clarifying_question",
+      should_advance: false,
+      should_not_advance: true,
+      writes_to_responses: false,
+      writes_to_completed_steps: false,
+      summary_allowed: false,
+      render_policy: "single_surface_no_competing_bank",
+      question_surface_type: "single_merged_assistant_turn",
+      skip_llm_extraction: false,
+      notes_for_route: { branch: "deterministic_clarification" },
+      active_doubt_detected: false,
+      target_topic: null,
+      reopened_topic: null,
+      can_show_summary: false,
+      requires_confirmation: false,
+      confirmation_options: null,
+    });
+  }
+
   const seeksStrategicGuidance =
     allowsDeterministicMetaResolution(trace) &&
     strategicMini &&
     (strategicValidation || activeDoubtSignal || helpOrHow);
 
   if (seeksStrategicGuidance) {
+    if (trace.phase === "main") {
+      return finalizeEngineTurn(trace, userText, {
+        user_intent: "clarification_question",
+        pending_state: pendingState,
+        action: "capture_phase_strategic_deferral",
+        current_mini_step: miniStep,
+        next_mini_step: miniStep,
+        current_phase: trace.phase,
+        next_phase: "main",
+        should_advance: false,
+        should_not_advance: true,
+        writes_to_responses: false,
+        writes_to_completed_steps: false,
+        summary_allowed: false,
+        render_policy: "single_surface_no_competing_bank",
+        question_surface_type: "single_merged_assistant_turn",
+        skip_llm_extraction: true,
+        notes_for_route: { branch: "capture_phase_strategic_deferral" },
+        decision_status_updates: [],
+        target_topic: null,
+        reopened_topic: null,
+        active_doubt_detected: false,
+        requires_confirmation: false,
+        confirmation_options: null,
+        can_show_summary: false,
+      });
+    }
+
     const doubtTopic = currentTopic!;
     const entryStatus =
       helpOrHow && !strategicValidation ? "low_confidence" : "provisional";
@@ -1021,38 +1084,6 @@ export function resolveGuidedIntakeTurn(
       requires_confirmation: true,
       confirmation_options: [...STRATEGIC_DECISION_CONFIRMATION_OPTIONS_ES],
       can_show_summary: false,
-    });
-  }
-
-  const deterministicClarification =
-    allowsDeterministicMetaResolution(trace) &&
-    detectDeterministicClarificationIntent(userText);
-
-  if (deterministicClarification) {
-    return finalizeEngineTurn(trace, userText, {
-      user_intent: "clarification_question",
-      pending_state:
-        pendingState === "none" ? "pending_clarification" : pendingState,
-      action: "deterministic_clarification",
-      current_mini_step: miniStep,
-      next_mini_step: miniStep,
-      current_phase: trace.phase,
-      next_phase: "clarifying_question",
-      should_advance: false,
-      should_not_advance: true,
-      writes_to_responses: false,
-      writes_to_completed_steps: false,
-      summary_allowed: false,
-      render_policy: "single_surface_no_competing_bank",
-      question_surface_type: "single_merged_assistant_turn",
-      skip_llm_extraction: false,
-      notes_for_route: { branch: "deterministic_clarification" },
-      active_doubt_detected: false,
-      target_topic: null,
-      reopened_topic: null,
-      can_show_summary: false,
-      requires_confirmation: false,
-      confirmation_options: null,
     });
   }
 

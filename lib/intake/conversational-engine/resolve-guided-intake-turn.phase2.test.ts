@@ -27,13 +27,11 @@ describe("Phase 2 decision layer (pattern table)", () => {
       miniStep: "audience",
       trace,
     });
-    expect(["strategic_validation_question", "active_doubt"]).toContain(
-      d.user_intent,
-    );
+    expect(d.user_intent).toBe("clarification_question");
     expect(d.should_not_advance).toBe(true);
-    const aud = d.decision_status_updates.find((x) => x.topic === "audience");
-    expect(aud?.status).toBe("provisional");
-    expect(d.active_doubt_detected).toBe(true);
+    expect(d.notes_for_route.branch).toBe("capture_phase_strategic_deferral");
+    expect(d.decision_status_updates).toHaveLength(0);
+    expect(d.active_doubt_detected).toBe(false);
     expect(d.can_show_summary).toBe(false);
   });
 

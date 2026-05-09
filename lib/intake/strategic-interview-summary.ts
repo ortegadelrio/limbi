@@ -5,6 +5,7 @@ import {
   PROBLEM_CATEGORY_OPTIONS,
   TRANSFORMATION_TYPE_OPTIONS,
 } from "@/lib/constants/wizard";
+import { formatEvidenceTypeSlugsForUserFacingSummary } from "@/lib/intake/evidence-public-labels";
 import { readInterviewTrace } from "@/lib/intake/orchestrator";
 import { GUIDED_INTAKE_AUDIENCE_PENDING_LIM } from "@/lib/intake/strategic-interview-apply";
 
@@ -164,9 +165,63 @@ function evidenceIsThin(mergedResponses: Record<string, unknown>): boolean {
   return false;
 }
 
+function snippetIdentifiedActors(ab: Record<string, unknown>): string | null {
+  const raw =
+    typeof ab.audience_description_optional === "string"
+      ? ab.audience_description_optional.trim()
+      : "";
+  if (raw.length < 8) return null;
+  const collapsed = raw
+    .split(/\n/)
+    .filter((ln) => !/^\(Integrado desde el paso de evidencia/i.test(ln.trim()))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (collapsed.length < 8) return null;
+  return collapsed.length > 260 ? `${collapsed.slice(0, 257)}…` : collapsed;
+}
+
+function hasConcreteEvidenceMention(mergedResponses: Record<string, unknown>): boolean {
+  if (!evidenceIsThin(mergedResponses)) return true;
+  const eb = readEb(mergedResponses);
+  const det = eb.evidence_details;
+  if (det && typeof det === "object" && !Array.isArray(det)) {
+    for (const v of Object.values(det as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim().length > 8) return true;
+    }
+  }
+  return false;
+}
+
+function evidenceMentionedSummaryLine(mergedResponses: Record<string, unknown>): string {
+  const eb = readEb(mergedResponses);
+  const detailLines: string[] = [];
+  const det = eb.evidence_details;
+  if (det && typeof det === "object" && !Array.isArray(det)) {
+    for (const v of Object.values(det as Record<string, unknown>)) {
+      if (typeof v !== "string" || v.trim().length < 8) continue;
+      const s = v.trim();
+      detailLines.push(s.length > 200 ? `${s.slice(0, 197)}…` : s);
+    }
+  }
+  if (detailLines.length > 0) {
+    return `Evidencia mencionada: ${detailLines.slice(0, 2).join(" · ")}.`;
+  }
+  const types = Array.isArray(eb.evidence_types)
+    ? (eb.evidence_types as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  const filtered = types.filter((t) => t && t !== NO_CLEAR_EVIDENCE);
+  if (filtered.length > 0) {
+    const human = formatEvidenceTypeSlugsForUserFacingSummary(filtered);
+    return human.length > 0
+      ? `Evidencia mencionada (orientación): ${human}.`
+      : "Evidencia mencionada en el cuestionario.";
+  }
+  return "Evidencia: aún sin pruebas concretas registradas; se puede profundizar en el diagnóstico.";
+}
+
 /**
- * Short conversational closing copy for the pilot (no paths, no JSON).
- * Modular paragraphs only; never interpolates missing audience as if known.
+ * Vista previa diagnóstica al cerrar la primera captura (sin JSON ni rutas internas).
  */
 export function buildStrategicInterviewPilotSummary(
   mergedResponses: Record<string, unknown>,
@@ -185,6 +240,7 @@ export function buildStrategicInterviewPilotSummary(
   );
   const audienceType =
     typeof ab.audience_type === "string" ? ab.audience_type.trim() : "";
+  const identifiedActors = snippetIdentifiedActors(ab);
 
   const skippedTransform = lim.some((s) =>
     /transform|transformation|transformación/i.test(s),
@@ -206,104 +262,124 @@ export function buildStrategicInterviewPilotSummary(
     !skippedTransform &&
     fieldConf(confidence, "strategic_base.transformation_type", 0.75) >= 0.55;
 
-  const mainParagraphs: string[] = [];
-
+  const lines: string[] = [];
+  lines.push("Vista previa diagnóstica.");
+  lines.push("");
+  lines.push(
+    "Ahora Limbi puede hacer un diagnóstico inicial para identificar qué está fuerte, qué falta y qué conviene precisar antes de construir el Sistema Límbico.",
+  );
+  lines.push("");
+  lines.push("1. Lo que entendí");
   if (descStrong) {
-    mainParagraphs.push(
-      `Entendí que estás construyendo ${tipo}. Lo central que recogí: ${desc.length > 320 ? `${desc.slice(0, 317)}…` : desc}.`,
+    lines.push(
+      `Construyes ${tipo}. Lo central registrado: ${desc.length > 320 ? `${desc.slice(0, 317)}…` : desc}.`,
     );
   } else {
-    mainParagraphs.push(`Entendí que estás construyendo ${tipo}.`);
+    lines.push(`Construyes ${tipo}. Falta aún más detalle sobre la esencia de la oferta.`);
   }
 
+  lines.push("");
+  lines.push("2. Fricción o tensión principal");
   if (problemStrong && problemText) {
     const probSt = ds?.problem?.status;
     const probCaveat =
       probSt === "provisional" ||
       probSt === "low_confidence" ||
       probSt === "reopened"
-        ? "Por ahora queda como hipótesis: "
+        ? "Hipótesis registrada: "
         : "";
-    mainParagraphs.push(
-      `${probCaveat}La situación o fricción que ubicaste: ${problemText}.`,
-    );
+    lines.push(`${probCaveat}${problemText}`);
+  } else {
+    lines.push("Pendiente de bajar a una formulación concreta y defendible.");
   }
 
+  lines.push("");
+  lines.push("3. Beneficio o transformación deseada");
   if (transformStrong && transformText) {
     const trSt = ds?.transformation?.status;
     const trCaveat =
       trSt === "provisional" ||
       trSt === "low_confidence" ||
       trSt === "reopened"
-        ? "Todavía falta confirmar el beneficio, pero como orientación: "
+        ? "Borrador: "
         : "";
-    mainParagraphs.push(
-      `${trCaveat}El cambio o beneficio que buscas comunicar: ${transformText}.`,
-    );
+    lines.push(`${trCaveat}${transformText}`);
+  } else if (skippedTransform) {
+    lines.push("Marcado como pendiente en el cuestionario.");
+  } else {
+    lines.push("Aún falta precisar el cambio concreto que debe percibirse cuando esto funciona bien.");
   }
 
+  lines.push("");
+  lines.push("4. Audiencia y actores");
   if (audienceCommitted && audienceType) {
-    mainParagraphs.push(
-      `Hoy la comunicación tendría como protagonista principal a ${labelAudience(audienceType)}, en coherencia con lo que contaste.`,
+    lines.push(
+      `Prioridad de audiencia alineada con lo confirmado: ${labelAudience(audienceType)}.`,
     );
+  } else if (identifiedActors) {
+    lines.push(`Actores identificados: ${identifiedActors} Falta definir prioridad.`);
   } else if (
     audienceType &&
     (audienceType === "b2b" || audienceType === "professional_audience") &&
     !audiencePendingLimitationPresent(lim)
   ) {
-    mainParagraphs.push(
-      "Por el contexto, hay indicios de que la comunicación puede apuntar a un entorno empresarial u organizacional, pero todavía falta definir con precisión quién debe ser convencido primero y quiénes son decisores, usuarios o vetos dentro de esas capas.",
+    lines.push(
+      "Hay indicios de contexto organizacional; falta nombrar actores concretos y su orden de importancia para el mensaje.",
     );
+  } else {
+    lines.push("No constan aún actores descritos con suficiente detalle para priorizar.");
   }
 
-  const completionNext =
-    "Ya tengo una base inicial para construir el Sistema Límbico. Ahora podemos seguir con las siguientes preguntas para completar contexto, audiencia, evidencia, pulso límbico y voz.";
+  lines.push("");
+  lines.push("5. Evidencia");
+  lines.push(evidenceMentionedSummaryLine(mergedResponses));
 
-  const body = `${completionNext}\n\n${mainParagraphs.join("\n\n")}`;
-
-  const pending: string[] = [];
-
+  lines.push("");
+  lines.push("6. Huecos o puntos a precisar");
+  const gaps: string[] = [];
   if (!audienceCommitted) {
-    if (audiencePendingLimitationPresent(lim)) {
-      pending.push(
-        "La audiencia principal todavía queda pendiente. Limbi deberá precisar después quién debe ser convencido primero y quiénes son decisores, influenciadores o beneficiarios.",
+    if (identifiedActors) {
+      gaps.push("Cerrar la prioridad entre los actores ya nombrados.");
+    } else if (audiencePendingLimitationPresent(lim)) {
+      gaps.push(
+        "Confirmar audiencia o aportar actores concretos (compradores, usuarios, autorizadores, influencias o vetos).",
       );
-      if (publicSocialAudienceContextHint(sb)) {
-        pending.push(
-          "Hay indicios de que una autoridad o ente institucional puede ser un actor habilitador o financiador, y que las personas impactadas pueden ser otra capa importante, pero falta definir a quién debe convencer primero la comunicación.",
+      if (publicSocialAudienceContextHint(sb) && !identifiedActors) {
+        gaps.push(
+          "En contexto institucional o social, precisar quién habilita recursos y quién recibe el impacto, sin mezclar roles.",
         );
       }
     } else {
-      pending.push(
-        "Todavía falta precisar quién debe convencerse primero la comunicación y quiénes son decisores, vetos o influenciadores clave.",
+      gaps.push(
+        "Describir actores concretos y quién debe recibir primero el mensaje frente a quién valida o paga.",
       );
     }
   }
-
   if (!problemStrong) {
-    pending.push(
-      "El problema o tensión central queda pendiente de bajar a una formulación concreta y defendible.",
-    );
+    gaps.push("Profundizar la tensión central con hechos o situaciones medibles.");
   }
-
   if (!transformStrong && !skippedTransform) {
-    pending.push(
-      "El beneficio está encaminado, pero todavía conviene precisar qué cambio concreto debe percibir la audiencia cuando esto funciona bien.",
-    );
+    gaps.push("Concretar el beneficio observable o la transformación prometida.");
   }
-
-  if (evidenceIsThin(mergedResponses)) {
-    pending.push(
-      "La evidencia queda pendiente. Limbi deberá evitar claims fuertes hasta que existan pruebas, casos o referencias concretas.",
-    );
+  if (!hasConcreteEvidenceMention(mergedResponses)) {
+    gaps.push("Sumar pruebas (trayectoria, casos, cifras o referencias) que sostengan lo que quieres afirmar.");
   }
+  const gapBlock =
+    gaps.length > 0 ? gaps.map((g) => `• ${g}`).join("\n") : "• Nada crítico adicional; seguirá afinándose en el diagnóstico.";
 
-  const weakLine = pending.length > 0 ? pending.slice(0, 4).join("\n\n") : null;
+  lines.push(gapBlock);
+
+  lines.push("");
+  lines.push("7. Próximo paso del diagnóstico");
+  lines.push(
+    "Limbi contrastará coherencia entre audiencia, promesa y pruebas, y te devolverá prioridades, riesgos y recomendaciones accionables.",
+  );
+
+  const body = lines.join("\n");
 
   return {
-    title:
-      "Completamos la primera etapa: entender qué ofreces y qué problema ayuda a resolver.",
+    title: "Completamos la primera captura del reto.",
     body,
-    weakLine,
+    weakLine: null,
   };
 }

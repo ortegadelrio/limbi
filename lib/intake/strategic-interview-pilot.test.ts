@@ -142,11 +142,14 @@ describe("buildStrategicInterviewPilotSummary", () => {
       false,
       {},
     );
+    expect(summary.title).toMatch(/primera captura/i);
+    expect(summary.weakLine).toBeNull();
+    expect(summary.body).toMatch(/1\. Lo que entendí/i);
     expect(summary.body.toLowerCase()).not.toContain("consumidor");
     expect(audienceIsCommittedForPilotSummary(merged, {})).toBe(false);
   });
 
-  it("teen travel style: modular body and pending audience copy", () => {
+  it("teen travel style: diagnostic body lists friction and gaps without weakLine duplication", () => {
     const merged: Record<string, unknown> = {
       strategic_base: {
         simple_description:
@@ -173,10 +176,42 @@ describe("buildStrategicInterviewPilotSummary", () => {
       },
     );
     expect(summary.body).toMatch(/viaje|itinerario|adolescente/i);
-    expect(summary.weakLine).toMatch(
-      /Todavía falta precisar quién debe convencerse primero la comunicación/i,
-    );
+    expect(summary.weakLine).toBeNull();
+    expect(summary.body).toMatch(/6\. Huecos o puntos a precisar/i);
     expect(summary.body.toLowerCase()).not.toContain("consumidor");
+  });
+
+  it("shows actores identificados when description exists without committed priority", () => {
+    const merged: Record<string, unknown> = {
+      strategic_base: {
+        simple_description: "Herramienta para alinear entregas entre socios y clientes corporativos",
+        offering_type: "service",
+        problem_category: "lack_clarity",
+        problem_description_optional: "Información dispersa entre quien vende y quien implementa",
+        transformation_type: "understand_better",
+        transformation_to: "Un solo tablero con responsables claros",
+      },
+      audience_base: {
+        audience_description_optional:
+          "Los equipos de cuenta suelen abrir la conversación; dirección de operaciones autoriza el cierre.",
+      },
+      evidence_base: {
+        evidence_types: ["testimonials"],
+        evidence_details: {
+          testimonials: "Referencias verificables de los últimos doce meses.",
+        },
+      },
+    };
+    const s = buildStrategicInterviewPilotSummary(merged, "service", false, {
+      "strategic_base.simple_description": 0.88,
+      "strategic_base.problem_category": 0.8,
+      "strategic_base.transformation_type": 0.82,
+    });
+    expect(s.body).toMatch(/Actores identificados:/i);
+    expect(s.body).toMatch(/Falta definir prioridad/i);
+    expect(s.body).not.toMatch(/No constan aún actores/i);
+    expect(s.body).toMatch(/Evidencia mencionada/i);
+    expect(s.body).not.toMatch(/\btestimonials\b/i);
   });
 
   it("does not treat end_consumers as committed when confidence is low", () => {

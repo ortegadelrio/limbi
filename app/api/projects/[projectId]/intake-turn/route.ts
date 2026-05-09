@@ -92,6 +92,7 @@ import {
   stripAudienceRecommendationPending,
   swapPendingPrimarySecondary,
 } from "@/lib/intake/guided-intake-strategic-validation";
+import { buildCapturePhaseStrategicDeferralInterviewerMessage } from "@/lib/intake/capture-phase-strategic-deferral";
 import { resolveGuidedIntakeExtraction } from "@/lib/intake/guided-intake-extraction-recovery";
 import { generateGuidedIntakeExtractionJson } from "@/lib/openai/guided-intake-extraction";
 import { deepMergeResponses } from "@/lib/utils/deep-merge";
@@ -1066,6 +1067,38 @@ export async function POST(request: Request, { params }: Params) {
             ...applyEngineDecisionPatchesToTrace(traceFromDb, engineTurn),
             phase: "strategy_validation",
             mini_step: "evidence",
+          },
+          "user",
+          userLine.slice(0, 500),
+        ),
+        "assistant",
+        extraction.interviewer_message.slice(0, 500),
+      );
+    }
+
+    if (engineTurn.notes_for_route.branch === "capture_phase_strategic_deferral") {
+      mergedWithoutTrace = baseResponses;
+      const msg = buildCapturePhaseStrategicDeferralInterviewerMessage();
+      extraction = {
+        ...buildStrategicValidationSyntheticExtraction({
+          interviewer_message: msg,
+          next_question: null,
+          suggested_chips: [],
+          audience_recommendation_pending: null,
+        }),
+        interviewer_message: msg,
+        internal_notes: "capture_phase_strategic_deferral",
+      };
+      shouldNotAdvance = true;
+      wantsFollowUp = false;
+      interviewerMessage = msg;
+      nextQuestion = null;
+      nextTrace = appendTurn(
+        appendTurn(
+          {
+            ...applyEngineDecisionPatchesToTrace(traceFromDb, engineTurn),
+            phase: "main",
+            mini_step: miniStep,
           },
           "user",
           userLine.slice(0, 500),

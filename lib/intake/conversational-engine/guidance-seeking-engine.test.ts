@@ -22,13 +22,12 @@ describe("strategic guidance seeking (pattern-based)", () => {
       miniStep: "transformation",
       trace: traceAt("transformation"),
     });
-    expect(d.notes_for_route.branch).toBe("active_strategic_doubt");
+    expect(d.notes_for_route.branch).toBe("capture_phase_strategic_deferral");
     expect(d.skip_llm_extraction).toBe(true);
     expect(d.should_not_advance).toBe(true);
     expect(d.writes_to_responses).toBe(false);
-    const tr = d.decision_status_updates.find((x) => x.topic === "transformation");
-    expect(tr?.status).toBe("low_confidence");
-    expect(d.active_doubt_detected).toBe(true);
+    expect(d.decision_status_updates).toHaveLength(0);
+    expect(d.active_doubt_detected).toBe(false);
   });
 
   it("audience: short recommendation-style ask holds without advancing", () => {
@@ -37,9 +36,7 @@ describe("strategic guidance seeking (pattern-based)", () => {
       miniStep: "audience",
       trace: traceAt("audience"),
     });
-    expect(["active_strategic_doubt", "deterministic_strategic_validation"]).toContain(
-      d.notes_for_route.branch,
-    );
+    expect(d.notes_for_route.branch).toBe("capture_phase_strategic_deferral");
     expect(d.should_not_advance).toBe(true);
     expect(d.skip_llm_extraction).toBe(true);
     expect(d.writes_to_responses).toBe(false);

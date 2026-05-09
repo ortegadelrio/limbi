@@ -49,6 +49,7 @@ export type ConversationalEngineRouteBranch =
   | "evidence_uncertainty_advance"
   | "deterministic_clarification"
   | "deterministic_strategic_validation"
+  | "capture_phase_strategic_deferral"
   | "llm_extraction";
 
 /** How the server should compose user-visible questions (policy for one surface). */

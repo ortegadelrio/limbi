@@ -173,8 +173,20 @@ const cases: Case[] = [
     },
   },
   {
-    id: "deterministic_strategic_validation_no_pending",
+    id: "capture_phase_defers_strategic_validation_on_main",
     trace: traceBase({ mini_step: "audience", phase: "main" }),
+    userText: "¿Crees que tiene sentido priorizar impacto interno antes que alianzas?",
+    expect: {
+      branch: "capture_phase_strategic_deferral",
+      user_intent: "clarification_question",
+      summary_allowed: false,
+      skip_llm_extraction: true,
+      render_policy: "single_surface_no_competing_bank",
+    },
+  },
+  {
+    id: "deterministic_strategic_validation_when_in_strategy_validation_phase",
+    trace: traceBase({ mini_step: "audience", phase: "strategy_validation" }),
     userText: "¿Crees que tiene sentido priorizar impacto interno antes que alianzas?",
     expect: {
       branch: "deterministic_strategic_validation",
@@ -256,6 +268,7 @@ describe("resolveGuidedIntakeTurn (pattern table)", () => {
     if (
       x.branch === "deterministic_clarification" ||
       x.branch === "deterministic_strategic_validation" ||
+      x.branch === "capture_phase_strategic_deferral" ||
       x.branch === "evidence_audience_actor_redirect" ||
       x.branch === "evidence_positioning_claim_redirect"
     ) {

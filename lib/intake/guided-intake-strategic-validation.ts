@@ -175,12 +175,12 @@ function genericProvisionalPreamble(miniStep: GuidedMiniStepId): string {
     complete: "este cierre",
   };
   const label = stepHint[miniStep] ?? "esta pregunta";
-  return `Con la información que tenemos hasta ahora, mi lectura provisional es que tu planteamiento puede ser defendible, pero todavía falta validarlo con lo que pedimos sobre ${label}. Cuando completemos el Sistema Límbico podré darte un diagnóstico más completo, con prioridades y riesgos mejor fundados. No genero todavía piezas finales de comunicación en esta etapa.`;
+  return `En esta fase solo recojo y ordeno lo que cuentas sobre ${label}. Las prioridades, el diagnóstico y las recomendaciones llegan después de cerrar la captura; aquí no cierro dirección estratégica ni piezas finales.`;
 }
 
-/** When the user asks for a read on audience priority: marketing-style provisional framing (not generic “defendible” hedging). */
+/** Used when reopening audience detail without issuing a final priority recommendation in capture. */
 function audienceRecommendationAdvisorPreamble(): string {
-  return "Con lo que ya compartiste, te doy una lectura provisional de marketing sobre prioridades de audiencia y tensiones entre quien vive la experiencia y quien autoriza o paga. No es pieza publicitaria final; es criterio para decidir foco y mensaje.";
+  return "Sigo anclado a lo que ya contaste sobre audiencia; prioridades y recomendaciones las cierra el diagnóstico cuando la captura esté completa.";
 }
 
 /**
@@ -712,7 +712,7 @@ export function buildStrategicValidationTurnContent(params: {
 
   if (miniStep === "evidence") {
     return {
-      interviewer_message: `${genericProvisionalPreamble("evidence")} Lo que buscamos aquí sigue siendo material que respalde lo que dices (cifras, casos, trayectoria, testimonios, etc.), sin inventar pruebas.`,
+      interviewer_message: `${genericProvisionalPreamble("evidence")} Lo que buscamos aquí sigue siendo material que respalde lo que dices (cifras, casos, trayectoria, testimonios, etc.), sin inventar pruebas. Cuando el Sistema Límbico esté completo, contrastaremos cada claim con pruebas concretas.`,
       next_question: bank
         ? `Sigamos con evidencia: ${bank}`
         : `Sigamos con evidencia: ${GUIDED_QUESTION_EVIDENCE}`,

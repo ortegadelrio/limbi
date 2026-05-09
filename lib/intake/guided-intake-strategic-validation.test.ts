@@ -503,7 +503,8 @@ describe("pilot summary with audience_pending limitation", () => {
     const s = buildStrategicInterviewPilotSummary(merged, "service", false, {});
     expect(s.body.toLowerCase()).not.toMatch(/b2b|empresa/);
     expect(s.body.toLowerCase()).not.toMatch(/consumidor/);
-    expect(s.weakLine).toMatch(/audiencia principal todav[ií]a queda pendiente/i);
+    expect(s.weakLine).toBeNull();
+    expect(s.body).toMatch(/Confirmar audiencia|actores concretos/i);
   });
 
   it("uses indicios copy for inferred b2b slug without committed audience (pattern, not a fixed vertical)", () => {
@@ -525,8 +526,7 @@ describe("pilot summary with audience_pending limitation", () => {
       "audience_base.audience_type": 0.72,
     });
     expect(s.body.toLowerCase()).not.toMatch(/protagonista principal/);
-    expect(s.body).toMatch(/indicios de que la comunicaci/i);
-    expect(s.body).toMatch(/entorno empresarial/i);
+    expect(s.body).toMatch(/indicios de contexto organizacional/i);
   });
 
   it("adds cautious institutional hint only as pending copy, not as settled audience", () => {
@@ -545,7 +545,8 @@ describe("pilot summary with audience_pending limitation", () => {
       evidence_base: { evidence_types: ["no_clear_evidence"] },
     };
     const s = buildStrategicInterviewPilotSummary(merged, "corporate_communication", false, {});
-    expect(s.weakLine).toMatch(/audiencia principal todav[ií]a queda pendiente/i);
-    expect(s.weakLine).toMatch(/autoridad o ente institucional/i);
+    expect(s.weakLine).toBeNull();
+    expect(s.body).toMatch(/Confirmar audiencia|actores concretos/i);
+    expect(s.body).toMatch(/institucional|impacto/i);
   });
 });
