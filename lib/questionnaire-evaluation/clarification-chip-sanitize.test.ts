@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   detectProjectChipCategory,
+  getContextualUniversalSkipOptions,
+  injectUniversalClarificationSkips,
   sanitizeClarificationQuestionChips,
 } from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
+import { CLARIFICATION_SKIP_NOT_AVAILABLE_ID } from "@/lib/questionnaire-evaluation/clarification-skip-constants";
+import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import type { ClarificationQuestion } from "@/lib/questionnaire-evaluation/schema";
 
 describe("sanitizeClarificationQuestionChips", () => {
@@ -52,5 +56,35 @@ describe("sanitizeClarificationQuestionChips", () => {
     const labels = (out.options ?? []).map((o) => o.label).join(" | ");
     expect(detectProjectChipCategory(responses)).toBe("wellness_yoga");
     expect(labels.toLowerCase()).toMatch(/\bcalma\b|\bansiedad\b|\bconvivencia\b/);
+  });
+
+  it("uses contextual universal skip labels for evidence questions", () => {
+    const q: ClarificationQuestion = {
+      id: "q_ev",
+      referenced_user_answer: "Aún no hay pruebas concretas registradas.",
+      why_it_matters: "Evita afirmaciones fuertes sin respaldo.",
+      question_text: "¿Qué evidencia real puedes usar hoy para sostener tu propuesta?",
+      allow_free_text: true,
+    };
+    const merged = mergeClarificationSuggestionChips(q, {});
+    const notAvail = merged.options?.find((o) => o.id === CLARIFICATION_SKIP_NOT_AVAILABLE_ID);
+    expect(notAvail?.label).toBe("No tengo evidencia todavía");
+    expect(getContextualUniversalSkipOptions("evidence")[0]?.label).toBe(
+      "No tengo evidencia todavía",
+    );
+  });
+
+  it("does not use generic 'No tengo esta información todavía' for evidence skips", () => {
+    const q: ClarificationQuestion = {
+      id: "q_ev2",
+      referenced_user_answer: "Contexto.",
+      why_it_matters: "Importa.",
+      question_text: "¿Qué pruebas o casos puedes compartir?",
+      allow_free_text: true,
+    };
+    const out = injectUniversalClarificationSkips(q);
+    const labels = (out.options ?? []).map((o) => o.label).join(" | ");
+    expect(labels).not.toMatch(/No tengo esta información todavía/);
+    expect(labels).toMatch(/No tengo evidencia todavía/);
   });
 });

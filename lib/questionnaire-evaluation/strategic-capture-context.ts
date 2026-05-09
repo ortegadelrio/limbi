@@ -115,7 +115,7 @@ function fold(s: string): string {
     .toLowerCase();
 }
 
-/** Higher = more focused on evidence/proof (sort ascending so evidence sinks to end when foundations weak). */
+/** Higher = more focused on evidence/proof. */
 export function clarificationEvidenceAffinity(q: ClarificationQuestion): number {
   const blob = fold(
     [q.question_text, q.limbi_detection ?? "", q.why_it_matters, q.referenced_user_answer].join(
@@ -123,30 +123,56 @@ export function clarificationEvidenceAffinity(q: ClarificationQuestion): number 
     ),
   );
   let score = 0;
-  if (/\b(evidencias?|pruebas?|testimonios?|datos|casos?|encuestas?|cifras?|referencias?)\b/.test(blob))
+  if (
+    /\b(evidencias?|pruebas?|testimonios?|datos|casos?|encuestas?|cifras?|referencias?)\b/.test(
+      blob,
+    )
+  ) {
     score += 2;
+  }
   if (/\b(no_clear_evidence|evidence_types)\b/.test(blob)) score += 1;
   return score;
 }
 
+/**
+ * Order clarification questions for post-capture deepening:
+ * - If audience/problem/benefit signals are thin, surface those before evidence-style questions.
+ * - If foundations are already present but evidence is still weak, evidence-style questions may go first.
+ */
+export function sortClarificationQuestionsEvidenceAware(
+  questions: ClarificationQuestion[],
+  ctx: StrategicCaptureContextAnalysis,
+): ClarificationQuestion[] {
+  const needsFoundationWork =
+    !ctx.hasAudienceSignal || !ctx.hasProblemSignal || !ctx.hasBenefitSignal;
+
+  if (needsFoundationWork) {
+    return [...questions].sort((a, b) => {
+      const da = clarificationEvidenceAffinity(a);
+      const db = clarificationEvidenceAffinity(b);
+      if (da !== db) return da - db;
+      return 0;
+    });
+  }
+
+  if (!ctx.hasEvidenceBeyondNone) {
+    return [...questions].sort((a, b) => {
+      const da = clarificationEvidenceAffinity(a);
+      const db = clarificationEvidenceAffinity(b);
+      if (da !== db) return db - da;
+      return 0;
+    });
+  }
+
+  return [...questions];
+}
+
+/** @deprecated Use sortClarificationQuestionsEvidenceAware */
 export function sortClarificationQuestionsEvidenceLast(
   questions: ClarificationQuestion[],
   ctx: StrategicCaptureContextAnalysis,
 ): ClarificationQuestion[] {
-  const needsAudienceFirst = !ctx.hasAudienceSignal;
-  const needsProblemFirst = !ctx.hasProblemSignal;
-  const needsBenefitFirst = !ctx.hasBenefitSignal;
-  const deferEvidence =
-    needsAudienceFirst || needsProblemFirst || needsBenefitFirst || !ctx.hasEvidenceBeyondNone;
-
-  if (!deferEvidence) return [...questions];
-
-  return [...questions].sort((a, b) => {
-    const da = clarificationEvidenceAffinity(a);
-    const db = clarificationEvidenceAffinity(b);
-    if (da !== db) return da - db;
-    return 0;
-  });
+  return sortClarificationQuestionsEvidenceAware(questions, ctx);
 }
 
 export function buildFoundationClarificationQuestion(): ClarificationQuestion {
@@ -191,7 +217,16 @@ export function applyGuidedStrategicCaptureGuards(
 
   const ctx = analyzeStrategicCaptureContext(responses);
   if (ctx.tier === "adequate") {
-    return { ...data };
+    if (!isGuidedStrategicIntakeFirstCaptureComplete(responses)) {
+      return { ...data };
+    }
+    return {
+      ...data,
+      clarification_questions: sortClarificationQuestionsEvidenceAware(
+        [...data.clarification_questions],
+        ctx,
+      ),
+    };
   }
 
   if (ctx.tier === "insufficient") {
@@ -205,7 +240,7 @@ export function applyGuidedStrategicCaptureGuards(
     };
   }
 
-  const sorted = sortClarificationQuestionsEvidenceLast(
+  const sorted = sortClarificationQuestionsEvidenceAware(
     [...data.clarification_questions],
     ctx,
   );

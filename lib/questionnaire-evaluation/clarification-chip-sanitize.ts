@@ -1,4 +1,7 @@
 import {
+  CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+  CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+  CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
   CLARIFICATION_UNIVERSAL_SKIP_OPTIONS,
   isUniversalClarificationSkipOptionId,
 } from "@/lib/questionnaire-evaluation/clarification-skip-constants";
@@ -22,6 +25,7 @@ export type ClarificationChipQuestionKind =
   | "evidence"
   | "audience"
   | "differentiation_product"
+  | "challenge_friction"
   | "transformation_experience"
   | "transformation_wellness"
   | "tone"
@@ -68,7 +72,19 @@ export function inferClarificationChipQuestionKind(
   );
 
   if (
-    /\b(que evidencia|qué evidencia|evidencia real|prueba|testimonio|caso|resultado medible|dato|metrica|métrica|cifra|certificacion|certificación|track record|historial comprobable)\b/.test(
+    /\b(cual es el reto|cuál es el reto|que reto|qué reto|reto principal|friccion central|fricción central|desafio central|desafío central|problema central|dolor principal|obstaculo principal|obstáculo principal|que tension|qué tensión)\b/.test(
+      blob,
+    ) ||
+    (/\b(reto|desafio|desafío|fricción|friccion|barrera|obstaculo|obstáculo)\b/.test(
+      blob,
+    ) &&
+      /\b(aclara|precisa|concreta|matizar|profundiza|define|acota)\b/.test(blob))
+  ) {
+    return "challenge_friction";
+  }
+
+  if (
+    /\b(que evidencia|qué evidencia|evidencias?|evidencia real|pruebas?|testimonios?|casos?|resultados? medibles?|datos?|metricas?|métricas?|cifras?|certificaciones?|certificacion|certificación|track record|historial comprobable)\b/.test(
       blob,
     )
   ) {
@@ -146,8 +162,8 @@ const EVIDENCE_CHIPS: { id: string; label: string }[] = [
   { id: "chip_ev_testimonials", label: "Testimonios" },
   { id: "chip_ev_clients", label: "Clientes anteriores" },
   { id: "chip_ev_cases", label: "Casos o resultados" },
-  { id: "chip_ev_qual", label: "Observaciones cualitativas" },
-  { id: "chip_ev_certs", label: "Formación/certificaciones" },
+  { id: "chip_ev_qual", label: "Trayectoria o protocolos" },
+  { id: "chip_ev_certs", label: "Certificaciones o formación" },
   { id: "chip_ev_other", label: "Otro" },
 ];
 
@@ -241,7 +257,7 @@ function chipAnswersQuestion(
 
   if (kind === "evidence") {
     return (
-      /\b(experiencia|anos|años|testimonio|cliente|caso|resultado|observacion|observación|formaci|certificaci|otro)\b/i.test(
+      /\b(experiencia|anos|años|testimonio|cliente|caso|resultado|trayector|protocolo|formaci|certificaci|cifra|aliado|otro)\b/i.test(
         label,
       ) && !/\b(calma|ansiedad|yoga|aula)\b/i.test(label)
     );
@@ -339,16 +355,147 @@ export function filterClarificationChipsForQuestion(
   return out;
 }
 
+const ALL_KINDS_FOR_SKIP_LABELS: ClarificationChipQuestionKind[] = [
+  "evidence",
+  "audience",
+  "differentiation_product",
+  "challenge_friction",
+  "transformation_experience",
+  "transformation_wellness",
+  "tone",
+  "unknown",
+];
+
+/**
+ * Universal skip chips: stable ids for `project_responses` / answers; labels
+ * vary by clarification gap so the UI stays contextual post-captura.
+ */
+export function getContextualUniversalSkipOptions(
+  kind: ClarificationChipQuestionKind,
+): { id: string; label: string }[] {
+  switch (kind) {
+    case "evidence":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo evidencia todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar sin esta evidencia",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "La puedo mejorar después",
+        },
+      ];
+    case "audience":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo la audiencia definida todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar con esta intuición de audiencia",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "La afinaré después",
+        },
+      ];
+    case "differentiation_product":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo el diferencial claro todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar sin cerrar el diferencial",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "Lo trabajaré después",
+        },
+      ];
+    case "tone":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo el tono definido todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar con el tono actual",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "Lo ajustaré después",
+        },
+      ];
+    case "challenge_friction":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo el reto acotado todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar con este nivel de detalle del reto",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "Lo precisaré después",
+        },
+      ];
+    case "transformation_experience":
+    case "transformation_wellness":
+      return [
+        {
+          id: CLARIFICATION_SKIP_NOT_AVAILABLE_ID,
+          label: "No tengo el beneficio claro todavía",
+        },
+        {
+          id: CLARIFICATION_SKIP_CONTINUE_BASE_ID,
+          label: "Continuar con este beneficio a alto nivel",
+        },
+        {
+          id: CLARIFICATION_SKIP_IMPROVE_LATER_ID,
+          label: "Lo afinaré después",
+        },
+      ];
+    default:
+      return CLARIFICATION_UNIVERSAL_SKIP_OPTIONS.map((o) => ({
+        id: o.id,
+        label: o.label,
+      }));
+  }
+}
+
+/** Used to treat selected universal skips as intentional (not “vague”). */
+export function foldMatchesAnyUniversalSkipDisplayLabel(text: string): boolean {
+  const tf = fold(text.trim());
+  for (const k of ALL_KINDS_FOR_SKIP_LABELS) {
+    for (const o of getContextualUniversalSkipOptions(k)) {
+      if (tf === fold(o.label)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Inyecta opciones de omisión universales al final (sin duplicar ids).
  */
 export function injectUniversalClarificationSkips(
   q: ClarificationQuestion,
 ): ClarificationQuestion {
+  const kind = inferClarificationChipQuestionKind(q);
+  const universal = getContextualUniversalSkipOptions(kind);
   const existing = q.options ?? [];
   const byId = new Map(existing.map((o) => [o.id, o] as const));
-  for (const u of CLARIFICATION_UNIVERSAL_SKIP_OPTIONS) {
-    if (!byId.has(u.id)) byId.set(u.id, { id: u.id, label: u.label });
+  for (const u of universal) {
+    byId.set(u.id, { id: u.id, label: u.label });
   }
   return { ...q, options: Array.from(byId.values()) };
 }
@@ -369,6 +516,8 @@ export function inferClarificationTargetMasterFields(
       return [...common, "audience_base", "strategic_base", "semantic_base"];
     case "differentiation_product":
       return [...common, "strategic_base", "semantic_base", "voice_base"];
+    case "challenge_friction":
+      return [...common, "strategic_base", "challenge_context", "semantic_base"];
     case "tone":
       return [...common, "voice_base", "semantic_base"];
     case "transformation_experience":

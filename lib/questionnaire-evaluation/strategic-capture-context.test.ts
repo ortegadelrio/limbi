@@ -5,7 +5,7 @@ import { LIMBIC_INTERVIEW_TRACE_KEY } from "@/lib/intake/orchestrator";
 import {
   analyzeStrategicCaptureContext,
   applyGuidedStrategicCaptureGuards,
-  clarificationEvidenceAffinity,
+  sortClarificationQuestionsEvidenceAware,
   sortClarificationQuestionsEvidenceLast,
 } from "@/lib/questionnaire-evaluation/strategic-capture-context";
 
@@ -121,6 +121,80 @@ describe("applyGuidedStrategicCaptureGuards", () => {
     const sorted = sortClarificationQuestionsEvidenceLast(qs, ctx);
     expect(sorted[0]!.id).toBe("b");
     expect(sorted[1]!.id).toBe("a");
+  });
+
+  it("when foundations are solid but evidence is weak, evidence-leaning questions sort first", () => {
+    const responses: Record<string, unknown> = {
+      [LIMBIC_INTERVIEW_TRACE_KEY]: doneGuidedTrace(),
+      strategic_base: {
+        simple_description:
+          "Servicio de transporte escolar con rutas verificadas y acompañamiento en la puerta del colegio.",
+        problem_description_optional: "Padres sin tiempo para coordinar idas y venidas.",
+        transformation_to: "Llegan más tranquilos sabiendo que sus hijos van seguros cada día.",
+      },
+      audience_base: {
+        audience_description_optional: "Padres de primaria en zona norte de la ciudad.",
+      },
+      evidence_base: { evidence_types: ["no_clear_evidence"] },
+    };
+    const ctx = analyzeStrategicCaptureContext(responses);
+    expect(ctx.tier).toBe("adequate");
+    expect(ctx.hasEvidenceBeyondNone).toBe(false);
+
+    const qs = [
+      {
+        id: "b",
+        referenced_user_answer: "Algo breve.",
+        why_it_matters: "Importa.",
+        question_text: "¿Para quién es prioritario este mensaje hoy?",
+        allow_free_text: true,
+      },
+      {
+        id: "a",
+        referenced_user_answer: "Algo breve.",
+        why_it_matters: "Importa.",
+        question_text: "¿Qué evidencia o casos reales puedes mencionar?",
+        allow_free_text: true,
+      },
+    ];
+    const sorted = sortClarificationQuestionsEvidenceAware(qs, ctx);
+    expect(sorted[0]!.id).toBe("a");
+    expect(sorted[1]!.id).toBe("b");
+  });
+
+  it("for adequate guided capture, applyGuards surfaces evidence-leaning questions before others when evidence is still weak", () => {
+    const responses: Record<string, unknown> = {
+      [LIMBIC_INTERVIEW_TRACE_KEY]: doneGuidedTrace(),
+      strategic_base: {
+        simple_description:
+          "Servicio de transporte escolar con rutas verificadas y acompañamiento en la puerta del colegio.",
+        problem_description_optional: "Padres sin tiempo para coordinar idas y venidas.",
+        transformation_to: "Llegan más tranquilos sabiendo que sus hijos van seguros cada día.",
+      },
+      audience_base: {
+        audience_description_optional: "Padres de primaria en zona norte de la ciudad.",
+      },
+      evidence_base: { evidence_types: ["no_clear_evidence"] },
+    };
+    const data = minimalEval([
+      {
+        id: "aud",
+        referenced_user_answer: "Mencionas padres y colegios.",
+        why_it_matters: "Prioriza el mensaje.",
+        question_text: "¿Quién decide el presupuesto entre padres y colegio hoy?",
+        allow_free_text: true,
+      },
+      {
+        id: "evid",
+        referenced_user_answer: "Aún no hay pruebas registradas.",
+        why_it_matters: "Sostiene promesas.",
+        question_text: "¿Qué evidencia o casos reales puedes compartir?",
+        allow_free_text: true,
+      },
+    ]);
+    const out = applyGuidedStrategicCaptureGuards(data, responses);
+    expect(out.clarification_questions[0]?.id).toBe("evid");
+    expect(out.clarification_questions[1]?.id).toBe("aud");
   });
 });
 

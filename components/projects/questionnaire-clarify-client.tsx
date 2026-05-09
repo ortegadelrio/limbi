@@ -10,7 +10,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { inferClarificationTargetMasterFields } from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
+import {
+  inferClarificationChipQuestionKind,
+  inferClarificationTargetMasterFields,
+} from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
+import {
+  CLARIFICATION_EVIDENCE_GUIDANCE_ES,
+  clarificationDimensionHeadline,
+  provisionalQualityLevelFromScore,
+  provisionalQualityLevelLabelEs,
+} from "@/lib/questionnaire-evaluation/clarification-dimension-ui";
+import { isClarificationHelpSeekingUserMessage } from "@/lib/questionnaire-evaluation/clarification-help-intent";
 import {
   CLARIFICATION_SKIP_CONTINUE_BASE_ID,
   CLARIFICATION_SKIP_IMPROVE_LATER_ID,
@@ -18,7 +28,6 @@ import {
   isUniversalClarificationSkipOptionId,
 } from "@/lib/questionnaire-evaluation/clarification-skip-constants";
 import { finalizeEvaluationPayload } from "@/lib/questionnaire-evaluation/clarification-questions-sanitize";
-import { getClarificationQuestionCap } from "@/lib/questionnaire-evaluation/clarification-round-cap";
 import type { GuidedCaptureContextTier } from "@/lib/questionnaire-evaluation/strategic-capture-context";
 import { mergeClarificationSuggestionChips } from "@/lib/questionnaire-evaluation/clarification-ui-suggestions";
 import {
@@ -159,18 +168,19 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   const [suppressNumericScore, setSuppressNumericScore] = useState(false);
   const [guidedCaptureTier, setGuidedCaptureTier] =
     useState<GuidedCaptureContextTier | null>(null);
+  const [strategistCoachByQuestionId, setStrategistCoachByQuestionId] = useState<
+    Record<string, string>
+  >({});
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
 
   const total = questions.length;
   const current = total > 0 ? questions[step] : null;
 
-  const roundDisplayCap = useMemo(() => {
-    if (suppressNumericScore) {
-      if (guidedCaptureTier === "insufficient") return 1;
-      if (guidedCaptureTier === "thin") return 3;
-      return 3;
-    }
-    return score !== null ? getClarificationQuestionCap(score) : 5;
-  }, [suppressNumericScore, guidedCaptureTier, score]);
+  const currentDimensionKind = useMemo(
+    () => (current ? inferClarificationChipQuestionKind(current) : "unknown"),
+    [current],
+  );
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -278,6 +288,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setFollowUpsUsed(0);
       setFollowUpUsedIds(new Set());
       setStep(0);
+      setStrategistCoachByQuestionId({});
+      setCoachError(null);
+      setCoachLoading(false);
 
       if (hasSaved && clarObj) {
         const sb =
@@ -338,6 +351,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   useEffect(() => {
     setStepError(null);
   }, [step, phase]);
+
+  useEffect(() => {
+    setCoachError(null);
+  }, [step, current?.id]);
 
   const setDraft = useCallback((qid: string, patch: Partial<AnswerDraft>) => {
     setDrafts((prev) => ({
@@ -517,6 +534,42 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     [drafts],
   );
 
+  const requestStrategicCoach = useCallback(
+    async (opts: {
+      questionId: string;
+      userMessage: string;
+      round: "initial" | "follow_up";
+    }) => {
+      const res = await fetch(
+        `/api/projects/${projectId}/questionnaire-clarification-coach`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question_id: opts.questionId,
+            user_message: opts.userMessage,
+            clarification_round: opts.round,
+          }),
+        },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        strategist_reply?: string;
+        error?: unknown;
+      };
+      if (!res.ok) {
+        throw new Error(
+          typeof j.error === "string" ? j.error : "No se pudo generar la ayuda.",
+        );
+      }
+      if (typeof j.strategist_reply !== "string" || !j.strategist_reply.trim()) {
+        throw new Error("Respuesta vacía del asistente.");
+      }
+      return j.strategist_reply.trim();
+    },
+    [projectId],
+  );
+
   const postGenerateMaster = useCallback(async () => {
     setError(null);
     setPhase("generating");
@@ -543,11 +596,30 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     }
   }, [projectId, router]);
 
-  const advanceStep = useCallback(() => {
+  const handleAdvanceStep = useCallback(async () => {
     if (!current) return;
+    const followUp = phase === "form_followup";
+
     if (inlineFollowUpParentId === current.id) {
       const t = inlineFollowDraft.trim();
       if (t.length === 0) return;
+      if (isClarificationHelpSeekingUserMessage(t)) {
+        setCoachError(null);
+        setCoachLoading(true);
+        try {
+          const reply = await requestStrategicCoach({
+            questionId: current.id,
+            userMessage: t,
+            round: followUp ? "follow_up" : "initial",
+          });
+          setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+        } catch (e) {
+          setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
+        } finally {
+          setCoachLoading(false);
+        }
+        return;
+      }
       setPendingInlineFollowUps((prev) => ({
         ...prev,
         [current.id]: t,
@@ -560,7 +632,30 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       return;
     }
 
-    const combined = answerCombinedText(current, drafts[current.id]);
+    const d = drafts[current.id] ?? { freeText: "" };
+    const ftOnly = d.freeText.trim();
+    const skipChose = Boolean(
+      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
+    );
+    if (!skipChose && isClarificationHelpSeekingUserMessage(ftOnly)) {
+      setCoachError(null);
+      setCoachLoading(true);
+      try {
+        const reply = await requestStrategicCoach({
+          questionId: current.id,
+          userMessage: ftOnly,
+          round: followUp ? "follow_up" : "initial",
+        });
+        setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+      } catch (e) {
+        setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
+      } finally {
+        setCoachLoading(false);
+      }
+      return;
+    }
+
+    const combined = answerCombinedText(current, d);
     if (
       !skipUniversalVagueGate(current.id) &&
       followUpsUsed < 2 &&
@@ -580,8 +675,97 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     followUpsUsed,
     inlineFollowDraft,
     inlineFollowUpParentId,
+    phase,
+    requestStrategicCoach,
     skipUniversalVagueGate,
     total,
+  ]);
+
+  const handleFinalSubmit = useCallback(async () => {
+    if (!current) return;
+    const followUp = phase === "form_followup";
+
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      if (t.length === 0) return;
+      if (isClarificationHelpSeekingUserMessage(t)) {
+        setCoachError(null);
+        setCoachLoading(true);
+        try {
+          const reply = await requestStrategicCoach({
+            questionId: current.id,
+            userMessage: t,
+            round: followUp ? "follow_up" : "initial",
+          });
+          setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+        } catch (e) {
+          setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
+        } finally {
+          setCoachLoading(false);
+        }
+        return;
+      }
+      setPendingInlineFollowUps((prev) => ({
+        ...prev,
+        [current.id]: t,
+      }));
+      setFollowUpsUsed((n) => n + 1);
+      setFollowUpUsedIds((s) => new Set(s).add(current.id));
+      setInlineFollowUpParentId(null);
+      setInlineFollowDraft("");
+      if (followUp) void submitFollowUp();
+      else void submitRound1();
+      return;
+    }
+
+    const d = drafts[current.id] ?? { freeText: "" };
+    const ftOnly = d.freeText.trim();
+    const skipChose = Boolean(
+      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
+    );
+    if (!skipChose && isClarificationHelpSeekingUserMessage(ftOnly)) {
+      setCoachError(null);
+      setCoachLoading(true);
+      try {
+        const reply = await requestStrategicCoach({
+          questionId: current.id,
+          userMessage: ftOnly,
+          round: followUp ? "follow_up" : "initial",
+        });
+        setStrategistCoachByQuestionId((prev) => ({ ...prev, [current.id]: reply }));
+      } catch (e) {
+        setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
+      } finally {
+        setCoachLoading(false);
+      }
+      return;
+    }
+
+    const combined = answerCombinedText(current, d);
+    if (
+      !skipUniversalVagueGate(current.id) &&
+      followUpsUsed < 2 &&
+      !followUpUsedIds.has(current.id) &&
+      isVagueClarificationAnswerText(combined)
+    ) {
+      setInlineFollowUpParentId(current.id);
+      setInlineFollowDraft("");
+      return;
+    }
+    if (followUp) void submitFollowUp();
+    else void submitRound1();
+  }, [
+    current,
+    drafts,
+    followUpUsedIds,
+    followUpsUsed,
+    inlineFollowDraft,
+    inlineFollowUpParentId,
+    phase,
+    requestStrategicCoach,
+    skipUniversalVagueGate,
+    submitFollowUp,
+    submitRound1,
   ]);
 
   const startFollowUpRound = useCallback(() => {
@@ -603,6 +787,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     setInlineFollowDraft("");
     setFollowUpsUsed(0);
     setFollowUpUsedIds(new Set());
+    setStrategistCoachByQuestionId({});
+    setCoachError(null);
+    setCoachLoading(false);
     setPhase("form_followup");
   }, [followUpQuestions, wizardResponses]);
 
@@ -655,13 +842,22 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
               {scoreBeforeRound !== null && scoreAfterRound !== null ? (
                 <>
                   {" "}
-                  Tu puntuación pasó de {sb} a {sa}.
+                  <span className="font-medium text-limbi-text">
+                    Base actual estimada (orientativa)
+                  </span>
+                  : pasó de {sb} a {sa}/100; puede variar si añades más contexto.
                 </>
               ) : null}
             </p>
           ) : (
             <p className="text-sm text-limbi-muted">
-              Tu base alcanzó {sa}/100. Puedes generar la Lectura Límbica.
+              <span className="font-medium text-limbi-text">
+                Base actual estimada:
+              </span>{" "}
+              {sa}/100 (orientativa).{" "}
+              <span className="font-medium text-limbi-text">Nivel actual:</span>{" "}
+              {provisionalQualityLevelLabelEs(provisionalQualityLevelFromScore(sa))}. Puedes
+              generar la Lectura Límbica.
             </p>
           )}
 
@@ -751,7 +947,12 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
             <p className="text-sm text-limbi-muted">
               Encontré algunos puntos que pueden hacer más precisa la Lectura.
             </p>
-            {suppressNumericScore ? (
+            <p className="text-xs leading-relaxed text-limbi-muted">
+              Limbi usa todo lo que ya capturaste para afinar la narrativa con criterio de
+              estratega.
+            </p>
+            {suppressNumericScore ||
+            guidedCaptureTier === "insufficient" ? (
               <div
                 className="space-y-1 text-sm text-limbi-muted"
                 data-testid="guided-quality-no-numeric"
@@ -759,39 +960,49 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 <p className="font-medium text-limbi-text">
                   {guidedCaptureTier === "insufficient"
                     ? "Base actual: captura incompleta"
-                    : "Base actual: información insuficiente para puntuar"}
+                    : "Base actual: información insuficiente para puntuar con precisión"}
                 </p>
                 <p className="text-xs leading-relaxed">
                   <span className="font-medium text-limbi-text">
                     Ronda de profundización
                   </span>
                   {" · "}
-                  Preguntas sugeridas para esta ronda:{" "}
-                  <span className="font-semibold text-limbi-text">{total}</span>
-                  {roundDisplayCap ? (
-                    <span className="text-limbi-muted"> (hasta {roundDisplayCap})</span>
-                  ) : null}
+                  <span className="font-semibold text-limbi-text">
+                    Pregunta {Math.min(step + 1, Math.max(total, 1))} de {Math.max(total, 1)}{" "}
+                    de esta ronda
+                  </span>
+                </p>
+                <p className="text-xs leading-relaxed text-limbi-muted">
+                  Limbi podrá hacer nuevas rondas si todavía falta claridad.
                 </p>
               </div>
             ) : score !== null ? (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-limbi-muted">
-                <span>
-                  Base actual:{" "}
+              <div className="space-y-1 text-sm text-limbi-muted">
+                <p>
+                  <span className="font-medium text-limbi-text">
+                    Base actual estimada:
+                  </span>{" "}
+                  <span className="font-semibold text-limbi-text">{score}/100</span>{" "}
+                  <span className="text-limbi-muted">(orientativa)</span>
+                  {" · "}
+                  <span className="font-medium text-limbi-text">Nivel actual:</span>{" "}
                   <span className="font-semibold text-limbi-text">
-                    {score}/100
+                    {provisionalQualityLevelLabelEs(provisionalQualityLevelFromScore(score))}
                   </span>
-                </span>
-                <span className="text-xs leading-relaxed sm:text-sm">
+                </p>
+                <p className="text-xs leading-relaxed">
                   <span className="font-medium text-limbi-text">
                     Ronda de profundización
                   </span>
                   {" · "}
-                  Preguntas para esta ronda:{" "}
-                  <span className="font-semibold text-limbi-text">{total}</span>
-                  {roundDisplayCap ? (
-                    <span className="text-limbi-muted"> (hasta {roundDisplayCap})</span>
-                  ) : null}
-                </span>
+                  <span className="font-semibold text-limbi-text">
+                    Pregunta {Math.min(step + 1, Math.max(total, 1))} de {Math.max(total, 1)}{" "}
+                    de esta ronda
+                  </span>
+                </p>
+                <p className="text-xs leading-relaxed text-limbi-muted">
+                  Limbi podrá hacer nuevas rondas si todavía falta claridad.
+                </p>
               </div>
             ) : null}
           </header>
@@ -804,15 +1015,41 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
 
           {current ? (
             <div className="space-y-4">
-              <p className="text-xs text-limbi-muted">
-                {isFollowUpForm ? "Mejora crítica " : ""}
-                {step + 1} de {total}
+              <p
+                className="text-xs text-limbi-muted"
+                data-testid="clarification-round-position"
+              >
+                {isFollowUpForm ? "Mejora crítica · " : ""}
+                Pregunta {step + 1} de {total} de esta ronda
+              </p>
+              <p className="text-xs leading-relaxed text-limbi-muted">
+                Limbi podrá hacer nuevas rondas si todavía falta claridad.
               </p>
 
               {stepError ? (
                 <p className="text-sm text-destructive" role="status">
                   {stepError}
                 </p>
+              ) : null}
+
+              {coachError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {coachError}
+                </p>
+              ) : null}
+
+              {strategistCoachByQuestionId[current.id] ? (
+                <div
+                  className="rounded-xl border border-limbi-green/30 bg-limbi-green/[0.06] p-3 text-sm text-limbi-text"
+                  data-testid="clarification-strategist-coach"
+                >
+                  <p className="mb-1 text-xs font-medium text-limbi-muted">
+                    Orientación de Limbi (no sustituye tu respuesta)
+                  </p>
+                  <p className="whitespace-pre-wrap">
+                    {strategistCoachByQuestionId[current.id]}
+                  </p>
+                </div>
               ) : null}
 
               {inlineFollowUpParentId === current.id ? (
@@ -833,6 +1070,14 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 </div>
               ) : (
                 <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-limbi-green">
+                    {clarificationDimensionHeadline(currentDimensionKind)}
+                  </p>
+                  {currentDimensionKind === "evidence" ? (
+                    <p className="text-sm leading-relaxed text-limbi-muted">
+                      {CLARIFICATION_EVIDENCE_GUIDANCE_ES}
+                    </p>
+                  ) : null}
                   {current.limbi_detection ? (
                     <p className="text-sm text-limbi-text">{current.limbi_detection}</p>
                   ) : null}
@@ -925,56 +1170,40 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                     type="button"
                     size="sm"
                     className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || saving}
-                    onClick={() => advanceStep()}
+                    disabled={!canAdvance || saving || coachLoading}
+                    onClick={() => void handleAdvanceStep()}
                   >
-                    {inlineFollowUpParentId === current.id ? "Listo" : "Siguiente"}
+                    {coachLoading ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Limbi piensa…
+                      </span>
+                    ) : inlineFollowUpParentId === current.id ? (
+                      "Listo"
+                    ) : (
+                      "Siguiente"
+                    )}
                   </Button>
                 ) : (
                   <Button
                     type="button"
                     size="sm"
                     className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || saving}
-                    onClick={() => {
-                      if (inlineFollowUpParentId === current.id) {
-                        const t = inlineFollowDraft.trim();
-                        if (t.length === 0) return;
-                        setPendingInlineFollowUps((prev) => ({
-                          ...prev,
-                          [current.id]: t,
-                        }));
-                        setFollowUpsUsed((n) => n + 1);
-                        setFollowUpUsedIds((s) => new Set(s).add(current.id));
-                        setInlineFollowUpParentId(null);
-                        setInlineFollowDraft("");
-                        if (isFollowUpForm) void submitFollowUp();
-                        else void submitRound1();
-                        return;
-                      }
-                      const combined = answerCombinedText(
-                        current,
-                        drafts[current.id],
-                      );
-                      if (
-                        !skipUniversalVagueGate(current.id) &&
-                        followUpsUsed < 2 &&
-                        !followUpUsedIds.has(current.id) &&
-                        isVagueClarificationAnswerText(combined)
-                      ) {
-                        setInlineFollowUpParentId(current.id);
-                        setInlineFollowDraft("");
-                        return;
-                      }
-                      if (isFollowUpForm) void submitFollowUp();
-                      else void submitRound1();
-                    }}
+                    disabled={!canAdvance || saving || coachLoading}
+                    onClick={() => void handleFinalSubmit()}
                   >
-                    {inlineFollowUpParentId === current.id
-                      ? "Listo y enviar"
-                      : isFollowUpForm
-                        ? "Guardar mejoras"
-                        : "Continuar"}
+                    {coachLoading ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Limbi piensa…
+                      </span>
+                    ) : inlineFollowUpParentId === current.id ? (
+                      "Listo y enviar"
+                    ) : isFollowUpForm ? (
+                      "Guardar mejoras"
+                    ) : (
+                      "Continuar"
+                    )}
                   </Button>
                 )}
               </div>
