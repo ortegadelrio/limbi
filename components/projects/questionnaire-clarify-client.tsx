@@ -16,14 +16,24 @@ import {
 } from "@/lib/questionnaire-evaluation/clarification-chip-sanitize";
 import {
   CLARIFICATION_EVIDENCE_GUIDANCE_ES,
+  clarificationBaseBandFromScore,
+  clarificationBaseBandLabelEs,
   clarificationDimensionHeadline,
-  provisionalQualityLevelFromScore,
-  provisionalQualityLevelLabelEs,
 } from "@/lib/questionnaire-evaluation/clarification-dimension-ui";
 import {
   isClarificationHelpSeekingUserMessage,
+  isMixedClarificationDraft,
   sanitizeClarificationSubmitFreeText,
 } from "@/lib/questionnaire-evaluation/clarification-help-intent";
+import {
+  isSubstantiveClarificationFreeText,
+  shouldInvokeCoachOnGuardar,
+} from "@/lib/questionnaire-evaluation/clarification-save-intercept";
+import {
+  CLARIFICATION_BTN_GUARDAR_Y_SEGUIR_ES,
+  CLARIFICATION_BTN_PEDIR_ORIENTACION_ES,
+  CLARIFICATION_THREAD_LABEL_ES,
+} from "@/lib/questionnaire-evaluation/clarification-ui-strings";
 import {
   CLARIFICATION_SKIP_CONTINUE_BASE_ID,
   CLARIFICATION_SKIP_IMPROVE_LATER_ID,
@@ -50,6 +60,13 @@ type ClarificationCoachTurn = {
   id: string;
   role: "user" | "assistant";
   text: string;
+};
+
+type PendingMixedResolution = {
+  questionId: string;
+  originalText: string;
+  strategistReply: string;
+  suggestedAnswer: string | null;
 };
 
 function appendClarificationCoachExchange(
@@ -201,6 +218,11 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   >({});
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [pendingMixed, setPendingMixed] = useState<PendingMixedResolution | null>(null);
+  const [evaluationDimensionScores, setEvaluationDimensionScores] = useState<Record<
+    string,
+    number
+  > | null>(null);
 
   const total = questions.length;
   const current = total > 0 ? questions[step] : null;
@@ -279,6 +301,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       const finalized = finalizeEvaluationPayload(parsed.data, responses);
       setSuppressNumericScore(finalized.suppress_numeric_quality_score === true);
       setGuidedCaptureTier(finalized.guided_capture_context_tier ?? null);
+      setEvaluationDimensionScores(finalized.dimension_scores);
 
       if (!shouldRequireClarificationScreen(finalized)) {
         router.replace(`/projects/${projectId}`);
@@ -319,6 +342,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       setCoachThreadByQuestionId({});
       setCoachError(null);
       setCoachLoading(false);
+      setPendingMixed(null);
 
       if (hasSaved && clarObj) {
         const sb =
@@ -384,6 +408,10 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     setCoachError(null);
   }, [step, current?.id]);
 
+  useEffect(() => {
+    setPendingMixed(null);
+  }, [current?.id]);
+
   const setDraft = useCallback((qid: string, patch: Partial<AnswerDraft>) => {
     setDrafts((prev) => ({
       ...prev,
@@ -391,24 +419,52 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     }));
   }, []);
 
-  const canAdvance = useMemo(() => {
-    if (!current) return false;
+  const savingPhase = phase === "saving" || phase === "saving_followup";
+
+  const canRequestOrientation = useMemo(() => {
+    if (!current || savingPhase) return false;
     if (inlineFollowUpParentId === current.id) {
       return inlineFollowDraft.trim().length > 0;
     }
+    return (drafts[current.id]?.freeText ?? "").trim().length > 0;
+  }, [current, drafts, inlineFollowDraft, inlineFollowUpParentId, savingPhase]);
+
+  const canSaveAndContinue = useMemo(() => {
+    if (!current || savingPhase) return false;
+    if (pendingMixed?.questionId === current.id) return false;
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      return isSubstantiveClarificationFreeText(t);
+    }
     const d = drafts[current.id] ?? { freeText: "" };
-    const ft = d.freeText.trim();
+    const raw = d.freeText.trim();
+    const universalSkip = Boolean(
+      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
+    );
+    if (universalSkip) return true;
     const opts = current.options ?? [];
-    if (d.optionId && isUniversalClarificationSkipOptionId(d.optionId)) {
+    if (opts.length > 0 && !d.optionId) {
+      if (current.allow_free_text === false) return false;
+      if (raw.length === 0) return false;
+    }
+    if (opts.length > 0 && d.optionId && !isUniversalClarificationSkipOptionId(d.optionId)) {
+      if (
+        raw.length > 0 &&
+        (isMixedClarificationDraft(raw) || isClarificationHelpSeekingUserMessage(raw))
+      ) {
+        return false;
+      }
       return true;
     }
-    if (opts.length > 0) {
-      if (d.optionId) return true;
-      if (current.allow_free_text !== false && ft.length > 0) return true;
-      return false;
-    }
-    return ft.length > 0;
-  }, [current, drafts, inlineFollowDraft, inlineFollowUpParentId]);
+    return isSubstantiveClarificationFreeText(raw);
+  }, [
+    current,
+    drafts,
+    inlineFollowDraft,
+    inlineFollowUpParentId,
+    pendingMixed?.questionId,
+    savingPhase,
+  ]);
 
   const buildClientCaution = useCallback(
     (qs: ClarificationQuestion[], dr: Record<string, AnswerDraft>) => {
@@ -583,6 +639,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       );
       const j = (await res.json().catch(() => ({}))) as {
         strategist_reply?: string;
+        suggested_answer?: string | null;
         error?: unknown;
       };
       if (!res.ok) {
@@ -593,10 +650,198 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
       if (typeof j.strategist_reply !== "string" || !j.strategist_reply.trim()) {
         throw new Error("Respuesta vacía del asistente.");
       }
-      return j.strategist_reply.trim();
+      const suggested =
+        typeof j.suggested_answer === "string" && j.suggested_answer.trim().length > 0
+          ? j.suggested_answer.trim()
+          : null;
+      return {
+        strategist_reply: j.strategist_reply.trim(),
+        suggested_answer: suggested,
+      };
     },
     [projectId],
   );
+
+  const runCoachForCurrentText = useCallback(
+    async (userMessage: string, opts?: { clearHelpOnlyDraft?: boolean }) => {
+      if (!current) return;
+      const followUp = phase === "form_followup";
+      setCoachError(null);
+      setStepError(null);
+      setCoachLoading(true);
+      try {
+        const out = await requestStrategicCoach({
+          questionId: current.id,
+          userMessage,
+          round: followUp ? "follow_up" : "initial",
+        });
+        setCoachThreadByQuestionId((prev) =>
+          appendClarificationCoachExchange(prev, current.id, userMessage, out.strategist_reply),
+        );
+        if (isMixedClarificationDraft(userMessage)) {
+          setPendingMixed({
+            questionId: current.id,
+            originalText: userMessage,
+            strategistReply: out.strategist_reply,
+            suggestedAnswer: out.suggested_answer,
+          });
+        } else {
+          setPendingMixed(null);
+        }
+        if (opts?.clearHelpOnlyDraft) {
+          if (inlineFollowUpParentId === current.id) {
+            setInlineFollowDraft("");
+          } else {
+            setDraft(current.id, { freeText: "" });
+          }
+        }
+      } catch (e) {
+        setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
+      } finally {
+        setCoachLoading(false);
+      }
+    },
+    [
+      current,
+      phase,
+      requestStrategicCoach,
+      inlineFollowUpParentId,
+      setDraft,
+    ],
+  );
+
+  const finalizeCurrentQuestion = useCallback(() => {
+    if (!current) return;
+    const followUp = phase === "form_followup";
+
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      setPendingInlineFollowUps((prev) => ({
+        ...prev,
+        [current.id]: t,
+      }));
+      setFollowUpsUsed((n) => n + 1);
+      setFollowUpUsedIds((s) => new Set(s).add(current.id));
+      setInlineFollowUpParentId(null);
+      setInlineFollowDraft("");
+    } else {
+      const d = drafts[current.id] ?? { freeText: "" };
+      const combined = answerCombinedText(current, d);
+      if (
+        !skipUniversalVagueGate(current.id) &&
+        followUpsUsed < 2 &&
+        !followUpUsedIds.has(current.id) &&
+        isVagueClarificationAnswerText(combined)
+      ) {
+        setInlineFollowUpParentId(current.id);
+        setInlineFollowDraft("");
+        return;
+      }
+    }
+
+    const atLast = step >= total - 1;
+    if (atLast) {
+      if (followUp) void submitFollowUp();
+      else void submitRound1();
+    } else {
+      setStep((s) => s + 1);
+    }
+  }, [
+    current,
+    drafts,
+    followUpUsedIds,
+    followUpsUsed,
+    inlineFollowDraft,
+    inlineFollowUpParentId,
+    phase,
+    skipUniversalVagueGate,
+    step,
+    submitFollowUp,
+    submitRound1,
+    total,
+  ]);
+
+  const handlePedirOrientacionALimbi = useCallback(async () => {
+    if (!current) return;
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      if (!t) {
+        setStepError("Escribe tu consulta o borrador para que Limbi te oriente.");
+        return;
+      }
+      await runCoachForCurrentText(t);
+      return;
+    }
+    const raw = (drafts[current.id]?.freeText ?? "").trim();
+    if (!raw) {
+      setStepError(
+        "Escribe algo en el cuadro o elige una opción de omisión antes de pedir orientación.",
+      );
+      return;
+    }
+    await runCoachForCurrentText(raw);
+  }, [current, drafts, inlineFollowDraft, inlineFollowUpParentId, runCoachForCurrentText]);
+
+  const handleGuardarRespuestaYSeguir = useCallback(async () => {
+    if (!current) return;
+
+    if (inlineFollowUpParentId === current.id) {
+      const t = inlineFollowDraft.trim();
+      if (t.length === 0) return;
+      if (
+        shouldInvokeCoachOnGuardar({
+          rawTrimmed: t,
+          universalSkipSelected: false,
+        })
+      ) {
+        await runCoachForCurrentText(t, {
+          clearHelpOnlyDraft:
+            isClarificationHelpSeekingUserMessage(t) && !isMixedClarificationDraft(t),
+        });
+        return;
+      }
+      finalizeCurrentQuestion();
+      return;
+    }
+
+    const d = drafts[current.id] ?? { freeText: "" };
+    const raw = d.freeText.trim();
+    const universalSkip = Boolean(
+      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
+    );
+
+    if (universalSkip) {
+      finalizeCurrentQuestion();
+      return;
+    }
+
+    if (raw.length === 0) {
+      setStepError("Selecciona una opción o escribe una respuesta concreta.");
+      return;
+    }
+
+    if (
+      shouldInvokeCoachOnGuardar({
+        rawTrimmed: raw,
+        universalSkipSelected: false,
+      })
+    ) {
+      await runCoachForCurrentText(raw, {
+        clearHelpOnlyDraft:
+          isClarificationHelpSeekingUserMessage(raw) && !isMixedClarificationDraft(raw),
+      });
+      return;
+    }
+
+    finalizeCurrentQuestion();
+  }, [
+    current,
+    drafts,
+    finalizeCurrentQuestion,
+    inlineFollowDraft,
+    inlineFollowUpParentId,
+    runCoachForCurrentText,
+  ]);
 
   const postGenerateMaster = useCallback(async () => {
     setError(null);
@@ -624,191 +869,50 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     }
   }, [projectId, router]);
 
-  const handleAdvanceStep = useCallback(async () => {
-    if (!current) return;
-    const followUp = phase === "form_followup";
-
+  const handleUseOriginalFromMixed = useCallback(() => {
+    if (!pendingMixed || !current || pendingMixed.questionId !== current.id) return;
     if (inlineFollowUpParentId === current.id) {
-      const t = inlineFollowDraft.trim();
-      if (t.length === 0) return;
-      if (isClarificationHelpSeekingUserMessage(t)) {
-        setCoachError(null);
-        setCoachLoading(true);
-        try {
-          const reply = await requestStrategicCoach({
-            questionId: current.id,
-            userMessage: t,
-            round: followUp ? "follow_up" : "initial",
-          });
-          setCoachThreadByQuestionId((prev) =>
-            appendClarificationCoachExchange(prev, current.id, t, reply),
-          );
-          setInlineFollowDraft("");
-        } catch (e) {
-          setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
-        } finally {
-          setCoachLoading(false);
-        }
-        return;
-      }
-      setPendingInlineFollowUps((prev) => ({
-        ...prev,
-        [current.id]: t,
-      }));
-      setFollowUpsUsed((n) => n + 1);
-      setFollowUpUsedIds((s) => new Set(s).add(current.id));
-      setInlineFollowUpParentId(null);
-      setInlineFollowDraft("");
-      setStep((s) => Math.min(total - 1, s + 1));
-      return;
+      setInlineFollowDraft(pendingMixed.originalText);
+    } else {
+      setDraft(current.id, {
+        freeText: pendingMixed.originalText,
+        optionId: undefined,
+      });
     }
+    setPendingMixed(null);
+  }, [current, inlineFollowUpParentId, pendingMixed, setDraft]);
 
-    const d = drafts[current.id] ?? { freeText: "" };
-    const ftOnly = d.freeText.trim();
-    const universalSkip = Boolean(
-      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
-    );
-    if (ftOnly.length > 0 && isClarificationHelpSeekingUserMessage(ftOnly) && !universalSkip) {
-      setCoachError(null);
-      setCoachLoading(true);
-      try {
-        const reply = await requestStrategicCoach({
-          questionId: current.id,
-          userMessage: ftOnly,
-          round: followUp ? "follow_up" : "initial",
-        });
-        setCoachThreadByQuestionId((prev) =>
-          appendClarificationCoachExchange(prev, current.id, ftOnly, reply),
-        );
-        setDraft(current.id, { freeText: "" });
-      } catch (e) {
-        setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
-      } finally {
-        setCoachLoading(false);
-      }
-      return;
-    }
-
-    const combined = answerCombinedText(current, d);
+  const handleUseSuggestedFromMixed = useCallback(() => {
     if (
-      !skipUniversalVagueGate(current.id) &&
-      followUpsUsed < 2 &&
-      !followUpUsedIds.has(current.id) &&
-      isVagueClarificationAnswerText(combined)
+      !pendingMixed?.suggestedAnswer ||
+      !current ||
+      pendingMixed.questionId !== current.id
     ) {
-      setInlineFollowUpParentId(current.id);
-      setInlineFollowDraft("");
       return;
     }
-
-    setStep((s) => Math.min(total - 1, s + 1));
-  }, [
-    current,
-    drafts,
-    followUpUsedIds,
-    followUpsUsed,
-    inlineFollowDraft,
-    inlineFollowUpParentId,
-    phase,
-    requestStrategicCoach,
-    skipUniversalVagueGate,
-    setDraft,
-    total,
-  ]);
-
-  const handleFinalSubmit = useCallback(async () => {
-    if (!current) return;
-    const followUp = phase === "form_followup";
-
     if (inlineFollowUpParentId === current.id) {
-      const t = inlineFollowDraft.trim();
-      if (t.length === 0) return;
-      if (isClarificationHelpSeekingUserMessage(t)) {
-        setCoachError(null);
-        setCoachLoading(true);
-        try {
-          const reply = await requestStrategicCoach({
-            questionId: current.id,
-            userMessage: t,
-            round: followUp ? "follow_up" : "initial",
-          });
-          setCoachThreadByQuestionId((prev) =>
-            appendClarificationCoachExchange(prev, current.id, t, reply),
-          );
-          setInlineFollowDraft("");
-        } catch (e) {
-          setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
-        } finally {
-          setCoachLoading(false);
-        }
-        return;
-      }
-      setPendingInlineFollowUps((prev) => ({
-        ...prev,
-        [current.id]: t,
-      }));
-      setFollowUpsUsed((n) => n + 1);
-      setFollowUpUsedIds((s) => new Set(s).add(current.id));
-      setInlineFollowUpParentId(null);
-      setInlineFollowDraft("");
-      if (followUp) void submitFollowUp();
-      else void submitRound1();
-      return;
+      setInlineFollowDraft(pendingMixed.suggestedAnswer);
+    } else {
+      setDraft(current.id, {
+        freeText: pendingMixed.suggestedAnswer,
+        optionId: undefined,
+      });
     }
+    setPendingMixed(null);
+  }, [current, inlineFollowUpParentId, pendingMixed, setDraft]);
 
-    const d = drafts[current.id] ?? { freeText: "" };
-    const ftOnly = d.freeText.trim();
-    const universalSkip = Boolean(
-      d.optionId && isUniversalClarificationSkipOptionId(d.optionId),
-    );
-    if (ftOnly.length > 0 && isClarificationHelpSeekingUserMessage(ftOnly) && !universalSkip) {
-      setCoachError(null);
-      setCoachLoading(true);
-      try {
-        const reply = await requestStrategicCoach({
-          questionId: current.id,
-          userMessage: ftOnly,
-          round: followUp ? "follow_up" : "initial",
-        });
-        setCoachThreadByQuestionId((prev) =>
-          appendClarificationCoachExchange(prev, current.id, ftOnly, reply),
-        );
-        setDraft(current.id, { freeText: "" });
-      } catch (e) {
-        setCoachError(e instanceof Error ? e.message : "Error al pedir ayuda.");
-      } finally {
-        setCoachLoading(false);
-      }
-      return;
+  const handleEditMixedBeforeSave = useCallback(() => {
+    if (!pendingMixed || !current || pendingMixed.questionId !== current.id) return;
+    if (inlineFollowUpParentId === current.id) {
+      setInlineFollowDraft(pendingMixed.originalText);
+    } else {
+      setDraft(current.id, {
+        freeText: pendingMixed.originalText,
+        optionId: undefined,
+      });
     }
-
-    const combined = answerCombinedText(current, d);
-    if (
-      !skipUniversalVagueGate(current.id) &&
-      followUpsUsed < 2 &&
-      !followUpUsedIds.has(current.id) &&
-      isVagueClarificationAnswerText(combined)
-    ) {
-      setInlineFollowUpParentId(current.id);
-      setInlineFollowDraft("");
-      return;
-    }
-    if (followUp) void submitFollowUp();
-    else void submitRound1();
-  }, [
-    current,
-    drafts,
-    followUpUsedIds,
-    followUpsUsed,
-    inlineFollowDraft,
-    inlineFollowUpParentId,
-    phase,
-    requestStrategicCoach,
-    skipUniversalVagueGate,
-    submitFollowUp,
-    submitRound1,
-    setDraft,
-  ]);
+    setPendingMixed(null);
+  }, [current, inlineFollowUpParentId, pendingMixed, setDraft]);
 
   const startFollowUpRound = useCallback(() => {
     if (followUpQuestions.length === 0) return;
@@ -832,6 +936,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
     setCoachThreadByQuestionId({});
     setCoachError(null);
     setCoachLoading(false);
+    setPendingMixed(null);
     setPhase("form_followup");
   }, [followUpQuestions, wizardResponses]);
 
@@ -863,6 +968,8 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   if (phase === "after_round1") {
     const sb = scoreBeforeRound ?? score ?? 0;
     const sa = scoreAfterRound ?? score ?? sb;
+    const bandAfter = clarificationBaseBandFromScore(sa, evaluationDimensionScores);
+    const bandBefore = clarificationBaseBandFromScore(sb, evaluationDimensionScores);
     const canImprove = followUpQuestions.length > 0 && sa < 80;
 
     return (
@@ -885,21 +992,30 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 <>
                   {" "}
                   <span className="font-medium text-limbi-text">
-                    Base actual estimada (orientativa)
+                    Base actual estimada: {sb}/100 y {sa}/100 (orientativa)
                   </span>
-                  : pasó de {sb} a {sa}/100; puede variar si añades más contexto.
+                  . Perfil cualitativo: de{" "}
+                  <span className="font-medium text-limbi-text">
+                    {clarificationBaseBandLabelEs(bandBefore)}
+                  </span>{" "}
+                  a{" "}
+                  <span className="font-medium text-limbi-text">
+                    {clarificationBaseBandLabelEs(bandAfter)}
+                  </span>
+                  . Puede variar si añades más contexto.
                 </>
               ) : null}
             </p>
           ) : (
             <p className="text-sm text-limbi-muted">
               <span className="font-medium text-limbi-text">
-                Base actual estimada:
-              </span>{" "}
-              {sa}/100 (orientativa).{" "}
-              <span className="font-medium text-limbi-text">Nivel actual:</span>{" "}
-              {provisionalQualityLevelLabelEs(provisionalQualityLevelFromScore(sa))}. Puedes
-              generar la Lectura Límbica.
+                Base actual estimada: {sa}/100 (orientativa)
+              </span>
+              . Perfil cualitativo:{" "}
+              <span className="font-semibold text-limbi-text">
+                {clarificationBaseBandLabelEs(bandAfter)}
+              </span>
+              . Puedes generar la Lectura Límbica.
             </p>
           )}
 
@@ -978,6 +1094,23 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
   ) {
     const saving = phase === "saving" || phase === "saving_followup";
     const isFollowUpForm = phase === "form_followup";
+    const liveQualityBand =
+      score === null
+        ? null
+        : clarificationBaseBandFromScore(score, evaluationDimensionScores);
+
+    const primaryClarificationOptions =
+      !current
+        ? []
+        : (current.options ?? []).filter(
+            (o) => !isUniversalClarificationSkipOptionId(o.id),
+          );
+    const skipClarificationOptions =
+      !current
+        ? []
+        : (current.options ?? []).filter((o) =>
+            isUniversalClarificationSkipOptionId(o.id),
+          );
 
     return (
       <div className="mx-auto max-w-lg space-y-6 px-4 py-10">
@@ -1018,7 +1151,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                   Limbi podrá hacer nuevas rondas si todavía falta claridad.
                 </p>
               </div>
-            ) : score !== null ? (
+            ) : score !== null && liveQualityBand ? (
               <div className="space-y-1 text-sm text-limbi-muted">
                 <p>
                   <span className="font-medium text-limbi-text">
@@ -1027,9 +1160,9 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                   <span className="font-semibold text-limbi-text">{score}/100</span>{" "}
                   <span className="text-limbi-muted">(orientativa)</span>
                   {" · "}
-                  <span className="font-medium text-limbi-text">Nivel actual:</span>{" "}
+                  <span className="font-medium text-limbi-text">Perfil cualitativo:</span>{" "}
                   <span className="font-semibold text-limbi-text">
-                    {provisionalQualityLevelLabelEs(provisionalQualityLevelFromScore(score))}
+                    {clarificationBaseBandLabelEs(liveQualityBand)}
                   </span>
                 </p>
                 <p className="text-xs leading-relaxed">
@@ -1058,6 +1191,12 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
           {current ? (
             <div className="space-y-4">
               <p
+                className="text-xs font-semibold uppercase tracking-wide text-limbi-green"
+                data-testid="clarification-dimension-context"
+              >
+                {clarificationDimensionHeadline(currentDimensionKind)}
+              </p>
+              <p
                 className="text-xs text-limbi-muted"
                 data-testid="clarification-round-position"
               >
@@ -1065,6 +1204,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 Pregunta {step + 1} de {total} de esta ronda
               </p>
               <p className="text-xs leading-relaxed text-limbi-muted">
+                Puedes responder directamente o pedirle orientación a Limbi antes de guardar.{" "}
                 Limbi podrá hacer nuevas rondas si todavía falta claridad.
               </p>
 
@@ -1080,57 +1220,161 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                 </p>
               ) : null}
 
-              {(coachThreadByQuestionId[current.id]?.length ?? 0) > 0 ? (
-                <div
-                  className="space-y-2 rounded-xl border border-limbi-border/70 bg-limbi-bg-soft/40 p-3"
-                  data-testid="clarification-coach-thread"
-                >
-                  <p className="text-xs font-medium text-limbi-muted">
-                    Conversación con Limbi (orientación; no se guarda como tu respuesta)
-                  </p>
-                  <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
-                    {coachThreadByQuestionId[current.id]!.map((turn) => (
-                      <div
-                        key={turn.id}
-                        data-turn-role={turn.role}
-                        className={cn(
-                          "max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm",
-                          turn.role === "user"
-                            ? "self-end bg-limbi-bg-soft text-limbi-text ring-1 ring-limbi-border/60"
-                            : "self-start border border-limbi-green/35 bg-limbi-green/[0.08] text-limbi-text",
-                        )}
-                      >
-                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-limbi-muted">
-                          {turn.role === "user" ? "Tú" : "Limbi"}
-                        </p>
-                        <p className="whitespace-pre-wrap leading-relaxed">{turn.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
               {inlineFollowUpParentId === current.id ? (
-                <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
-                  <p className="text-sm font-medium text-limbi-text">
-                    Limbi necesita un matiz más concreto
-                  </p>
-                  <p className="text-xs text-limbi-muted">
-                    Tu respuesta anterior era muy genérica para esta pregunta.
-                  </p>
+                <>
+                  <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
+                    <p className="text-sm font-medium text-limbi-text">
+                      Limbi necesita un matiz más concreto
+                    </p>
+                    <p className="text-xs text-limbi-muted">
+                      Tu respuesta anterior era muy genérica para esta pregunta.
+                    </p>
+                    <p className="text-base font-medium text-limbi-text">
+                      Añade un detalle concreto con tus propias palabras
+                    </p>
+                  </div>
+
+                  {(coachThreadByQuestionId[current.id]?.length ?? 0) > 0 ? (
+                    <div
+                      className="space-y-2 rounded-xl border border-limbi-border/70 bg-limbi-bg-soft/40 p-3"
+                      data-testid="clarification-coach-thread"
+                    >
+                      <p className="text-xs font-medium text-limbi-muted">
+                        {CLARIFICATION_THREAD_LABEL_ES}
+                      </p>
+                      <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
+                        {coachThreadByQuestionId[current.id]!.map((turn) => (
+                          <div
+                            key={turn.id}
+                            data-turn-role={turn.role}
+                            className={cn(
+                              "max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                              turn.role === "user"
+                                ? "self-end bg-limbi-bg-soft text-limbi-text ring-1 ring-limbi-border/60"
+                                : "self-start border border-limbi-green/35 bg-limbi-green/[0.08] text-limbi-text",
+                            )}
+                          >
+                            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-limbi-muted">
+                              {turn.role === "user" ? "Tú" : "Limbi"}
+                            </p>
+                            <p className="whitespace-pre-wrap leading-relaxed">{turn.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <Textarea
                     rows={3}
                     value={inlineFollowDraft}
-                    onChange={(e) => setInlineFollowDraft(e.target.value)}
-                    placeholder="Ej.: años en colegios X, testimonio de la coordinadora, rutina que observaste…"
+                    onChange={(e) => {
+                      setStepError(null);
+                      setInlineFollowDraft(e.target.value);
+                    }}
+                    placeholder="Responde o pregúntale a Limbi…"
                     className="resize-none rounded-xl border-limbi-border"
                   />
-                </div>
+
+                  {pendingMixed?.questionId === current.id ? (
+                    <div
+                      className="space-y-2 rounded-xl border border-limbi-border/80 bg-limbi-bg-soft/30 p-3"
+                      data-testid="clarification-mixed-resolution"
+                    >
+                      <p className="text-xs font-medium text-limbi-text">
+                        Limbi propone una versión más nítida. ¿Cómo quieres continuar?
+                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          data-testid="clarification-mixed-use-original"
+                          onClick={handleUseOriginalFromMixed}
+                        >
+                          Usar mi respuesta
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className={cn("rounded-xl", limbiPrimaryButtonClass)}
+                          data-testid="clarification-mixed-use-suggested"
+                          disabled={!pendingMixed.suggestedAnswer}
+                          onClick={handleUseSuggestedFromMixed}
+                        >
+                          Usar sugerencia de Limbi
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          data-testid="clarification-mixed-edit"
+                          onClick={handleEditMixedBeforeSave}
+                        >
+                          Editar antes de guardar
+                        </Button>
+                      </div>
+                      {!pendingMixed.suggestedAnswer ? (
+                        <p className="text-xs text-limbi-muted">
+                          Limbi no devolvió un texto alternativo breve; puedes seguir con la
+                          tuya o editar.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {coachLoading ? (
+                    <p className="flex items-center gap-2 text-xs text-limbi-muted">
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                      Limbi piensa…
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl"
+                      data-testid="clarification-btn-orientation"
+                      disabled={!canRequestOrientation || saving || coachLoading}
+                      onClick={() => void handlePedirOrientacionALimbi()}
+                    >
+                      {CLARIFICATION_BTN_PEDIR_ORIENTACION_ES}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={cn("rounded-xl", limbiPrimaryButtonClass)}
+                      data-testid="clarification-btn-save"
+                      disabled={!canSaveAndContinue || saving || coachLoading}
+                      onClick={() => void handleGuardarRespuestaYSeguir()}
+                    >
+                      {step >= total - 1
+                        ? isFollowUpForm
+                          ? "Guardar mejoras"
+                          : "Guardar respuesta y finalizar ronda"
+                        : CLARIFICATION_BTN_GUARDAR_Y_SEGUIR_ES}
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    disabled={step === 0 || saving}
+                    onClick={() => {
+                      setInlineFollowUpParentId(null);
+                      setInlineFollowDraft("");
+                      setStep((s) => Math.max(0, s - 1));
+                    }}
+                  >
+                    Anterior
+                  </Button>
+                </>
               ) : (
                 <>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-limbi-green">
-                    {clarificationDimensionHeadline(currentDimensionKind)}
-                  </p>
                   {currentDimensionKind === "evidence" ? (
                     <p className="text-sm leading-relaxed text-limbi-muted">
                       {CLARIFICATION_EVIDENCE_GUIDANCE_ES}
@@ -1152,15 +1396,44 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                     {current.question_text}
                   </p>
 
-                  {current.options && current.options.length > 0 ? (
+                  {(coachThreadByQuestionId[current.id]?.length ?? 0) > 0 ? (
+                    <div
+                      className="space-y-2 rounded-xl border border-limbi-border/70 bg-limbi-bg-soft/40 p-3"
+                      data-testid="clarification-coach-thread"
+                    >
+                      <p className="text-xs font-medium text-limbi-muted">
+                        {CLARIFICATION_THREAD_LABEL_ES}
+                      </p>
+                      <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
+                        {coachThreadByQuestionId[current.id]!.map((turn) => (
+                          <div
+                            key={turn.id}
+                            data-turn-role={turn.role}
+                            className={cn(
+                              "max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                              turn.role === "user"
+                                ? "self-end bg-limbi-bg-soft text-limbi-text ring-1 ring-limbi-border/60"
+                                : "self-start border border-limbi-green/35 bg-limbi-green/[0.08] text-limbi-text",
+                            )}
+                          >
+                            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-limbi-muted">
+                              {turn.role === "user" ? "Tú" : "Limbi"}
+                            </p>
+                            <p className="whitespace-pre-wrap leading-relaxed">{turn.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {primaryClarificationOptions.length > 0 ? (
                     <div
                       className="flex flex-wrap gap-2"
                       role="group"
                       aria-label="Opciones sugeridas"
                     >
-                      {current.options.map((opt) => {
-                        const sel =
-                          (drafts[current.id]?.optionId ?? "") === opt.id;
+                      {primaryClarificationOptions.map((opt) => {
+                        const sel = (drafts[current.id]?.optionId ?? "") === opt.id;
                         return (
                           <button
                             key={opt.id}
@@ -1189,7 +1462,7 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                         htmlFor={`ft-${current.id}`}
                         className="text-sm font-medium text-limbi-text"
                       >
-                        {current.options && current.options.length > 0
+                        {primaryClarificationOptions.length > 0
                           ? "Detalle (opcional)"
                           : "Tu respuesta"}
                       </label>
@@ -1197,74 +1470,147 @@ export function QuestionnaireClarifyClient({ projectId }: Props) {
                         id={`ft-${current.id}`}
                         rows={3}
                         value={drafts[current.id]?.freeText ?? ""}
-                        onChange={(e) =>
-                          setDraft(current.id, { freeText: e.target.value })
-                        }
-                        placeholder="Sé concreto: hechos, prioridades, ejemplos breves…"
+                        onChange={(e) => {
+                          setStepError(null);
+                          setDraft(current.id, { freeText: e.target.value });
+                        }}
+                        placeholder="Responde o pregúntale a Limbi…"
                         className="resize-none rounded-xl border-limbi-border"
                       />
                     </div>
                   ) : null}
+
+                  {pendingMixed?.questionId === current.id ? (
+                    <div
+                      className="space-y-2 rounded-xl border border-limbi-border/80 bg-limbi-bg-soft/30 p-3"
+                      data-testid="clarification-mixed-resolution"
+                    >
+                      <p className="text-xs font-medium text-limbi-text">
+                        Limbi propone una versión más nítida. ¿Cómo quieres continuar?
+                      </p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          data-testid="clarification-mixed-use-original"
+                          onClick={handleUseOriginalFromMixed}
+                        >
+                          Usar mi respuesta
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className={cn("rounded-xl", limbiPrimaryButtonClass)}
+                          data-testid="clarification-mixed-use-suggested"
+                          disabled={!pendingMixed.suggestedAnswer}
+                          onClick={handleUseSuggestedFromMixed}
+                        >
+                          Usar sugerencia de Limbi
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          data-testid="clarification-mixed-edit"
+                          onClick={handleEditMixedBeforeSave}
+                        >
+                          Editar antes de guardar
+                        </Button>
+                      </div>
+                      {!pendingMixed.suggestedAnswer ? (
+                        <p className="text-xs text-limbi-muted">
+                          Limbi no devolvió un texto alternativo breve; puedes seguir con la
+                          tuya o editar.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {coachLoading ? (
+                    <p className="flex items-center gap-2 text-xs text-limbi-muted">
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                      Limbi piensa…
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl"
+                      data-testid="clarification-btn-orientation"
+                      disabled={!canRequestOrientation || saving || coachLoading}
+                      onClick={() => void handlePedirOrientacionALimbi()}
+                    >
+                      {CLARIFICATION_BTN_PEDIR_ORIENTACION_ES}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={cn("rounded-xl", limbiPrimaryButtonClass)}
+                      data-testid="clarification-btn-save"
+                      disabled={!canSaveAndContinue || saving || coachLoading}
+                      onClick={() => void handleGuardarRespuestaYSeguir()}
+                    >
+                      {step >= total - 1
+                        ? isFollowUpForm
+                          ? "Guardar mejoras"
+                          : "Guardar respuesta y finalizar ronda"
+                        : CLARIFICATION_BTN_GUARDAR_Y_SEGUIR_ES}
+                    </Button>
+                  </div>
+
+                  {skipClarificationOptions.length > 0 ? (
+                    <div className="space-y-2 border-t border-limbi-border/50 pt-3">
+                      <p className="text-xs text-limbi-muted">
+                        Si ahora no puedes afinar esto del todo (opciones secundarias):
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {skipClarificationOptions.map((opt) => {
+                          const sel = (drafts[current.id]?.optionId ?? "") === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => {
+                                setStepError(null);
+                                setDraft(current.id, { optionId: opt.id });
+                              }}
+                              className={cn(
+                                "rounded-lg border border-dashed px-2.5 py-1.5 text-left text-xs transition-colors",
+                                sel
+                                  ? "border-limbi-green/50 bg-limbi-green/[0.08] text-limbi-text"
+                                  : "border-limbi-border/70 text-limbi-muted hover:bg-limbi-bg-soft/70",
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    disabled={step === 0 || saving}
+                    onClick={() => {
+                      setInlineFollowUpParentId(null);
+                      setInlineFollowDraft("");
+                      setStep((s) => Math.max(0, s - 1));
+                    }}
+                  >
+                    Anterior
+                  </Button>
                 </>
               )}
-
-              <div className="flex flex-wrap justify-between gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl"
-                  disabled={step === 0 || saving}
-                  onClick={() => {
-                    setInlineFollowUpParentId(null);
-                    setInlineFollowDraft("");
-                    setStep((s) => Math.max(0, s - 1));
-                  }}
-                >
-                  Anterior
-                </Button>
-                {step < total - 1 ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || saving || coachLoading}
-                    onClick={() => void handleAdvanceStep()}
-                  >
-                    {coachLoading ? (
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                        Limbi piensa…
-                      </span>
-                    ) : inlineFollowUpParentId === current.id ? (
-                      "Listo"
-                    ) : (
-                      "Siguiente"
-                    )}
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className={cn("rounded-xl", limbiPrimaryButtonClass)}
-                    disabled={!canAdvance || saving || coachLoading}
-                    onClick={() => void handleFinalSubmit()}
-                  >
-                    {coachLoading ? (
-                      <span className="inline-flex items-center gap-2">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                        Limbi piensa…
-                      </span>
-                    ) : inlineFollowUpParentId === current.id ? (
-                      "Listo y enviar"
-                    ) : isFollowUpForm ? (
-                      "Guardar mejoras"
-                    ) : (
-                      "Continuar"
-                    )}
-                  </Button>
-                )}
-              </div>
             </div>
           ) : null}
 

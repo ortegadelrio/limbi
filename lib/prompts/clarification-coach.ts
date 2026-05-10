@@ -24,7 +24,10 @@ STRICT RULES
 
 OUTPUT
 Return ONE JSON object (no markdown fences) with exactly this shape:
-{ "strategist_reply": string }
+{ "strategist_reply": string, "suggested_answer": string | null }
+
+- strategist_reply: coaching in Spanish (analysis, tension, examples as suggestions). If the user mixed a real draft with a request for advice, acknowledge their draft and explain how to sharpen it; do not invent facts.
+- suggested_answer: when the user provided substantive draft text (with or without a help aside), return ONE concise Spanish paragraph that could replace their answer for this clarification — tighter, more strategic, grounded only in STRUCTURED_RESPONSES_JSON + their draft. If the user only asked for help without substantive content, set suggested_answer to null. If you cannot improve without inventing, set null.
 
 CURRENT_CLARIFICATION_QUESTION (JSON, user-facing fields only)
 ${params.clarification_question_json}

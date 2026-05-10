@@ -188,6 +188,7 @@ export async function POST(request: Request, { params }: Params) {
     const out = await generateClarificationCoachReply(prompt);
     return NextResponse.json({
       strategist_reply: out.strategist_reply,
+      suggested_answer: out.suggested_answer,
       model_used: out.model_used,
       question_id: q.id,
     });

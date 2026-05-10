@@ -5,11 +5,14 @@ import { z } from "zod";
 
 const coachReplySchema = z.object({
   strategist_reply: z.string().min(1),
+  /** Optional improved answer draft for this clarification (Spanish, one paragraph). */
+  suggested_answer: z.union([z.string().min(1), z.null()]).optional(),
 });
 
 export type ClarificationCoachResult = {
   model_used: string;
   strategist_reply: string;
+  suggested_answer: string | null;
 };
 
 export async function generateClarificationCoachReply(
@@ -57,8 +60,14 @@ export async function generateClarificationCoachReply(
     throw new Error("La respuesta del coach no tiene el formato esperado.");
   }
 
+  const suggested =
+    parsed.data.suggested_answer === undefined || parsed.data.suggested_answer === null
+      ? null
+      : parsed.data.suggested_answer.trim();
+
   return {
     model_used: String(response.model ?? model),
     strategist_reply: parsed.data.strategist_reply.trim(),
+    suggested_answer: suggested && suggested.length > 0 ? suggested : null,
   };
 }

@@ -25,15 +25,15 @@ export function buildPostClarificationDimensionNotes(
 
     if (afterScore > prev) {
       notes.push(
-        `${label} mejoró (${prev}→${afterScore}) gracias a tus aclaraciones, pero sigue en nivel medio (${afterScore}/100): conviene añadir más detalle observable (hechos concretos, prioridades explícitas o pruebas cualitativas) cuando puedas.`,
+        `${label} subió de ${prev} a ${afterScore}: tus aclaraciones aportaron matices útiles. Sigue por debajo de 70, así que Limbi seguirá marcando cautela ahí hasta que haya más hechos observables (prioridades, casos o pruebas concretas).`,
       );
     } else if (afterScore < prev) {
       notes.push(
-        `${label} quedó en ${afterScore} (antes ${prev}). Revisa coherencia entre el cuestionario original y lo que acabas de precisar.`,
+        `${label} pasó de ${prev} a ${afterScore}: a veces la evaluación se vuelve más exigente al cruzar el cuestionario con lo que acabas de precisar, o esta dimensión quedó más expuesta. Vale la pena volver a esa zona con ejemplos o decisiones explícitas en una siguiente ronda si quieres subir la base.`,
       );
     } else {
       notes.push(
-        `${label} se mantiene en ${afterScore}: sigue siendo un punto débil frente al umbral de 70; suele deberse a falta de testimonios, casos, resultados observables o referencias concretas en esa área.`,
+        `${label} se quedó en ${afterScore}: sigue siendo un punto sensible frente al umbral de 70; suele deberse a poca evidencia observable, audiencia poco priorizada o beneficio aún genérico en esa área.`,
       );
     }
   }
