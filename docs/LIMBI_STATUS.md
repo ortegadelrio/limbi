@@ -2,14 +2,15 @@
 
 Documento de estado para alinear equipo y agentes. **Actualizar al cierre de sesiones** que cambien arquitectura, flujos o riesgos.
 
-**Última revisión:** 2026-05-13 — Ticket 3A: UX cuestionario de marca; migración CHECK ampliado en `question_definitions`; Ticket 3B planificado (documentos / fuentes).
+**Última revisión:** 2026-05-16 — Ticket 3B.1: tabla `brand_documents`, bucket privado `brand-documents`, API y UI de subida/listado (sin IA ni `brand_source_facts`).
 
 ## Qué funciona (alto nivel)
 
 - **Auth:** Supabase (login, signup, callback, middleware de rutas protegidas).
 - **Marcas (Ticket 1):** `brands`, `brand_offer_profiles`, APIs `/api/brands`, UI lista/detalle básica.
 - **Catálogo de preguntas de marca (Ticket 2):** migración `question_definitions`, seed en español neutro (LA), Base Límbica de Marca (`section_key` `brand_limbic_base`), módulos condicionales por `offer_nature`.
-- **Cuestionario de marca — persistencia y UI (Tickets 3 + 3A):** tabla `brand_responses`; APIs de respuestas; `/brands/[brandId]/questionnaire` con intro orientadora, avance automático al guardar sección, cierre al terminar la última, redirección post–crear marca al cuestionario; `single_choice` / `multi_choice` con opciones como tarjetas (metadatos opcionales en `options`: `description`, `emoji`, `visual_hint`, `image_url`). Migración `20260514120000_question_definitions_answer_type_expand.sql` alinea CHECK del catálogo con tipos extensibles. **No incluye:** diagnóstico, documentos de marca (Ticket 3B), bases activas.
+- **Cuestionario de marca — persistencia y UI (Tickets 3 + 3A):** tabla `brand_responses`; APIs de respuestas; `/brands/[brandId]/questionnaire` con intro orientadora, avance automático al guardar sección, cierre al terminar la última, redirección post–crear marca al cuestionario; `single_choice` / `multi_choice` con opciones como tarjetas (metadatos opcionales en `options`: `description`, `emoji`, `visual_hint`, `image_url`). Migración `20260514120000_question_definitions_answer_type_expand.sql` alinea CHECK del catálogo con tipos extensibles.
+- **Documentos de marca (Ticket 3B.1):** tabla `brand_documents`, bucket privado **`brand-documents`** (ruta `{user_id}/{brand_id}/{document_id}.pdf`, solo PDF hasta 25 MB), RLS en tabla y Storage; `GET`/`POST /api/brands/[brandId]/documents`, `DELETE /api/brands/[brandId]/documents/[documentId]`; UI `/brands/[brandId]/documents` (“Material de contexto”) y CTA desde ficha marca. **Aún no:** análisis IA del PDF, `brand_source_facts`, hallazgos por sección, diagnóstico ni consumo en generación.
 - **Proyectos:** CRUD básico vía API (`projects`, `project_responses`).
 - **Intake conversacional:** `intake-turn` con extracción OpenAI y persistencia en `project_responses`.
 - **Evaluación de cuestionario:** `evaluate-questionnaire` + almacenamiento (`questionnaire_evaluations`, campos en `project_responses`).
@@ -55,17 +56,15 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Ticket 3:** `PATCH /api/brands/[brandId]/responses` hace upsert por `(brand_id, question_key)`; el servidor rellena metadatos desde `question_definitions` y solo acepta preguntas activas aplicables al `offer_nature` de la marca. Contrato de `answer_value`: texto/url/textarea `{ "text" }`, `single_choice` `{ "value" }`, `multi_choice` `{ "values" }`, etc. (`lib/brand-answers/*`).
 - **Ticket 3A:** UX del journey de marca (sin IA): redirección `/brands/new` → `/brands/[id]/questionnaire`; guardar sección → siguiente sección o pantalla de cierre; opciones visuales; intro al inicio.
 - **Ticket 3A.1:** migración `20260515120000_ticket_3a1_question_definitions_visual_seed.sql` — `movement_energy`, `atmospheres`, `expressive_codes` y `client_experience_signature` pasan a `multi_choice` con opciones ricas; `recurrence`, `presence_format`, `frequency`, `price_band` mantienen `single_choice` con opciones enriquecidas para tarjetas.
-- **Propuesta de seed (no aplicada aún):** en módulo **service**, `client_experience_signature` (hoy textarea: “¿Qué debería sentir alguien en el proceso…?”) encaja como **`single_choice` o `multi_choice`** con opciones etiquetadas (orden, rapidez, calma, exigencia, cercanía, rigor, juego, etc.) y metadatos `description` / `visual_hint` para tarjetas; valorar un campo libre corto solo si hace falta “otro”. Otras candidatas a revisar con calma (no cambiadas): `delivery_mode` (presencial/remoto/híbrido) como multi + texto corto; límbicas ya en `textarea` salvo `emotional_temperature` (ya `single_choice`). **No** tocar el seed en bloque sin revisar copy y pesos por pregunta.
+- **Ticket 3B.1:** migración `20260516120000_brand_documents_and_storage.sql`; políticas Storage por prefijo `auth.uid()` en la ruta del objeto.
 
 ## Ticket 3B planificado (documentos de marca / material de contexto)
 
-**Orden:** después de Ticket 3A y **antes** del diagnóstico completo de marca.
+**Hecho (3B.1):** `brand_documents` + bucket `brand-documents` + upload/listado/eliminar. Estados `processing_status` listos para futura cola (`processing` / `ready`) pero **no** se ejecuta IA aún.
 
-**Objetivo:** bloque “Material de contexto” en el journey de marca: subida de PDF (y otros tipos acordados), análisis con IA, extracción clasificada por `section_key`, revisión humana (aprobar / editar / rechazar), persistencia solo de hechos aprobados para uso posterior en diagnóstico y bases — **sin** mezclar PDF crudo en generación ni usar datos sin aprobación.
+**Pendiente (3B.2+):** análisis con IA, tabla `brand_source_facts`, hallazgos por `section_key`, revisión (aprobar / editar / rechazar), y solo aprobados para diagnóstico y bases — **sin** mezclar PDF crudo en generación ni usar datos sin aprobación.
 
-**Tablas sugeridas:** `brand_documents` (archivo, `storage_path`, `processing_status`, …), `brand_source_facts` (`section_key`, `fact_text`, `ai_interpretation`, `status`: pending_review / approved / rejected / superseded, …).
-
-**Criterios de aceptación (resumen):** subir al menos PDF por marca; IA extrae y clasifica; UI por sección con acciones Incluir / Editar / Descartar; solo aprobados alimentan diagnóstico y bases; no tocar generación de contenidos de proyecto ni intake conversacional.
+**Criterios futuros (resumen):** extracción/clasificación; UI por sección; no tocar generación de proyecto ni intake conversacional.
 
 ---
 

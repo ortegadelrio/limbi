@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { BrandDocumentsClient } from "@/components/brands/brand-documents-client";
 import { BrandQuestionBlock } from "@/components/brands/questionnaire/brand-question-block";
 import { BrandQuestionnaireIntro } from "@/components/brands/questionnaire/brand-questionnaire-intro";
 import { BrandQuestionSectionNav } from "@/components/brands/questionnaire/brand-question-section-nav";
@@ -21,9 +23,13 @@ import {
   type BrandAnswerDraft,
   serializeBrandAnswer,
 } from "@/lib/brand-answers/serialize-parse";
-import { groupBrandQuestionDefinitionsBySection } from "@/lib/questions/get-brand-question-definitions";
+import {
+  groupBrandQuestionDefinitionsBySection,
+  type BrandQuestionSectionGroup,
+} from "@/lib/questions/get-brand-question-definitions";
 import { cn } from "@/lib/utils";
 import type {
+  BrandDocumentRow,
   BrandOfferNature,
   BrandResponseAnswerType,
   BrandResponseRow,
@@ -42,10 +48,13 @@ function isAnswered(
 }
 
 export function BrandQuestionnaireShell({ brandId }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [brandName, setBrandName] = useState<string | null>(null);
   const [offerNature, setOfferNature] = useState<BrandOfferNature | null>(null);
   const [definitions, setDefinitions] = useState<QuestionDefinitionRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, BrandAnswerDraft>>({});
+  const [brandDocuments, setBrandDocuments] = useState<BrandDocumentRow[]>([]);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,6 +68,14 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     [definitions],
   );
 
+  const extendedSections = useMemo((): BrandQuestionSectionGroup[] => {
+    if (!offerNature) return [];
+    return [
+      ...sections,
+      { section_key: "material_context", questions: [] },
+    ];
+  }, [sections, offerNature]);
+
   const answeredCount = useMemo(() => {
     return definitions.filter((d) => {
       const dr = drafts[d.question_key] ?? defaultDraftForQuestion(d);
@@ -66,13 +83,23 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     }).length;
   }, [definitions, drafts]);
 
-  const lastSectionIndex = Math.max(0, sections.length - 1);
+  const lastQuestionSectionIndex =
+    sections.length > 0 ? sections.length - 1 : -1;
 
   useEffect(() => {
-    if (sections.length > 0 && activeSectionIndex >= sections.length) {
-      setActiveSectionIndex(sections.length - 1);
+    if (extendedSections.length === 0) return;
+    if (activeSectionIndex >= extendedSections.length) {
+      setActiveSectionIndex(extendedSections.length - 1);
     }
-  }, [activeSectionIndex, sections.length]);
+  }, [activeSectionIndex, extendedSections.length]);
+
+  useEffect(() => {
+    if (loading || extendedSections.length === 0) return;
+    if (searchParams.get("step") === "material_context") {
+      setShowCompletionCelebration(false);
+      setActiveSectionIndex(extendedSections.length - 1);
+    }
+  }, [loading, searchParams, extendedSections.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +124,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
         if (!nature) {
           setDefinitions([]);
           setDrafts({});
+          setBrandDocuments([]);
           setLoading(false);
           return;
         }
@@ -140,6 +168,16 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           }
         }
         setDrafts(nextDrafts);
+
+        const docsRes = await fetch(`/api/brands/${brandId}/documents`, {
+          credentials: "include",
+        });
+        if (!cancelled && docsRes.ok) {
+          const docsJson = (await docsRes.json().catch(() => ({}))) as {
+            documents?: BrandDocumentRow[];
+          };
+          setBrandDocuments(docsJson.documents ?? []);
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Error");
@@ -153,15 +191,30 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     };
   }, [brandId]);
 
-  const activeSection = sections[activeSectionIndex];
+  const activeSection = extendedSections[activeSectionIndex];
+  const onMaterialStep = activeSection?.section_key === "material_context";
 
-  const selectSection = useCallback((index: number) => {
-    setShowCompletionCelebration(false);
-    setActiveSectionIndex(index);
-  }, []);
+  const selectSection = useCallback(
+    (index: number) => {
+      setShowCompletionCelebration(false);
+      setActiveSectionIndex(index);
+      const sec = extendedSections[index];
+      if (sec?.section_key === "material_context") {
+        router.replace(
+          `/brands/${brandId}/questionnaire?step=material_context`,
+          { scroll: false },
+        );
+      } else {
+        router.replace(`/brands/${brandId}/questionnaire`, { scroll: false });
+      }
+    },
+    [extendedSections, router, brandId],
+  );
 
   const saveCurrentSection = useCallback(async () => {
-    if (!offerNature || !activeSection) return;
+    if (!offerNature || !activeSection || activeSection.questions.length === 0) {
+      return;
+    }
     setSaving(true);
     setSaveMessage(null);
     setError(null);
@@ -187,9 +240,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
       }
       let savedOk = false;
       if (skipped.length > 0) {
-        setSaveMessage(
-          `Omitidas (sin editor en UI): ${skipped.join(", ")}.`,
-        );
+        setSaveMessage(`Omitidas (sin editor en UI): ${skipped.join(", ")}.`);
       }
       if (answers.length > 0) {
         const res = await fetch(`/api/brands/${brandId}/responses`, {
@@ -210,10 +261,15 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
         setSaveMessage("Sección sin campos editables aquí; avanzamos.");
       }
       if (savedOk && sections.length > 0) {
-        if (activeSectionIndex < lastSectionIndex) {
+        if (activeSectionIndex < lastQuestionSectionIndex) {
           setActiveSectionIndex((i) => i + 1);
-        } else {
-          setShowCompletionCelebration(true);
+          router.replace(`/brands/${brandId}/questionnaire`, { scroll: false });
+        } else if (activeSectionIndex === lastQuestionSectionIndex) {
+          setActiveSectionIndex(sections.length);
+          router.replace(
+            `/brands/${brandId}/questionnaire?step=material_context`,
+            { scroll: false },
+          );
         }
       }
     } catch (e) {
@@ -226,8 +282,9 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     activeSectionIndex,
     brandId,
     drafts,
-    lastSectionIndex,
+    lastQuestionSectionIndex,
     offerNature,
+    router,
     sections.length,
   ]);
 
@@ -275,6 +332,8 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     );
   }
 
+  const showIntro = !showCompletionCelebration && !onMaterialStep;
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 lg:flex-row lg:items-start">
       <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-64">
@@ -285,7 +344,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           </Link>
         </Button>
         <BrandQuestionSectionNav
-          sections={sections}
+          sections={extendedSections}
           activeIndex={activeSectionIndex}
           onSelectSection={selectSection}
           disabled={saving}
@@ -301,7 +360,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           ) : null}
         </div>
 
-        {!showCompletionCelebration ? <BrandQuestionnaireIntro /> : null}
+        {showIntro ? <BrandQuestionnaireIntro /> : null}
 
         {!showCompletionCelebration ? (
           <BrandQuestionnaireProgress
@@ -328,13 +387,13 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
             <CardHeader>
               <CardTitle className="text-lg text-limbi-text">
-                Listo: guardaste todas las secciones
+                Listo: guardaste el cuestionario y el material de contexto
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm text-limbi-muted">
               <p>
-                Pueden volver a editar cualquier parte del cuestionario desde el
-                menú de secciones a la izquierda.
+                Pueden volver a editar cualquier parte del cuestionario o subir más
+                documentos desde el menú de secciones a la izquierda.
               </p>
               <p>
                 Más adelante, la generación del diagnóstico de marca estará
@@ -349,36 +408,62 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           </Card>
         ) : (
           <>
-            <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
-              <CardContent className="space-y-8 p-6 sm:p-8">
-                {activeSection?.questions.map((def) => (
-                  <BrandQuestionBlock
-                    key={def.question_key}
-                    definition={def}
-                    draft={
-                      drafts[def.question_key] ?? defaultDraftForQuestion(def)
-                    }
-                    onDraftChange={(next) =>
-                      setDrafts((prev) => ({
-                        ...prev,
-                        [def.question_key]: next,
-                      }))
-                    }
-                    disabled={saving}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                type="button"
-                className={limbiPrimaryButtonClass}
-                disabled={saving || !activeSection}
-                onClick={() => void saveCurrentSection()}
-              >
-                {saving ? "Guardando…" : "Guardar esta sección"}
-              </Button>
-            </div>
+            {onMaterialStep ? (
+              <BrandDocumentsClient
+                brandId={brandId}
+                brandName={brandName ?? "Marca"}
+                initialDocuments={brandDocuments}
+                mode="embedded"
+              />
+            ) : (
+              <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
+                <CardContent className="space-y-8 p-6 sm:p-8">
+                  {activeSection?.questions.map((def) => (
+                    <BrandQuestionBlock
+                      key={def.question_key}
+                      definition={def}
+                      draft={
+                        drafts[def.question_key] ?? defaultDraftForQuestion(def)
+                      }
+                      onDraftChange={(next) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [def.question_key]: next,
+                        }))
+                      }
+                      disabled={saving}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+            {onMaterialStep ? (
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  className={limbiPrimaryButtonClass}
+                  onClick={() => {
+                    setShowCompletionCelebration(true);
+                    router.replace(`/brands/${brandId}/questionnaire`, {
+                      scroll: false,
+                    });
+                  }}
+                >
+                  Continuar
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  className={limbiPrimaryButtonClass}
+                  disabled={saving || !activeSection}
+                  onClick={() => void saveCurrentSection()}
+                >
+                  {saving ? "Guardando…" : "Guardar esta sección"}
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>

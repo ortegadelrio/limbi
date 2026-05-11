@@ -120,6 +120,40 @@ export type BrandOfferProfileRow = {
   updated_at: string;
 };
 
+export type BrandDocumentType =
+  | "manual"
+  | "brief"
+  | "deck"
+  | "portfolio"
+  | "study"
+  | "strategy"
+  | "institutional"
+  | "success_case"
+  | "other";
+
+export type BrandDocumentProcessingStatus =
+  | "pending"
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed";
+
+/** Fila en `brand_documents` (Ticket 3B.1). */
+export type BrandDocumentRow = {
+  id: string;
+  brand_id: string;
+  user_id: string;
+  file_name: string;
+  file_type: string;
+  document_type: BrandDocumentType;
+  storage_path: string;
+  file_size_bytes: number | null;
+  processing_status: BrandDocumentProcessingStatus;
+  processing_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 
 export type ProjectStatus =

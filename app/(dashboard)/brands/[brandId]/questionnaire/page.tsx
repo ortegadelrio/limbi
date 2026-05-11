@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { BrandQuestionnaireShell } from "@/components/brands/questionnaire/brand-questionnaire-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -12,5 +13,15 @@ export default async function BrandQuestionnairePage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  return <BrandQuestionnaireShell brandId={brandId} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl px-4 py-16 text-center text-limbi-muted">
+          Cargando cuestionario…
+        </div>
+      }
+    >
+      <BrandQuestionnaireShell brandId={brandId} />
+    </Suspense>
+  );
 }

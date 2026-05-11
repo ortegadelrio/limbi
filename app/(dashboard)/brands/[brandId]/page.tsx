@@ -44,6 +44,31 @@ export default async function BrandDetailPage({ params }: Props) {
     .eq("brand_id", brandId)
     .maybeSingle();
 
+  const { data: docRows, error: docErr } = await supabase
+    .from("brand_documents")
+    .select("processing_status")
+    .eq("brand_id", brandId);
+
+  if (docErr) {
+    throw new Error(docErr.message);
+  }
+
+  const docStats = { total: 0, uploaded: 0, pending: 0, failed: 0 };
+  for (const row of docRows ?? []) {
+    docStats.total += 1;
+    const s = row.processing_status;
+    if (s === "uploaded") docStats.uploaded += 1;
+    else if (s === "pending") docStats.pending += 1;
+    else if (s === "failed") docStats.failed += 1;
+  }
+  const docOtherCount =
+    docStats.total -
+    docStats.uploaded -
+    docStats.pending -
+    docStats.failed;
+
+  const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
       <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
@@ -103,11 +128,47 @@ export default async function BrandDetailPage({ params }: Props) {
           </dl>
         )}
 
+        <div
+          className={cn(
+            limbiDocumentCardClass,
+            "space-y-3 border border-limbi-border p-4 sm:p-5",
+          )}
+        >
+          <h2 className="text-sm font-semibold text-limbi-text">
+            Material de contexto
+          </h2>
+          {docStats.total === 0 ? (
+            <p className="text-sm text-limbi-muted">
+              Aún no has subido documentos de marca.
+            </p>
+          ) : (
+            <p className="text-sm text-limbi-muted">
+              {docStats.total}{" "}
+              {docStats.total === 1 ? "documento subido" : "documentos subidos"} ·{" "}
+              {docStats.uploaded} {docStats.uploaded === 1 ? "cargado" : "cargados"} ·{" "}
+              {docStats.pending}{" "}
+              {docStats.pending === 1 ? "pendiente" : "pendientes"} · {docStats.failed}{" "}
+              {docStats.failed === 1 ? "con error" : "con error"}
+              {docOtherCount > 0
+                ? ` · ${docOtherCount} ${
+                    docOtherCount === 1 ? "en otro estado" : "en otros estados"
+                  }`
+                : null}
+            </p>
+          )}
+          <Button className={limbiPrimaryButtonClass} asChild>
+            <Link href={materialQuestionnaireHref}>Subir material de contexto</Link>
+          </Button>
+        </div>
+
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Button className={limbiPrimaryButtonClass} asChild>
             <Link href={`/brands/${brandId}/questionnaire`}>
               Completar cuestionario de marca
             </Link>
+          </Button>
+          <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+            <Link href={`/brands/${brandId}/documents`}>Gestionar documentos</Link>
           </Button>
         </div>
         <p className="text-xs text-limbi-muted">

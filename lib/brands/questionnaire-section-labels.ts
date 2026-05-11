@@ -20,6 +20,7 @@ const LABELS: Record<string, string> = {
   digital_platform: "Plataforma o SaaS",
   organization: "Organización o causa",
   personal_brand: "Marca personal",
+  material_context: "Material de contexto",
 };
 
 export function brandQuestionnaireSectionLabelEs(sectionKey: string): string {
