@@ -18,11 +18,20 @@ export type QuestionAnswerType =
   | "textarea"
   | "text"
   | "single_choice"
-  | "url";
+  | "multi_choice"
+  | "scale"
+  | "url"
+  | "number"
+  | "boolean";
 
+/** Opción de pregunta; campos extra soportan UI rica (sin nuevo `answer_type`). */
 export type QuestionOption = {
   value: string;
   label: string;
+  description?: string | null;
+  visual_hint?: string | null;
+  image_url?: string | null;
+  emoji?: string | null;
 };
 
 /** `null`: núcleo común para todas las ofertas. */
@@ -47,6 +56,46 @@ export type QuestionDefinitionRow = {
   is_active: boolean;
   evaluation_weight: number;
   display_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Tipos de respuesta persistidos en `brand_responses` (superconjunto del catálogo actual).
+ * Evita migraciones cuando `question_definitions` incorpore nuevos `answer_type`.
+ */
+export type BrandResponseAnswerType =
+  | "text"
+  | "textarea"
+  | "single_choice"
+  | "multi_choice"
+  | "scale"
+  | "url"
+  | "number"
+  | "boolean";
+
+/** Contrato de `answer_value` (jsonb) según `answer_type`. */
+export type BrandAnswerValueJson =
+  | { text: string }
+  | { value: string }
+  | { values: string[] }
+  | { value: number }
+  | { value: boolean };
+
+/** Fila en `brand_responses`. */
+export type BrandResponseRow = {
+  id: string;
+  brand_id: string;
+  question_definition_id: string;
+  section_key: string;
+  module_key: string;
+  question_key: string;
+  answer_value: BrandAnswerValueJson;
+  answer_text: string | null;
+  answer_type: BrandResponseAnswerType;
+  is_required: boolean;
+  is_sensitive: boolean;
+  source_type: "questionnaire";
   created_at: string;
   updated_at: string;
 };

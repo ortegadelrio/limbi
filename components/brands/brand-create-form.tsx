@@ -52,13 +52,20 @@ export function BrandCreateForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: unknown };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: unknown;
+        brand?: { id?: string };
+      };
       if (!res.ok) {
         throw new Error(
           typeof j.error === "string" ? j.error : "No se pudo crear la marca.",
         );
       }
-      router.push("/brands");
+      const newId = j.brand?.id;
+      if (!newId) {
+        throw new Error("La marca se creó pero no se recibió el identificador.");
+      }
+      router.push(`/brands/${newId}/questionnaire`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al crear.");

@@ -3,7 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
-import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
+import {
+  limbiDocumentCardClass,
+  limbiPrimaryButtonClass,
+} from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -100,9 +103,16 @@ export default async function BrandDetailPage({ params }: Props) {
           </dl>
         )}
 
+        <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button className={limbiPrimaryButtonClass} asChild>
+            <Link href={`/brands/${brandId}/questionnaire`}>
+              Completar cuestionario de marca
+            </Link>
+          </Button>
+        </div>
         <p className="text-xs text-limbi-muted">
-          El cuestionario de marca y el diagnóstico llegarán en los siguientes
-          tickets.
+          El diagnóstico de marca y las bases activas llegarán en tickets
+          posteriores.
         </p>
       </div>
     </div>
