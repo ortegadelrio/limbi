@@ -11,6 +11,46 @@ export type BrandOfferNature =
   | "organization_institution_cause"
   | "personal_brand";
 
+/** Journey del catálogo en `question_definitions` (extensible). */
+export type QuestionJourneyType = "brand";
+
+export type QuestionAnswerType =
+  | "textarea"
+  | "text"
+  | "single_choice"
+  | "url";
+
+export type QuestionOption = {
+  value: string;
+  label: string;
+};
+
+/** `null`: núcleo común para todas las ofertas. */
+export type QuestionDefinitionAppliesTo = {
+  offer_natures: BrandOfferNature[];
+} | null;
+
+/** Fila en `question_definitions` (catálogo; no respuestas de usuario). */
+export type QuestionDefinitionRow = {
+  id: string;
+  journey_type: QuestionJourneyType;
+  section_key: string;
+  module_key: string;
+  question_key: string;
+  question_text: string;
+  help_text: string | null;
+  answer_type: QuestionAnswerType;
+  options: QuestionOption[];
+  applies_to: QuestionDefinitionAppliesTo;
+  is_required: boolean;
+  is_sensitive: boolean;
+  is_active: boolean;
+  evaluation_weight: number;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BrandRow = {
   id: string;
   user_id: string;
