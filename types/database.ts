@@ -192,6 +192,119 @@ export type BrandDocumentListRow = BrandDocumentRow & {
   extraction_summary: BrandDocumentExtractionSummary | null;
 };
 
+/** Estados de `brand_document_analysis_batches` (Ticket 3B.3). */
+export type BrandDocumentAnalysisBatchStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+export type BrandDocumentAnalysisBatchRow = {
+  id: string;
+  brand_id: string;
+  status: BrandDocumentAnalysisBatchStatus;
+  documents_count: number;
+  analyzed_documents_count: number;
+  skipped_documents_count: number;
+  findings_count: number;
+  useful_sections_count: number;
+  model_used: string | null;
+  prompt_version: string;
+  input_hash: string | null;
+  analysis_summary: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Estados de `brand_document_analysis_runs` (Ticket 3B.3). */
+export type BrandDocumentAnalysisRunStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "skipped"
+  | "failed";
+
+export type BrandDocumentAnalysisRunRow = {
+  id: string;
+  brand_id: string;
+  batch_id: string | null;
+  brand_document_id: string;
+  brand_document_extraction_id: string;
+  status: BrandDocumentAnalysisRunStatus;
+  model_used: string | null;
+  prompt_version: string;
+  input_hash: string | null;
+  findings_count: number;
+  useful_sections_count: number;
+  analysis_summary: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BrandSourceFactSourceType = "document" | "manual" | "system";
+
+export type BrandSourceFactRelationshipType =
+  | "new"
+  | "complements"
+  | "reinforces"
+  | "contradicts";
+
+export type BrandSourceFactType =
+  | "identity"
+  | "audience"
+  | "value_proposition"
+  | "differentiator"
+  | "evidence"
+  | "tone"
+  | "restriction"
+  | "limbic_signal"
+  | "offer_detail"
+  | "positioning"
+  | "purpose"
+  | "approved_message"
+  | "other";
+
+export type BrandSourceFactStatus =
+  | "pending_review"
+  | "approved"
+  | "rejected"
+  | "superseded";
+
+/** Fila en `brand_source_facts` (Ticket 3B.3). */
+export type BrandSourceFactRow = {
+  id: string;
+  brand_id: string;
+  source_type: BrandSourceFactSourceType;
+  brand_document_id: string | null;
+  brand_document_extraction_id: string | null;
+  analysis_batch_id: string | null;
+  analysis_run_id: string | null;
+  section_key: string;
+  module_key: string | null;
+  question_key: string | null;
+  relationship_type: BrandSourceFactRelationshipType;
+  fact_type: BrandSourceFactType;
+  source_excerpt: string | null;
+  source_reference: string | null;
+  source_document_name: string | null;
+  supporting_documents: unknown[];
+  extracted_fact: string;
+  ai_interpretation: string | null;
+  existing_response_summary: string | null;
+  proposed_inclusion: string;
+  user_edited_text: string | null;
+  status: BrandSourceFactStatus;
+  rejection_reason: string | null;
+  confidence_score: number | null;
+  dedupe_fingerprint: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
+};
+
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 
 export type ProjectStatus =

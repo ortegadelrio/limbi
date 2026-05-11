@@ -21,10 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  limbiOutlineButtonClass,
-  limbiPrimaryButtonClass,
-} from "@/components/projects/limbi-ui";
+import { limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 import {
   GUIDED_CHALLENGE_PICKS,

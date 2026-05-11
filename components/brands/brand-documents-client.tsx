@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Loader2, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,11 @@ import {
   brandDocumentTypeLabelEs,
 } from "@/lib/brands/brand-document-labels";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+  BRAND_ANALYSIS_NO_USEFUL_HINT,
+  BRAND_ANALYSIS_NO_USEFUL_PRIMARY,
+} from "@/lib/brands/brand-document-analysis-empty-copy";
+import { BRAND_DOCUMENT_ANALYSIS_AI_OUTPUT_STRUCTURE_CODE } from "@/lib/schemas/brand-document-analysis";
 import {
   BRAND_DOCUMENT_MAX_BYTES,
   BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS,
@@ -79,10 +84,59 @@ export function BrandDocumentsClient({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasPendingReview, setHasPendingReview] = useState(false);
+  const [checkingPending, setCheckingPending] = useState(true);
+  const [analyzingDocuments, setAnalyzingDocuments] = useState(false);
+  /** Resultado válido: análisis sin hallazgos útiles (no es error). */
+  const [analysisEmptyUseful, setAnalysisEmptyUseful] = useState(false);
+
+  const readyForAnalysisCount = useMemo(
+    () =>
+      documents.filter(
+        (d) =>
+          d.processing_status === "ready" &&
+          d.extraction_summary?.extraction_status === "succeeded",
+      ).length,
+    [documents],
+  );
+
+  const nonSelectableReadyCount = useMemo(
+    () =>
+      documents.filter(
+        (d) =>
+          d.processing_status === "ready" &&
+          d.extraction_summary?.extraction_status === "succeeded_empty",
+      ).length,
+    [documents],
+  );
 
   useEffect(() => {
     setDocuments(initialDocuments);
   }, [initialDocuments]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setCheckingPending(true);
+      try {
+        const res = await fetch(
+          `/api/brands/${brandId}/source-facts?status=pending_review`,
+          { credentials: "include" },
+        );
+        const j = (await res.json().catch(() => ({}))) as {
+          facts?: unknown[];
+        };
+        if (!cancelled && res.ok && Array.isArray(j.facts)) {
+          setHasPendingReview(j.facts.length > 0);
+        }
+      } finally {
+        if (!cancelled) setCheckingPending(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, documents]);
 
   async function refreshList() {
     const res = await fetch(`/api/brands/${brandId}/documents`, {
@@ -96,7 +150,101 @@ export function BrandDocumentsClient({
       setDocuments(j.documents);
       onDocumentsChange?.(j.documents);
     }
+    const pr = await fetch(
+      `/api/brands/${brandId}/source-facts?status=pending_review`,
+      { credentials: "include" },
+    );
+    const pj = (await pr.json().catch(() => ({}))) as { facts?: unknown[] };
+    if (pr.ok && Array.isArray(pj.facts)) {
+      setHasPendingReview(pj.facts.length > 0);
+    }
     router.refresh();
+  }
+
+  async function onAnalyzeDocuments() {
+    setError(null);
+    setMessage(null);
+    setAnalysisEmptyUseful(false);
+    setAnalyzingDocuments(true);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/documents/analyze`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        code?: string;
+        facts_created?: unknown[];
+        analysis_result?: "findings_found" | "no_useful_findings" | null;
+        empty_findings?: { primary: string; hint: string } | null;
+        batch?: {
+          status?: string;
+          findings_count?: number;
+          id?: string;
+          error_message?: string | null;
+          analysis_result?: "findings_found" | "no_useful_findings" | null;
+        };
+        message?: string;
+      };
+      const structureInvalid =
+        j.code === BRAND_DOCUMENT_ANALYSIS_AI_OUTPUT_STRUCTURE_CODE;
+      if (res.status === 409 && j.code === "pending_review_blocking") {
+        setHasPendingReview(true);
+        setMessage(null);
+        throw new Error(
+          j.error ??
+            "Hay hallazgos pendientes de revisión. Revísalos antes de un nuevo análisis.",
+        );
+      }
+      if (!res.ok) {
+        throw new Error(
+          structureInvalid
+            ? "Limbi no pudo estructurar correctamente el análisis del documento. Puedes intentar de nuevo."
+            : (j.error ?? "No se pudo analizar los documentos."),
+        );
+      }
+      if (j.ok === false) {
+        throw new Error(
+          structureInvalid
+            ? "Limbi no pudo estructurar correctamente el análisis del documento. Puedes intentar de nuevo."
+            : (j.batch?.error_message?.trim() ||
+                j.error ||
+                "El análisis falló. Revisa la configuración o inténtalo más tarde."),
+        );
+      }
+      const n = Array.isArray(j.facts_created) ? j.facts_created.length : 0;
+      const batchAr = j.batch?.analysis_result ?? j.analysis_result;
+      const noUsefulOutcome =
+        j.batch?.status === "succeeded" &&
+        n === 0 &&
+        batchAr === "no_useful_findings";
+
+      if (noUsefulOutcome) {
+        setAnalysisEmptyUseful(true);
+        setMessage(null);
+        setHasPendingReview(false);
+      } else {
+        setAnalysisEmptyUseful(false);
+        setMessage(
+          n > 0
+            ? `Limbi propuso ${n} hallazgo(s). Revísalos en la bandeja.`
+            : (j.message ??
+                "No se generaron hallazgos en esta pasada. Si hubo errores por documento, revisa el mensaje de error."),
+        );
+        setHasPendingReview(n > 0);
+      }
+      await refreshList();
+      if (j.batch?.id && j.batch.status === "succeeded" && n > 0) {
+        router.push(`/brands/${brandId}/source-facts`);
+      }
+    } catch (err) {
+      setAnalysisEmptyUseful(false);
+      setError(err instanceof Error ? err.message : "Error al analizar documentos.");
+      await refreshList();
+    } finally {
+      setAnalyzingDocuments(false);
+    }
   }
 
   async function markUploadFailed(documentId: string, errorMessage: string) {
@@ -112,6 +260,7 @@ export function BrandDocumentsClient({
   async function onExtractText(documentId: string) {
     setError(null);
     setMessage(null);
+    setAnalysisEmptyUseful(false);
     setExtractingId(documentId);
     try {
       const res = await fetch(
@@ -223,6 +372,7 @@ export function BrandDocumentsClient({
     if (!file) return;
     setError(null);
     setMessage(null);
+    setAnalysisEmptyUseful(false);
     setUploading(true);
 
     const metaQuick = validatePdfUploadMetadata({
@@ -335,6 +485,7 @@ export function BrandDocumentsClient({
     }
     setError(null);
     setMessage(null);
+    setAnalysisEmptyUseful(false);
     setDeletingId(id);
     try {
       const res = await fetch(`/api/brands/${brandId}/documents/${id}`, {
@@ -380,6 +531,76 @@ export function BrandDocumentsClient({
           </p>
         </div>
       )}
+
+      <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+        <h3 className="text-sm font-semibold text-limbi-text">Análisis de documentos</h3>
+        {checkingPending ? (
+          <p className="text-xs text-limbi-muted">Comprobando hallazgos pendientes…</p>
+        ) : hasPendingReview ? (
+          <div className="space-y-3">
+            <p className="text-sm text-limbi-muted">
+              Tienes hallazgos pendientes de revisión. Revísalos antes de lanzar un nuevo
+              análisis.
+            </p>
+            <Button className={limbiPrimaryButtonClass} asChild>
+              <Link href={`/brands/${brandId}/source-facts`}>Revisar hallazgos pendientes</Link>
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm leading-relaxed text-limbi-muted">
+              Limbi revisará todos los documentos con texto extraído y propondrá hallazgos
+              por sección para que decidas qué incluir en la Base de Marca.
+            </p>
+            {readyForAnalysisCount > 0 ? (
+              <p className="text-sm font-medium text-limbi-text">
+                {readyForAnalysisCount}{" "}
+                {readyForAnalysisCount === 1
+                  ? "documento listo para análisis"
+                  : "documentos listos para análisis"}
+              </p>
+            ) : (
+              <p className="text-sm text-limbi-muted">
+                Aún no hay documentos con texto extraído listo para analizar.
+              </p>
+            )}
+            {nonSelectableReadyCount > 0 ? (
+              <p className="text-xs text-limbi-muted">
+                {nonSelectableReadyCount}{" "}
+                {nonSelectableReadyCount === 1
+                  ? "documento no tiene texto seleccionable y no podrá analizarse todavía."
+                  : "documentos no tienen texto seleccionable y no podrán analizarse todavía."}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              className={cn(limbiPrimaryButtonClass, "inline-flex items-center gap-2")}
+              disabled={
+                analyzingDocuments ||
+                readyForAnalysisCount === 0 ||
+                Boolean(uploading) ||
+                Boolean(extractingId)
+              }
+              onClick={() => void onAnalyzeDocuments()}
+            >
+              {analyzingDocuments ? (
+                <>
+                  <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                  Limbi está analizando los documentos…
+                </>
+              ) : (
+                "Analizar documentos"
+              )}
+            </Button>
+            {analyzingDocuments ? (
+              <p className="text-xs text-limbi-muted">
+                Limbi está analizando los documentos y comparándolos con la información de la
+                marca… Esto puede tardar según el número y tamaño de los PDF.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </div>
 
       <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
         <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
@@ -437,7 +658,12 @@ export function BrandDocumentsClient({
           {error}
         </p>
       ) : null}
-      {message ? (
+      {analysisEmptyUseful ? (
+        <div className="space-y-2 rounded-xl border border-limbi-border bg-limbi-bg-soft/60 p-4">
+          <p className="text-sm font-medium text-limbi-text">{BRAND_ANALYSIS_NO_USEFUL_PRIMARY}</p>
+          <p className="text-xs leading-relaxed text-limbi-muted">{BRAND_ANALYSIS_NO_USEFUL_HINT}</p>
+        </div>
+      ) : message ? (
         <p className="text-sm text-[var(--limbi-green)]">{message}</p>
       ) : null}
 

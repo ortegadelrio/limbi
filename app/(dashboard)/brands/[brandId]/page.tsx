@@ -194,6 +194,9 @@ export default async function BrandDetailPage({ params }: Props) {
           <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
             <Link href={`/brands/${brandId}/documents`}>Gestionar documentos</Link>
           </Button>
+          <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+            <Link href={`/brands/${brandId}/source-facts`}>Hallazgos de documentos</Link>
+          </Button>
         </div>
         <p className="text-xs text-limbi-muted">
           El diagnóstico de marca y las bases activas llegarán en tickets

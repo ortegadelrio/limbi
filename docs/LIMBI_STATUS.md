@@ -2,7 +2,7 @@
 
 Documento de estado para alinear equipo y agentes. **Actualizar al cierre de sesiones** que cambien arquitectura, flujos o riesgos.
 
-**Última revisión:** 2026-05-18 — Ticket 3B.2: extracción técnica de texto PDF (`pdf-parse`) y persistencia en `brand_document_extractions` (sin IA, sin `brand_source_facts`, sin diagnóstico; la UI no muestra el texto completo extraído).
+**Última revisión:** 2026-05-19 — Ticket 3B.3: análisis IA consolidado de documentos de marca, `brand_source_facts` (revisión humana) y bandeja `/brands/[brandId]/source-facts`. Regla explícita: **solo** `brand_source_facts.status = approved` puede alimentar diagnóstico de marca, bases activas o generación futura; `pending_review`, `rejected` y `superseded` **nunca** como fuente curada. Helper previsto: `getApprovedBrandSourceFacts()` — no exponer “todos los facts” como contexto curado.
 
 ## Qué funciona (alto nivel)
 
@@ -10,7 +10,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Marcas (Ticket 1):** `brands`, `brand_offer_profiles`, APIs `/api/brands`, UI lista/detalle básica.
 - **Catálogo de preguntas de marca (Ticket 2):** migración `question_definitions`, seed en español neutro (LA), Base Límbica de Marca (`section_key` `brand_limbic_base`), módulos condicionales por `offer_nature`.
 - **Cuestionario de marca — persistencia y UI (Tickets 3 + 3A):** tabla `brand_responses`; APIs de respuestas; `/brands/[brandId]/questionnaire` con intro orientadora, avance automático al guardar sección, cierre al terminar la última, redirección post–crear marca al cuestionario; `single_choice` / `multi_choice` con opciones como tarjetas (metadatos opcionales en `options`: `description`, `emoji`, `visual_hint`, `image_url`). Migración `20260514120000_question_definitions_answer_type_expand.sql` alinea CHECK del catálogo con tipos extensibles.
-- **Documentos de marca (Tickets 3B.1 + 3B.2):** tabla `brand_documents`, bucket privado **`brand-documents`** (ruta `{user_id}/{brand_id}/{document_id}.pdf`, solo PDF hasta 25 MB), RLS en tabla y Storage; `GET`/`POST /api/brands/[brandId]/documents`, `DELETE /api/brands/[brandId]/documents/[documentId]`; UI `/brands/[brandId]/documents` (“Material de contexto”) y CTA desde ficha marca. **Ticket 3B.2:** tabla `brand_document_extractions` (una fila por documento), `POST …/documents/[documentId]/extract-text`, estados `processing_status` alineados (`uploaded` → `processing` → `ready` o `failed`; PDF sin texto seleccionable → `succeeded_empty` sin marcar fallo técnico); resumen de extracción en el listado (`extraction_summary`) **sin** devolver `extracted_text` al cliente. **Aún no (3B.3+):** análisis IA del texto, `brand_source_facts`, hallazgos por sección, diagnóstico ni consumo en generación.
+- **Documentos de marca (Tickets 3B.1–3B.3):** tabla `brand_documents`, bucket **`brand-documents`**, extracción (`brand_document_extractions`, `pdf-parse`), análisis consolidado `POST /api/brands/[brandId]/documents/analyze` (síncrono, `maxDuration` 120s, runtime Node), tablas `brand_document_analysis_batches`, `brand_document_analysis_runs`, **`brand_source_facts`** con revisión (`GET`/`PATCH /api/brands/[brandId]/source-facts`), UI “Analizar documentos” + bandeja `/brands/[brandId]/source-facts` agrupada por `section_key`. Si hay `pending_review`, no se lanza un nuevo análisis (409 / CTA a revisar). **No** se modifica `brand_responses`; **no** se muestra `extracted_text` completo en UI. **Aún no:** consolidación en `brand_knowledge_bases` / `brand_limbic_bases`, diagnóstico de marca, `force` / reanálisis explícito, cola async de análisis.
 - **Proyectos:** CRUD básico vía API (`projects`, `project_responses`).
 - **Intake conversacional:** `intake-turn` con extracción OpenAI y persistencia en `project_responses`.
 - **Evaluación de cuestionario:** `evaluate-questionnaire` + almacenamiento (`questionnaire_evaluations`, campos en `project_responses`).
@@ -58,16 +58,19 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Ticket 3A.1:** migración `20260515120000_ticket_3a1_question_definitions_visual_seed.sql` — `movement_energy`, `atmospheres`, `expressive_codes` y `client_experience_signature` pasan a `multi_choice` con opciones ricas; `recurrence`, `presence_format`, `frequency`, `price_band` mantienen `single_choice` con opciones enriquecidas para tarjetas.
 - **Ticket 3B.1:** migración `20260516120000_brand_documents_and_storage.sql`; políticas Storage por prefijo `auth.uid()` en la ruta del objeto.
 - **Ticket 3B.2:** migración `20260518120000_brand_document_extractions.sql`; `pdf-parse` (runtime Node en la ruta de extracción); `serverExternalPackages` para el bundler.
+- **Ticket 3B.3:** migración `20260519100000_brand_document_analysis_and_source_facts.sql`; `OPENAI_BRAND_DOCUMENT_ANALYSIS_MODEL` opcional; prompt `brand-document-analysis-v1.1` (incluye `analysis_result` / `no_useful_findings`).
 
 ## Ticket 3B planificado (documentos de marca / material de contexto)
 
 **Hecho (3B.1):** `brand_documents` + bucket `brand-documents` + upload/listado/eliminar.
 
-**Hecho (3B.2):** extracción técnica con `pdf-parse` → `brand_document_extractions`; sincronía de `processing_status`; UI solo estado/resumen (no texto completo). **No** incluye IA, `brand_source_facts`, diagnóstico ni generación.
+**Hecho (3B.2):** extracción técnica con `pdf-parse` → `brand_document_extractions`; sincronía de `processing_status`; UI solo estado/resumen (no texto completo).
 
-**Pendiente (3B.3+):** análisis con IA sobre el texto extraído, tabla `brand_source_facts`, hallazgos por `section_key`, revisión (aprobar / editar / rechazar), y solo aprobados para diagnóstico y bases — **sin** mezclar PDF crudo en generación ni usar datos sin aprobación.
+**Hecho (3B.3):** análisis IA por documento dentro de un batch consolidado; contrato JSON `analysis_result`: `findings_found` | `no_useful_findings` (v1.1); si `no_useful_findings`, `findings` vacío y **no** se insertan filas en `brand_source_facts`; batch puede quedar `succeeded` con `findings_count = 0` (resultado válido, no error). Hallazgos en `brand_source_facts` solo cuando hay contenido útil; límites 5 por `section_key` y 25 total **sin forzar** el máximo; dedupe servidor + facts `approved`; bloqueo si existe `pending_review`; documentos con facts `approved` o `pending_review` omitidos; riesgos/tensiones como `restriction` / `other`. **No:** cola externa, `force`, chat ni preguntas automáticas desde el análisis.
 
-**Criterios futuros (resumen):** clasificación IA; UI por sección; no tocar generación de proyecto ni intake conversacional.
+**Pendiente (3B.4+):** consolidación en bases activas, diagnóstico de marca consumiendo solo `approved` + `brand_responses`, reanálisis explícito, async / polling si hace falta.
+
+**Criterios futuros (resumen):** diagnóstico marca; no tocar generación de proyecto ni intake conversacional hasta alinear fuentes curadas.
 
 ---
 
