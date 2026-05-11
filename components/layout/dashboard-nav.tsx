@@ -10,6 +10,7 @@ export function DashboardNav() {
   const pathname = usePathname();
   const onDashboard = pathname === "/dashboard";
   const onProjects = pathname.startsWith("/projects");
+  const onBrands = pathname.startsWith("/brands");
 
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
@@ -34,6 +35,17 @@ export function DashboardNav() {
           )}
         >
           Mi Limbi
+        </Link>
+        <Link
+          href="/brands"
+          className={cn(
+            "rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35",
+            onBrands
+              ? "bg-limbi-green/[0.08] text-limbi-green shadow-sm ring-1 ring-limbi-green/20"
+              : "text-limbi-muted hover:bg-limbi-bg-soft hover:text-limbi-text",
+          )}
+        >
+          Marcas
         </Link>
         <Link
           href="/projects"

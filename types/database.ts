@@ -1,4 +1,35 @@
-/** Alineado con `supabase/migrations/20260502180000_limbi_product_schema.sql` */
+/** Alineado con migraciones en `supabase/migrations/`. */
+
+export type BrandStatus = "new" | "existing" | "in_progress";
+
+export type BrandOfferNature =
+  | "product"
+  | "service"
+  | "product_service"
+  | "experience_event"
+  | "digital_platform_app_saas"
+  | "organization_institution_cause"
+  | "personal_brand";
+
+export type BrandRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  brand_status: BrandStatus;
+  website_url: string | null;
+  country_or_market: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BrandOfferProfileRow = {
+  id: string;
+  brand_id: string;
+  offer_nature: BrandOfferNature;
+  created_at: string;
+  updated_at: string;
+};
 
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 

@@ -6,11 +6,12 @@ function isProtectedPath(pathname: string): boolean {
     return true;
   if (pathname === "/projects" || pathname.startsWith("/projects/"))
     return true;
+  if (pathname === "/brands" || pathname.startsWith("/brands/")) return true;
   return false;
 }
 
 /**
- * Refresca la sesión de Supabase y protege rutas del dashboard/proyectos.
+ * Refresca la sesión de Supabase y protege rutas del dashboard, marcas y proyectos.
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
