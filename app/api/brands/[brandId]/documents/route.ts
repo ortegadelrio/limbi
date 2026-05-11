@@ -3,7 +3,11 @@ import {
   getAuthenticatedSupabase,
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
-import type { BrandDocumentRow } from "@/types/database";
+import {
+  attachExtractionSummaries,
+  type BrandDocumentExtractionListFields,
+} from "@/lib/brands/brand-document-extraction-summary";
+import type { BrandDocumentListRow, BrandDocumentRow } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string }> };
 
@@ -44,7 +48,24 @@ export async function GET(_request: Request, { params }: Params) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ documents: (data ?? []) as BrandDocumentRow[] });
+  const docs = (data ?? []) as BrandDocumentRow[];
+  const ids = docs.map((d) => d.id);
+  let extractions: BrandDocumentExtractionListFields[] = [];
+  if (ids.length > 0) {
+    const { data: exRows, error: exErr } = await supabase
+      .from("brand_document_extractions")
+      .select(
+        "brand_document_id, extraction_status, page_count, character_count, extraction_metadata, error_message",
+      )
+      .in("brand_document_id", ids);
+    if (exErr) {
+      return NextResponse.json({ error: exErr.message }, { status: 500 });
+    }
+    extractions = (exRows ?? []) as BrandDocumentExtractionListFields[];
+  }
+
+  const merged = attachExtractionSummaries(docs, extractions);
+  return NextResponse.json({ documents: merged as BrandDocumentListRow[] });
 }
 
 export async function POST() {

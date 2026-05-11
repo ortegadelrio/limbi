@@ -154,6 +154,44 @@ export type BrandDocumentRow = {
   updated_at: string;
 };
 
+/** Estados de fila en `brand_document_extractions` (Ticket 3B.2). */
+export type BrandDocumentExtractionStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "succeeded_empty"
+  | "failed";
+
+/** Fila en `brand_document_extractions` (Ticket 3B.2). */
+export type BrandDocumentExtractionRow = {
+  id: string;
+  brand_document_id: string;
+  brand_id: string;
+  extraction_status: BrandDocumentExtractionStatus;
+  extracted_text: string | null;
+  page_count: number | null;
+  character_count: number | null;
+  extraction_metadata: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Resumen devuelto en listados (sin `extracted_text`). */
+export type BrandDocumentExtractionSummary = {
+  extraction_status: BrandDocumentExtractionStatus;
+  page_count: number | null;
+  character_count: number | null;
+  truncated: boolean;
+  /** Mensaje corto (vacío / fallo extracción); no es el texto del PDF. */
+  summary_message: string | null;
+};
+
+/** Documento de marca con resumen de extracción (`GET .../documents`). */
+export type BrandDocumentListRow = BrandDocumentRow & {
+  extraction_summary: BrandDocumentExtractionSummary | null;
+};
+
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 
 export type ProjectStatus =

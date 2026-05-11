@@ -5,7 +5,7 @@ import {
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
 import { completeBrandDocumentUploadSchema } from "@/lib/schemas/brand-document";
-import type { BrandDocumentRow } from "@/types/database";
+import type { BrandDocumentListRow, BrandDocumentRow } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string; documentId: string }> };
 
@@ -106,7 +106,12 @@ export async function POST(request: Request, { params }: Params) {
         { status: 500 },
       );
     }
-    return NextResponse.json({ document: updated as BrandDocumentRow });
+    return NextResponse.json({
+      document: {
+        ...(updated as BrandDocumentRow),
+        extraction_summary: null,
+      } as BrandDocumentListRow,
+    });
   }
 
   const { folder, fileName } = objectNameFromStoragePath(doc.storage_path);
@@ -149,7 +154,10 @@ export async function POST(request: Request, { params }: Params) {
       {
         error:
           "No se encontró el archivo en el almacenamiento. Revisa la conexión o vuelve a subir.",
-        document: failedRow as BrandDocumentRow,
+        document: {
+          ...(failedRow as BrandDocumentRow),
+          extraction_summary: null,
+        } as BrandDocumentListRow,
       },
       { status: 422 },
     );
@@ -175,5 +183,10 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  return NextResponse.json({ document: finalRow as BrandDocumentRow });
+  return NextResponse.json({
+    document: {
+      ...(finalRow as BrandDocumentRow),
+      extraction_summary: null,
+    } as BrandDocumentListRow,
+  });
 }

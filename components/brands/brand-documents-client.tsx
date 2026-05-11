@@ -18,11 +18,12 @@ import {
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   BRAND_DOCUMENT_MAX_BYTES,
+  BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS,
   validatePdfMagicBytesClient,
   validatePdfUploadMetadata,
 } from "@/lib/brands/validate-pdf-upload";
 import { cn } from "@/lib/utils";
-import type { BrandDocumentRow } from "@/types/database";
+import type { BrandDocumentListRow } from "@/types/database";
 
 const BRAND_MATERIAL_CONTEXT_COPY =
   "Sube aquí documentos que ayuden a entender mejor la marca: manuales, briefs, presentaciones, portafolios, estudios o textos institucionales. Limbi los usará como fuente de contexto en etapas posteriores, pero no tomará su contenido como verdad automática sin revisión.";
@@ -32,8 +33,9 @@ const STORAGE_BUCKET = "brand-documents";
 type Props = {
   brandId: string;
   brandName: string;
-  initialDocuments: BrandDocumentRow[];
+  initialDocuments: BrandDocumentListRow[];
   mode?: "standalone" | "embedded";
+  onDocumentsChange?: (docs: BrandDocumentListRow[]) => void;
 };
 
 type UploadErrorJson = {
@@ -44,7 +46,7 @@ type UploadErrorJson = {
 };
 
 type PrepareUploadResponse = {
-  document: BrandDocumentRow;
+  document: BrandDocumentListRow;
   storage_path: string;
   signed_url: string;
   token: string;
@@ -67,11 +69,13 @@ export function BrandDocumentsClient({
   brandName,
   initialDocuments,
   mode = "standalone",
+  onDocumentsChange,
 }: Props) {
   const router = useRouter();
   const [documents, setDocuments] = useState(initialDocuments);
   const [documentType, setDocumentType] = useState<string>("brief");
   const [uploading, setUploading] = useState(false);
+  const [extractingId, setExtractingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,11 +89,12 @@ export function BrandDocumentsClient({
       credentials: "include",
     });
     const j = (await res.json().catch(() => ({}))) as {
-      documents?: BrandDocumentRow[];
+      documents?: BrandDocumentListRow[];
       error?: string;
     };
     if (res.ok && j.documents) {
       setDocuments(j.documents);
+      onDocumentsChange?.(j.documents);
     }
     router.refresh();
   }
@@ -102,6 +107,114 @@ export function BrandDocumentsClient({
       body: JSON.stringify({ status: "failed", error: errorMessage }),
     });
     await refreshList();
+  }
+
+  async function onExtractText(documentId: string) {
+    setError(null);
+    setMessage(null);
+    setExtractingId(documentId);
+    try {
+      const res = await fetch(
+        `/api/brands/${brandId}/documents/${documentId}/extract-text`,
+        { method: "POST", credentials: "include" },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        extraction?: { message?: string };
+      };
+      if (!res.ok) {
+        throw new Error(j.error ?? "No se pudo extraer el texto del PDF.");
+      }
+      setMessage(
+        j.extraction?.message ??
+          "Texto extraído correctamente. Este documento quedó listo para ser analizado en el siguiente paso.",
+      );
+      await refreshList();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Error al leer el documento para su análisis.",
+      );
+      await refreshList();
+    } finally {
+      setExtractingId(null);
+    }
+  }
+
+  function renderExtractionBlock(d: BrandDocumentListRow) {
+    const ex = d.extraction_summary;
+    const isExtracting = extractingId === d.id;
+
+    if (d.processing_status === "processing") {
+      return (
+        <div className="mt-2 flex items-start gap-2 text-xs text-limbi-muted">
+          <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" aria-hidden />
+          <div>
+            <p>Leyendo documento… Esto puede tardar unos segundos según el tamaño del archivo.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (d.processing_status === "ready" && ex?.extraction_status === "succeeded") {
+      const pages = ex.page_count != null ? `${ex.page_count} páginas` : "— páginas";
+      const chars =
+        ex.character_count != null
+          ? `${ex.character_count.toLocaleString("es")} caracteres`
+          : "— caracteres";
+      return (
+        <div className="mt-2 space-y-1 text-xs text-limbi-muted">
+          <p className="font-medium text-[var(--limbi-green)]">Texto extraído</p>
+          <p>
+            {pages} · {chars}
+          </p>
+          <p>Listo para análisis posterior.</p>
+          {ex.truncated ? (
+            <p className="text-amber-700 dark:text-amber-400">
+              Texto truncado para procesamiento (límite{" "}
+              {BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS.toLocaleString("es")} caracteres).
+            </p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (d.processing_status === "ready" && ex?.extraction_status === "succeeded_empty") {
+      return (
+        <div className="mt-2 space-y-1 text-xs leading-relaxed text-limbi-muted">
+          <p className="font-medium text-limbi-text">Sin texto seleccionable</p>
+          <p>
+            {ex.summary_message ??
+              "No se encontró texto seleccionable en este PDF. Puede ser un documento escaneado. El OCR quedará para una versión posterior."}
+          </p>
+        </div>
+      );
+    }
+
+    if (d.processing_status === "failed") {
+      return (
+        <div className="mt-2 space-y-2">
+          <p className="text-xs text-red-600">
+            Error al leer documento
+            {d.processing_error ? `: ${d.processing_error}` : "."}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className={cn(limbiOutlineButtonClass, "gap-1")}
+            disabled={Boolean(extractingId)}
+            onClick={() => void onExtractText(d.id)}
+          >
+            {isExtracting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : null}
+            Reintentar extracción
+          </Button>
+        </div>
+      );
+    }
+
+    return null;
   }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -189,7 +302,7 @@ export function BrandDocumentsClient({
         },
       );
       const cj = (await comp.json().catch(() => ({}))) as UploadErrorJson & {
-        document?: BrandDocumentRow;
+        document?: BrandDocumentListRow;
       };
       if (!comp.ok) {
         console.warn("[Limbi brand-documents] complete-upload error", {
@@ -200,8 +313,13 @@ export function BrandDocumentsClient({
         throw new Error(formatUploadError(cj, "No se pudo completar la subida."));
       }
 
-      setMessage("Documento subido. Puedes añadir otro PDF cuando quieras.");
+      setMessage(
+        "Documento subido. Limbi está leyendo el PDF para preparar el análisis posterior.",
+      );
       await refreshList();
+      if (documentId) {
+        void onExtractText(documentId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al subir.");
     } finally {
@@ -304,6 +422,7 @@ export function BrandDocumentsClient({
               <input
                 type="file"
                 accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
+                id="brand-material-upload-input"
                 className="sr-only"
                 disabled={uploading}
                 onChange={(ev) => void onUpload(ev)}
@@ -333,9 +452,9 @@ export function BrandDocumentsClient({
             {documents.map((d) => (
               <li
                 key={d.id}
-                className="flex flex-col gap-2 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-limbi-text">{d.file_name}</p>
                   <p className="text-xs text-limbi-muted">
                     {brandDocumentTypeLabelEs(d.document_type)} ·{" "}
@@ -344,7 +463,8 @@ export function BrandDocumentsClient({
                       ? ` · ${(d.file_size_bytes / 1024).toFixed(0)} KB`
                       : null}
                   </p>
-                  {d.processing_error ? (
+                  {renderExtractionBlock(d)}
+                  {d.processing_error && d.processing_status !== "failed" ? (
                     <p className="mt-1 text-xs text-red-600">{d.processing_error}</p>
                   ) : null}
                 </div>
@@ -352,7 +472,7 @@ export function BrandDocumentsClient({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={cn(limbiOutlineButtonClass, "shrink-0 gap-1")}
+                  className={cn(limbiOutlineButtonClass, "shrink-0 gap-1 self-start")}
                   disabled={deletingId === d.id}
                   onClick={() => void onDelete(d.id)}
                 >

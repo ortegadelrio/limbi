@@ -15,14 +15,6 @@ const TYPE_LABELS: Record<BrandDocumentType, string> = {
   other: "Otro",
 };
 
-const STATUS_LABELS: Record<BrandDocumentProcessingStatus, string> = {
-  pending: "Pendiente",
-  uploaded: "Subido",
-  processing: "Procesando",
-  ready: "Listo",
-  failed: "Error",
-};
-
 export function brandDocumentTypeLabelEs(t: BrandDocumentType): string {
   return TYPE_LABELS[t] ?? t;
 }
@@ -30,14 +22,18 @@ export function brandDocumentTypeLabelEs(t: BrandDocumentType): string {
 export function brandDocumentStatusLabelEs(
   s: BrandDocumentProcessingStatus,
 ): string {
-  return STATUS_LABELS[s] ?? s;
+  if (s === "pending") return "Subida no completada";
+  if (s === "uploaded") return "Cargado · pendiente de lectura";
+  if (s === "processing") return "Leyendo documento…";
+  if (s === "ready") return "Texto extraído";
+  if (s === "failed") return "Error";
+  return s;
 }
 
 /** Etiqueta en listas de documentos (pending = subida no finalizada). */
 export function brandDocumentListStatusLabelEs(
   s: BrandDocumentProcessingStatus,
 ): string {
-  if (s === "pending") return "Subida no completada";
   return brandDocumentStatusLabelEs(s);
 }
 

@@ -9,6 +9,7 @@ type Props = {
   activeIndex: number;
   onSelectSection: (index: number) => void;
   disabled?: boolean;
+  materialContextDocumentCount?: number;
 };
 
 export function BrandQuestionSectionNav({
@@ -16,6 +17,7 @@ export function BrandQuestionSectionNav({
   activeIndex,
   onSelectSection,
   disabled,
+  materialContextDocumentCount,
 }: Props) {
   return (
     <nav aria-label="Secciones del cuestionario" className="space-y-2">
@@ -26,6 +28,10 @@ export function BrandQuestionSectionNav({
         {sections.map((s, idx) => {
           const label = brandQuestionnaireSectionLabelEs(s.section_key);
           const active = idx === activeIndex;
+          const isMaterialContext = s.section_key === "material_context";
+          const count = isMaterialContext && materialContextDocumentCount != null
+            ? materialContextDocumentCount
+            : s.questions.length;
           return (
             <li key={s.section_key}>
               <button
@@ -44,7 +50,7 @@ export function BrandQuestionSectionNav({
                 </span>
                 {label}
                 <span className="ml-1 text-xs text-limbi-muted">
-                  ({s.questions.length})
+                  ({count})
                 </span>
               </button>
             </li>

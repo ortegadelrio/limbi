@@ -53,19 +53,24 @@ export default async function BrandDetailPage({ params }: Props) {
     throw new Error(docErr.message);
   }
 
-  const docStats = { total: 0, uploaded: 0, pending: 0, failed: 0 };
+  const docStats = {
+    total: 0,
+    uploaded: 0,
+    pending: 0,
+    processing: 0,
+    ready: 0,
+    failed: 0,
+  };
   for (const row of docRows ?? []) {
     docStats.total += 1;
     const s = row.processing_status;
     if (s === "uploaded") docStats.uploaded += 1;
     else if (s === "pending") docStats.pending += 1;
+    else if (s === "processing") docStats.processing += 1;
+    else if (s === "ready") docStats.ready += 1;
     else if (s === "failed") docStats.failed += 1;
   }
-  const docOtherCount =
-    docStats.total -
-    docStats.uploaded -
-    docStats.pending -
-    docStats.failed;
+  const pendingForReading = docStats.uploaded + docStats.pending;
 
   const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
 
@@ -145,15 +150,34 @@ export default async function BrandDetailPage({ params }: Props) {
             <p className="text-sm text-limbi-muted">
               {docStats.total}{" "}
               {docStats.total === 1 ? "documento subido" : "documentos subidos"} ·{" "}
-              {docStats.uploaded} {docStats.uploaded === 1 ? "cargado" : "cargados"} ·{" "}
-              {docStats.pending}{" "}
-              {docStats.pending === 1 ? "pendiente" : "pendientes"} · {docStats.failed}{" "}
-              {docStats.failed === 1 ? "con error" : "con error"}
-              {docOtherCount > 0
-                ? ` · ${docOtherCount} ${
-                    docOtherCount === 1 ? "en otro estado" : "en otros estados"
-                  }`
-                : null}
+              {[
+                docStats.ready > 0
+                  ? `${docStats.ready} ${
+                      docStats.ready === 1 ? "con texto extraído" : "con texto extraído"
+                    }`
+                  : null,
+                pendingForReading > 0
+                  ? `${pendingForReading} ${
+                      pendingForReading === 1
+                        ? "pendiente de lectura"
+                        : "pendientes de lectura"
+                    }`
+                  : null,
+                docStats.processing > 0
+                  ? `${docStats.processing} ${
+                      docStats.processing === 1
+                        ? "leyendo documento"
+                        : "leyendo documentos"
+                    }`
+                  : null,
+                docStats.failed > 0
+                  ? `${docStats.failed} ${
+                      docStats.failed === 1 ? "con error" : "con error"
+                    }`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
           <Button className={limbiPrimaryButtonClass} asChild>

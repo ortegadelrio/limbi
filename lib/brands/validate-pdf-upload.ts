@@ -1,6 +1,9 @@
 /** Límite alineado con `file_size_limit` del bucket en migración (25 MiB). */
 export const BRAND_DOCUMENT_MAX_BYTES = 25 * 1024 * 1024;
 
+/** Límite de caracteres guardados tras extracción PDF (Ticket 3B.2). */
+export const BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS = 500_000;
+
 const PDF_INVALID_MESSAGE =
   "El archivo debe ser un PDF válido. Si lo exportaste desde otra plataforma, intenta descargarlo de nuevo como PDF y volver a subirlo.";
 

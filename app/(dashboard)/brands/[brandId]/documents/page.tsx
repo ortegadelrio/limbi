@@ -1,7 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { BrandDocumentsClient } from "@/components/brands/brand-documents-client";
+import {
+  attachExtractionSummaries,
+  type BrandDocumentExtractionListFields,
+} from "@/lib/brands/brand-document-extraction-summary";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { BrandDocumentRow } from "@/types/database";
+import type { BrandDocumentListRow, BrandDocumentRow } from "@/types/database";
 
 type Props = { params: Promise<{ brandId: string }> };
 
@@ -37,11 +41,29 @@ export default async function BrandDocumentsPage({ params }: Props) {
     throw new Error(docsError.message);
   }
 
+  const docRows = (docs ?? []) as BrandDocumentRow[];
+  const ids = docRows.map((d) => d.id);
+  let extractions: BrandDocumentExtractionListFields[] = [];
+  if (ids.length > 0) {
+    const { data: exRows, error: exError } = await supabase
+      .from("brand_document_extractions")
+      .select(
+        "brand_document_id, extraction_status, page_count, character_count, extraction_metadata, error_message",
+      )
+      .in("brand_document_id", ids);
+    if (exError) {
+      throw new Error(exError.message);
+    }
+    extractions = (exRows ?? []) as BrandDocumentExtractionListFields[];
+  }
+
+  const listRows = attachExtractionSummaries(docRows, extractions);
+
   return (
     <BrandDocumentsClient
       brandId={brandId}
       brandName={brand.name}
-      initialDocuments={(docs ?? []) as BrandDocumentRow[]}
+      initialDocuments={listRows as BrandDocumentListRow[]}
       mode="standalone"
     />
   );

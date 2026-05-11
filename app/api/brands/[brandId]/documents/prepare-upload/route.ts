@@ -9,7 +9,7 @@ import {
   normalizeClientMimeType,
   validatePdfUploadMetadata,
 } from "@/lib/brands/validate-pdf-upload";
-import type { BrandDocumentRow } from "@/types/database";
+import type { BrandDocumentListRow, BrandDocumentRow } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string }> };
 
@@ -122,7 +122,10 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   return NextResponse.json({
-    document: docRow as BrandDocumentRow,
+    document: {
+      ...(docRow as BrandDocumentRow),
+      extraction_summary: null,
+    } as BrandDocumentListRow,
     storage_path: storagePath,
     signed_url: signed.signedUrl,
     token: signed.token,

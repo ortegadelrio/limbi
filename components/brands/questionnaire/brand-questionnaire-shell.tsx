@@ -29,7 +29,7 @@ import {
 } from "@/lib/questions/get-brand-question-definitions";
 import { cn } from "@/lib/utils";
 import type {
-  BrandDocumentRow,
+  BrandDocumentListRow,
   BrandOfferNature,
   BrandResponseAnswerType,
   BrandResponseRow,
@@ -54,7 +54,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
   const [offerNature, setOfferNature] = useState<BrandOfferNature | null>(null);
   const [definitions, setDefinitions] = useState<QuestionDefinitionRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, BrandAnswerDraft>>({});
-  const [brandDocuments, setBrandDocuments] = useState<BrandDocumentRow[]>([]);
+  const [brandDocuments, setBrandDocuments] = useState<BrandDocumentListRow[]>([]);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -174,7 +174,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
         });
         if (!cancelled && docsRes.ok) {
           const docsJson = (await docsRes.json().catch(() => ({}))) as {
-            documents?: BrandDocumentRow[];
+            documents?: BrandDocumentListRow[];
           };
           setBrandDocuments(docsJson.documents ?? []);
         }
@@ -193,6 +193,9 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
 
   const activeSection = extendedSections[activeSectionIndex];
   const onMaterialStep = activeSection?.section_key === "material_context";
+  const hasProcessingDocument = brandDocuments.some(
+    (d) => d.processing_status === "processing",
+  );
 
   const selectSection = useCallback(
     (index: number) => {
@@ -348,6 +351,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           activeIndex={activeSectionIndex}
           onSelectSection={selectSection}
           disabled={saving}
+          materialContextDocumentCount={brandDocuments.length}
         />
       </aside>
       <div className="min-w-0 flex-1 space-y-6">
@@ -414,6 +418,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
                 brandName={brandName ?? "Marca"}
                 initialDocuments={brandDocuments}
                 mode="embedded"
+                onDocumentsChange={(docs) => setBrandDocuments(docs)}
               />
             ) : (
               <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
@@ -438,19 +443,40 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
               </Card>
             )}
             {onMaterialStep ? (
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="button"
-                  className={limbiPrimaryButtonClass}
-                  onClick={() => {
-                    setShowCompletionCelebration(true);
-                    router.replace(`/brands/${brandId}/questionnaire`, {
-                      scroll: false,
-                    });
-                  }}
-                >
-                  Continuar
-                </Button>
+              <div className="space-y-3">
+                {hasProcessingDocument ? (
+                  <p className="text-xs text-limbi-muted">
+                    Puedes volver a la marca. La lectura del documento continuará y el estado se
+                    actualizará cuando esté lista.
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    className={limbiPrimaryButtonClass}
+                    onClick={() => {
+                      setShowCompletionCelebration(true);
+                      router.replace(`/brands/${brandId}`, {
+                        scroll: false,
+                      });
+                    }}
+                  >
+                    Terminar y volver a la marca
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={limbiOutlineButtonClass}
+                    onClick={() => {
+                      const input = document.querySelector<HTMLInputElement>(
+                        "#brand-material-upload-input",
+                      );
+                      input?.click();
+                    }}
+                  >
+                    Subir otro documento
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-wrap gap-3">
