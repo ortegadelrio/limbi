@@ -54,6 +54,18 @@ type UploadErrorJson = {
   detail?: string;
 };
 
+type MaterialEmbeddedPhase =
+  | "preparing"
+  | "pending_review"
+  | "analyzing"
+  | "empty_findings"
+  | "no_docs"
+  | "uploading"
+  | "reading"
+  | "uploaded_pending"
+  | "ready_analyze"
+  | "waiting_docs";
+
 type PrepareUploadResponse = {
   document: BrandDocumentListRow;
   storage_path: string;
@@ -116,6 +128,38 @@ export function BrandDocumentsClient({
       ).length,
     [documents],
   );
+
+  const materialEmbeddedPhase = useMemo((): MaterialEmbeddedPhase | null => {
+    if (mode !== "embedded") return null;
+    if (checkingPending) return "preparing";
+    if (hasPendingReview) return "pending_review";
+    if (analyzingDocuments) return "analyzing";
+    if (analysisEmptyUseful) return "empty_findings";
+    if (documents.length === 0 && !uploading) return "no_docs";
+    if (uploading) return "uploading";
+    const reading =
+      extractingId !== null ||
+      documents.some((d) => d.processing_status === "processing");
+    if (reading) return "reading";
+    const uploadedPending = documents.some(
+      (d) =>
+        d.processing_status === "uploaded" ||
+        d.processing_status === "pending",
+    );
+    if (uploadedPending) return "uploaded_pending";
+    if (readyForAnalysisCount > 0) return "ready_analyze";
+    return "waiting_docs";
+  }, [
+    mode,
+    checkingPending,
+    hasPendingReview,
+    analyzingDocuments,
+    analysisEmptyUseful,
+    documents,
+    uploading,
+    extractingId,
+    readyForAnalysisCount,
+  ]);
 
   useEffect(() => {
     setDocuments(initialDocuments);
@@ -349,8 +393,8 @@ export function BrandDocumentsClient({
     if (d.processing_status === "failed") {
       return (
         <div className="mt-2 space-y-2">
-          <p className="text-xs text-red-600">
-            Error al leer documento
+          <p className="text-xs font-medium text-red-600">
+            No se pudo leer
             {d.processing_error ? `: ${d.processing_error}` : "."}
           </p>
           <Button
@@ -514,6 +558,106 @@ export function BrandDocumentsClient({
 
   const embedded = mode === "embedded";
 
+  function triggerMaterialUploadClick() {
+    document.getElementById("brand-material-upload-input")?.click();
+  }
+
+  const documentsListSection = (
+    <div className={cn(limbiDocumentCardClass, "p-6 sm:p-8")}>
+      <h3 className="text-sm font-semibold text-limbi-text">Documentos subidos</h3>
+      {documents.length === 0 ? (
+        <p className="mt-3 text-sm text-limbi-muted">
+          Todavía no hay documentos. Sube un PDF para empezar; luego puedes añadir más.
+        </p>
+      ) : (
+        <ul className="mt-4 divide-y divide-limbi-border">
+          {documents.map((d) => (
+            <li
+              key={d.id}
+              className="flex flex-col gap-2 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-limbi-text">{d.file_name}</p>
+                <p className="text-xs text-limbi-muted">
+                  {brandDocumentTypeLabelEs(d.document_type)} ·{" "}
+                  {brandDocumentListStatusLabelEs(d.processing_status)}
+                  {d.file_size_bytes != null
+                    ? ` · ${(d.file_size_bytes / 1024).toFixed(0)} KB`
+                    : null}
+                </p>
+                {renderExtractionBlock(d)}
+                {d.processing_error && d.processing_status !== "failed" ? (
+                  <p className="mt-1 text-xs text-red-600">{d.processing_error}</p>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(limbiOutlineButtonClass, "shrink-0 gap-1 self-start")}
+                disabled={deletingId === d.id}
+                onClick={() => void onDelete(d.id)}
+              >
+                {deletingId === d.id ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="size-4" aria-hidden />
+                )}
+                Eliminar
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  const embeddedMaterialUploadControls = (
+    <>
+      <div className="space-y-2">
+        <label htmlFor="doc-type" className="text-sm font-medium text-limbi-text">
+          Tipo de documento
+        </label>
+        <select
+          id="doc-type"
+          value={documentType}
+          onChange={(e) => setDocumentType(e.target.value)}
+          disabled={uploading}
+          className="flex h-10 w-full rounded-xl border border-limbi-border bg-limbi-surface px-3 py-2 text-sm text-limbi-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35"
+        >
+          {BRAND_DOCUMENT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="text-xs text-limbi-muted">
+        Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Solo PDF.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          className={cn(limbiPrimaryButtonClass, "relative")}
+          disabled={uploading}
+          asChild
+        >
+          <label
+            htmlFor="brand-material-upload-input"
+            className="inline-flex cursor-pointer items-center gap-2"
+          >
+            {uploading ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <Upload className="size-4" aria-hidden />
+            )}
+            Subir documentos
+          </label>
+        </Button>
+      </div>
+    </>
+  );
+
   const inner = (
     <div className="space-y-6">
       {!embedded ? (
@@ -544,188 +688,371 @@ export function BrandDocumentsClient({
         </div>
       )}
 
-      <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
-        <h3 className="text-sm font-semibold text-limbi-text">Análisis de documentos</h3>
-        {checkingPending ? (
-          <p className="text-xs text-limbi-muted">Comprobando hallazgos pendientes…</p>
-        ) : hasPendingReview ? (
-          <div className="space-y-3">
-            <p className="text-sm text-limbi-muted">
-              Tienes hallazgos pendientes de revisión. Revísalos antes de lanzar un nuevo
-              análisis.
+      {embedded && materialEmbeddedPhase ? (
+        <>
+          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-limbi-muted">
+              {materialEmbeddedPhase === "preparing"
+                ? "Preparando"
+                : materialEmbeddedPhase === "pending_review"
+                  ? "Revisión"
+                  : materialEmbeddedPhase === "analyzing"
+                    ? "Análisis"
+                    : materialEmbeddedPhase === "empty_findings"
+                      ? "Resultado"
+                      : materialEmbeddedPhase === "no_docs"
+                        ? "Documentos"
+                        : materialEmbeddedPhase === "uploading"
+                          ? "Subida"
+                          : materialEmbeddedPhase === "reading"
+                            ? "Lectura"
+                            : materialEmbeddedPhase === "uploaded_pending"
+                              ? "Documento"
+                              : materialEmbeddedPhase === "ready_analyze"
+                                ? "Listo"
+                                : "Documentos"}
             </p>
-            <Button className={limbiPrimaryButtonClass} asChild>
-              <Link href={`/brands/${brandId}/source-facts`}>Revisar hallazgos pendientes</Link>
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm leading-relaxed text-limbi-muted">
-              Limbi revisará todos los documentos con texto extraído y propondrá hallazgos
-              por sección para que decidas qué incluir en la Base de Marca.
-            </p>
-            {readyForAnalysisCount > 0 ? (
-              <p className="text-sm font-medium text-limbi-text">
-                {readyForAnalysisCount}{" "}
-                {readyForAnalysisCount === 1
-                  ? "documento listo para análisis"
-                  : "documentos listos para análisis"}
-              </p>
-            ) : (
+            {materialEmbeddedPhase === "preparing" ? (
               <p className="text-sm text-limbi-muted">
-                Aún no hay documentos con texto extraído listo para analizar.
-              </p>
-            )}
-            {nonSelectableReadyCount > 0 ? (
-              <p className="text-xs text-limbi-muted">
-                {nonSelectableReadyCount}{" "}
-                {nonSelectableReadyCount === 1
-                  ? "documento no tiene texto seleccionable y no podrá analizarse todavía."
-                  : "documentos no tienen texto seleccionable y no podrán analizarse todavía."}
+                Comprobando si hay hallazgos pendientes…
               </p>
             ) : null}
-            <Button
-              type="button"
-              className={cn(limbiPrimaryButtonClass, "inline-flex items-center gap-2")}
-              disabled={
-                analyzingDocuments ||
-                readyForAnalysisCount === 0 ||
-                Boolean(uploading) ||
-                Boolean(extractingId)
-              }
-              onClick={() => void onAnalyzeDocuments()}
-            >
-              {analyzingDocuments ? (
-                <>
+            {materialEmbeddedPhase === "pending_review" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">
+                  Hay información sugerida esperando tu revisión
+                </h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Revisa y aprueba o descarta los hallazgos antes de lanzar un nuevo análisis.
+                </p>
+                <Button className={limbiPrimaryButtonClass} asChild>
+                  <Link href={`/brands/${brandId}/source-facts`}>
+                    Revisar hallazgos
+                  </Link>
+                </Button>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "analyzing" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">
+                  Limbi está analizando los documentos
+                </h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Esto puede tardar según el número y tamaño de los PDF.
+                </p>
+                <Button
+                  type="button"
+                  className={cn(limbiPrimaryButtonClass, "pointer-events-none opacity-80")}
+                  disabled
+                >
+                  <Loader2 className="mr-2 size-4 shrink-0 animate-spin" aria-hidden />
+                  Analizando…
+                </Button>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "empty_findings" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">
+                  Sin hallazgos nuevos
+                </h3>
+                <p className="text-sm text-limbi-text">{BRAND_ANALYSIS_NO_USEFUL_PRIMARY}</p>
+                <p className="text-xs leading-relaxed text-limbi-muted">
+                  {BRAND_ANALYSIS_NO_USEFUL_HINT}
+                </p>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "no_docs" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Sin documentos</h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Este paso es opcional. Puedes continuar sin documentos.
+                </p>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "uploading" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Subiendo documento</h3>
+                <p className="text-sm text-limbi-muted">
+                  Espera un momento mientras se guarda el archivo…
+                </p>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "reading" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Leyendo documento</h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Este paso prepara el análisis. No necesitas hacer nada.
+                </p>
+                <div className="flex items-center gap-2 text-sm text-limbi-muted">
                   <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-                  Limbi está analizando los documentos…
-                </>
-              ) : (
-                "Analizar documentos"
-              )}
-            </Button>
-            {analyzingDocuments ? (
-              <p className="text-xs text-limbi-muted">
-                Limbi está analizando los documentos y comparándolos con la información de la
-                marca… Esto puede tardar según el número y tamaño de los PDF.
-              </p>
+                  Extrayendo texto del PDF…
+                </div>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "uploaded_pending" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Documento subido</h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Limbi está preparando la lectura del archivo…
+                </p>
+                <div className="flex items-center gap-2 text-sm text-limbi-muted">
+                  <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                  En cola de lectura
+                </div>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "ready_analyze" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Documento leído</h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Limbi puede revisar los documentos y proponerte hallazgos para aprobación.
+                </p>
+                <Button
+                  type="button"
+                  className={cn(limbiPrimaryButtonClass, "inline-flex items-center gap-2")}
+                  disabled={
+                    analyzingDocuments ||
+                    readyForAnalysisCount === 0 ||
+                    Boolean(uploading) ||
+                    Boolean(extractingId)
+                  }
+                  onClick={() => void onAnalyzeDocuments()}
+                >
+                  Analizar documentos
+                </Button>
+              </>
+            ) : null}
+            {materialEmbeddedPhase === "waiting_docs" ? (
+              <>
+                <h3 className="text-base font-semibold text-limbi-text">Tus documentos</h3>
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Cuando haya texto extraído listo, podrás pedir un análisis. Si un archivo falló,
+                  puedes reintentar la lectura o eliminarlo desde la lista.
+                </p>
+                {nonSelectableReadyCount > 0 ? (
+                  <p className="text-xs text-limbi-muted">
+                    {nonSelectableReadyCount}{" "}
+                    {nonSelectableReadyCount === 1
+                      ? "documento no tiene texto seleccionable y no podrá analizarse todavía."
+                      : "documentos no tienen texto seleccionable y no podrán analizarse todavía."}
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </div>
-        )}
-      </div>
 
-      <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
-        <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
-        <div className="space-y-2">
-          <label htmlFor="doc-type" className="text-sm font-medium text-limbi-text">
-            Tipo de documento
-          </label>
-          <select
-            id="doc-type"
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value)}
+          {(materialEmbeddedPhase === "no_docs" ||
+            materialEmbeddedPhase === "uploading") && (
+            <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+              <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
+              {embeddedMaterialUploadControls}
+            </div>
+          )}
+
+          {materialEmbeddedPhase !== "no_docs" &&
+            materialEmbeddedPhase !== "uploading" && (
+              <div
+                className={cn(
+                  limbiDocumentCardClass,
+                  "flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5",
+                )}
+              >
+                <p className="text-sm text-limbi-muted">¿Quieres añadir otro PDF?</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={limbiOutlineButtonClass}
+                  disabled={uploading}
+                  onClick={triggerMaterialUploadClick}
+                >
+                  {uploading ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="size-4" aria-hidden />
+                  )}
+                  Subir otro PDF
+                </Button>
+              </div>
+            )}
+
+          <input
+            type="file"
+            accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
+            id="brand-material-upload-input"
+            className="sr-only"
             disabled={uploading}
-            className="flex h-10 w-full rounded-xl border border-limbi-border bg-limbi-surface px-3 py-2 text-sm text-limbi-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35"
-          >
-            {BRAND_DOCUMENT_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p className="text-xs text-limbi-muted">
-          Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Puedes subir varios
-          PDFs; cada uno aparecerá en la lista con su propio estado.
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            className={cn(limbiPrimaryButtonClass, "relative")}
-            disabled={uploading}
-            asChild
-          >
-            <label className="inline-flex cursor-pointer items-center gap-2">
-              {uploading ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Upload className="size-4" aria-hidden />
-              )}
-              Elegir PDF
-              <input
-                type="file"
-                accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
-                id="brand-material-upload-input"
-                className="sr-only"
+            onChange={(ev) => void onUpload(ev)}
+          />
+        </>
+      ) : (
+        <>
+          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+            <h3 className="text-sm font-semibold text-limbi-text">Análisis de documentos</h3>
+            {checkingPending ? (
+              <p className="text-xs text-limbi-muted">Comprobando hallazgos pendientes…</p>
+            ) : hasPendingReview ? (
+              <div className="space-y-3">
+                <p className="text-sm text-limbi-muted">
+                  Tienes hallazgos pendientes de revisión. Revísalos antes de lanzar un nuevo
+                  análisis.
+                </p>
+                <Button className={limbiPrimaryButtonClass} asChild>
+                  <Link href={`/brands/${brandId}/source-facts`}>
+                    Revisar hallazgos pendientes
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm leading-relaxed text-limbi-muted">
+                  Limbi revisará todos los documentos con texto extraído y propondrá hallazgos
+                  por sección para que decidas qué incluir en la Base de Marca.
+                </p>
+                {readyForAnalysisCount > 0 ? (
+                  <p className="text-sm font-medium text-limbi-text">
+                    {readyForAnalysisCount}{" "}
+                    {readyForAnalysisCount === 1
+                      ? "documento listo para análisis"
+                      : "documentos listos para análisis"}
+                  </p>
+                ) : (
+                  <p className="text-sm text-limbi-muted">
+                    Aún no hay documentos con texto extraído listo para analizar.
+                  </p>
+                )}
+                {nonSelectableReadyCount > 0 ? (
+                  <p className="text-xs text-limbi-muted">
+                    {nonSelectableReadyCount}{" "}
+                    {nonSelectableReadyCount === 1
+                      ? "documento no tiene texto seleccionable y no podrá analizarse todavía."
+                      : "documentos no tienen texto seleccionable y no podrán analizarse todavía."}
+                  </p>
+                ) : null}
+                <Button
+                  type="button"
+                  className={cn(limbiPrimaryButtonClass, "inline-flex items-center gap-2")}
+                  disabled={
+                    analyzingDocuments ||
+                    readyForAnalysisCount === 0 ||
+                    Boolean(uploading) ||
+                    Boolean(extractingId)
+                  }
+                  onClick={() => void onAnalyzeDocuments()}
+                >
+                  {analyzingDocuments ? (
+                    <>
+                      <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                      Limbi está analizando los documentos…
+                    </>
+                  ) : (
+                    "Analizar documentos"
+                  )}
+                </Button>
+                {analyzingDocuments ? (
+                  <p className="text-xs text-limbi-muted">
+                    Limbi está analizando los documentos y comparándolos con la información de la
+                    marca… Esto puede tardar según el número y tamaño del PDF.
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+            <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
+            <div className="space-y-2">
+              <label htmlFor="doc-type" className="text-sm font-medium text-limbi-text">
+                Tipo de documento
+              </label>
+              <select
+                id="doc-type"
+                value={documentType}
+                onChange={(e) => setDocumentType(e.target.value)}
                 disabled={uploading}
-                onChange={(ev) => void onUpload(ev)}
-              />
-            </label>
-          </Button>
-        </div>
-      </div>
+                className="flex h-10 w-full rounded-xl border border-limbi-border bg-limbi-surface px-3 py-2 text-sm text-limbi-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35"
+              >
+                {BRAND_DOCUMENT_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-limbi-muted">
+              Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Puedes subir varios
+              PDFs; cada uno aparecerá en la lista con su propio estado.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                className={cn(limbiPrimaryButtonClass, "relative")}
+                disabled={uploading}
+                asChild
+              >
+                <label className="inline-flex cursor-pointer items-center gap-2">
+                  {uploading ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="size-4" aria-hidden />
+                  )}
+                  Elegir PDF
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
+                    id="brand-material-upload-input"
+                    className="sr-only"
+                    disabled={uploading}
+                    onChange={(ev) => void onUpload(ev)}
+                  />
+                </label>
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
 
       {error ? (
-        <p className="whitespace-pre-wrap text-sm text-red-600" role="alert">
-          {error}
-        </p>
+        <div
+          className={cn(
+            limbiDocumentCardClass,
+            "space-y-3 border-red-200/80 bg-red-50/50 p-4 dark:border-red-900/50 dark:bg-red-950/20",
+          )}
+          role="alert"
+        >
+          <h3 className="text-sm font-semibold text-red-800 dark:text-red-200">
+            No se pudo completar la acción
+          </h3>
+          <p className="whitespace-pre-wrap text-sm text-red-700 dark:text-red-300">{error}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={limbiOutlineButtonClass}
+              onClick={() => {
+                setError(null);
+                triggerMaterialUploadClick();
+              }}
+            >
+              Intentar subir de nuevo
+            </Button>
+          </div>
+        </div>
       ) : null}
-      {analysisEmptyUseful ? (
+      {!embedded && analysisEmptyUseful ? (
         <div className="space-y-2 rounded-xl border border-limbi-border bg-limbi-bg-soft/60 p-4">
           <p className="text-sm font-medium text-limbi-text">{BRAND_ANALYSIS_NO_USEFUL_PRIMARY}</p>
           <p className="text-xs leading-relaxed text-limbi-muted">{BRAND_ANALYSIS_NO_USEFUL_HINT}</p>
         </div>
-      ) : message ? (
+      ) : null}
+      {!embedded && message ? (
+        <p className="text-sm text-[var(--limbi-green)]">{message}</p>
+      ) : null}
+      {embedded && message && materialEmbeddedPhase !== "empty_findings" ? (
         <p className="text-sm text-[var(--limbi-green)]">{message}</p>
       ) : null}
 
-      <div className={cn(limbiDocumentCardClass, "p-6 sm:p-8")}>
-        <h3 className="text-sm font-semibold text-limbi-text">Documentos subidos</h3>
-        {documents.length === 0 ? (
-          <p className="mt-3 text-sm text-limbi-muted">
-            Todavía no hay documentos. Sube un PDF para empezar; luego puedes añadir más.
-          </p>
-        ) : (
-          <ul className="mt-4 divide-y divide-limbi-border">
-            {documents.map((d) => (
-              <li
-                key={d.id}
-                className="flex flex-col gap-2 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-limbi-text">{d.file_name}</p>
-                  <p className="text-xs text-limbi-muted">
-                    {brandDocumentTypeLabelEs(d.document_type)} ·{" "}
-                    {brandDocumentListStatusLabelEs(d.processing_status)}
-                    {d.file_size_bytes != null
-                      ? ` · ${(d.file_size_bytes / 1024).toFixed(0)} KB`
-                      : null}
-                  </p>
-                  {renderExtractionBlock(d)}
-                  {d.processing_error && d.processing_status !== "failed" ? (
-                    <p className="mt-1 text-xs text-red-600">{d.processing_error}</p>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={cn(limbiOutlineButtonClass, "shrink-0 gap-1 self-start")}
-                  disabled={deletingId === d.id}
-                  onClick={() => void onDelete(d.id)}
-                >
-                  {deletingId === d.id ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <Trash2 className="size-4" aria-hidden />
-                  )}
-                  Eliminar
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {documentsListSection}
     </div>
   );
 

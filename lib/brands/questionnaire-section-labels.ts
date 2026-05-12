@@ -27,5 +27,11 @@ const LABELS: Record<string, string> = {
 };
 
 export function brandQuestionnaireSectionLabelEs(sectionKey: string): string {
-  return LABELS[sectionKey] ?? sectionKey;
+  const k = sectionKey?.trim() ?? "";
+  if (!k) return "";
+  if (LABELS[k]) return LABELS[k]!;
+  return k
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }

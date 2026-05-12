@@ -35,6 +35,10 @@ export function BrandQuestionSectionNav({
               : isMaterialContext && materialContextDocumentCount != null
                 ? materialContextDocumentCount
                 : s.questions.length;
+          const showCountSuffix = !(
+            (s.isOfferInventory || s.isMaterialContext) &&
+            count === 0
+          );
           return (
             <li key={`${s.section_key}-${idx}`}>
               <button
@@ -52,9 +56,11 @@ export function BrandQuestionSectionNav({
                   {idx + 1}.
                 </span>
                 {label}
-                <span className="ml-1 text-xs text-limbi-muted">
-                  ({count})
-                </span>
+                {showCountSuffix ? (
+                  <span className="ml-1 text-xs text-limbi-muted">
+                    ({count})
+                  </span>
+                ) : null}
               </button>
             </li>
           );

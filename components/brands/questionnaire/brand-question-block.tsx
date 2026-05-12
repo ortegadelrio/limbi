@@ -2,6 +2,7 @@
 
 import type { QuestionDefinitionRow } from "@/types/database";
 import type { BrandAnswerDraft } from "@/lib/brand-answers/serialize-parse";
+import { orderedOptionsForQuestionnaireUi } from "@/lib/brands/questionnaire-choice-option-order";
 import { applyExclusiveMultiChoiceRules } from "@/lib/brands/exclusive-multi-choice";
 import { BrandChoiceOptionGrid } from "@/components/brands/questionnaire/brand-choice-option-grid";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,11 @@ export function BrandQuestionBlock({
   const { question_text, help_text, answer_type, options, is_required } =
     definition;
 
+  const choiceOptions = orderedOptionsForQuestionnaireUi(
+    definition.question_key,
+    options,
+  );
+
   const labelId = `q-${definition.question_key}`;
 
   const unsupported = (
@@ -32,9 +38,9 @@ export function BrandQuestionBlock({
     </p>
   );
 
-  const hasChoiceOptions = options.length > 0;
+  const hasChoiceOptions = choiceOptions.length > 0;
   const isLimbicSection = definition.section_key === "brand_limbic_base";
-  const hasOtherOption = options.some((o) => o.value === "other");
+  const hasOtherOption = choiceOptions.some((o) => o.value === "other");
   const multiDraft = draft.kind === "multi_choice" ? draft : null;
   const showOtherField =
     answer_type === "multi_choice" &&
@@ -105,7 +111,7 @@ export function BrandQuestionBlock({
       {answer_type === "single_choice" && hasChoiceOptions ? (
         <BrandChoiceOptionGrid
           mode="single"
-          options={options}
+          options={choiceOptions}
           selectedValues={
             draft.kind === "single_choice" && draft.value
               ? [draft.value]
@@ -141,14 +147,14 @@ export function BrandQuestionBlock({
         <>
           <BrandChoiceOptionGrid
             mode="multi"
-            options={options}
+            options={choiceOptions}
             selectedValues={
               draft.kind === "multi_choice" ? draft.values : []
             }
             onToggle={(value) => {
               const cur =
                 draft.kind === "multi_choice" ? [...draft.values] : [];
-              const next = applyExclusiveMultiChoiceRules(options, cur, value);
+              const next = applyExclusiveMultiChoiceRules(choiceOptions, cur, value);
               const otherOn = next.includes("other");
               const prevOtherText =
                 draft.kind === "multi_choice" ? draft.otherText ?? "" : "";
