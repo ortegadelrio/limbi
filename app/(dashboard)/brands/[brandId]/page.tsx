@@ -9,6 +9,7 @@ import {
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
+import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -76,12 +77,14 @@ export default async function BrandDetailPage({ params }: Props) {
   const pendingForReading = docStats.uploaded + docStats.pending;
 
   const diagnosisState = await fetchBrandDashboardDiagnosisState(supabase, brandId);
+  const basesState = await fetchBrandDashboardBasesState(supabase, brandId);
   const pendingFacts = diagnosisState.pendingFactsCount;
   const hasActiveDiagnosis = diagnosisState.hasActiveDiagnosis;
   const diagnosisIsStale = diagnosisState.diagnosisIsStale;
 
   const documentsHref = `/brands/${brandId}/documents`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
+  const basesHref = `/brands/${brandId}/bases`;
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
   const questionnaireHref = `/brands/${brandId}/questionnaire`;
 
@@ -299,6 +302,44 @@ export default async function BrandDetailPage({ params }: Props) {
           ) : null}
         </div>
 
+        <div
+          className={cn(
+            limbiDocumentCardClass,
+            "space-y-3 border border-limbi-border p-4 sm:p-5",
+          )}
+        >
+          <h2 className="text-sm font-semibold text-limbi-text">Bases de marca</h2>
+
+          {basesState.consolidationRunning ? (
+            <p className="text-sm text-limbi-muted">Consolidación en curso…</p>
+          ) : !basesState.hasActiveKnowledgeBase || !basesState.hasActiveLimbicBase ? (
+            <p className="text-sm text-limbi-muted">
+              Generá la Base de Conocimiento y la Base Límbica curadas a partir del diagnóstico y
+              las fuentes aprobadas.
+            </p>
+          ) : basesState.knowledgeBaseIsStale || basesState.limbicBaseIsStale ? (
+            <>
+              <p className="text-sm text-limbi-muted">
+                Las bases activas pueden no reflejar cambios recientes en la marca.
+              </p>
+              <p className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-limbi-text">
+                Revisar actualización de bases
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-limbi-muted">
+              Tenés bases curadas activas (conocimiento y límbica) alineadas con las fuentes
+              aprobadas.
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button className={limbiOutlineButtonClass} variant="outline" asChild>
+              <Link href={basesHref}>Gestionar bases</Link>
+            </Button>
+          </div>
+        </div>
+
         <div className="border-t border-limbi-border/80 pt-4">
           <Link
             href={questionnaireHref}
@@ -307,10 +348,6 @@ export default async function BrandDetailPage({ params }: Props) {
             Editar cuestionario
           </Link>
         </div>
-
-        <p className="text-xs text-limbi-muted">
-          Las bases activas de marca y la generación desde ellas llegarán en tickets posteriores.
-        </p>
       </div>
     </div>
   );

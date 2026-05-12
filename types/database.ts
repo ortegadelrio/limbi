@@ -399,6 +399,43 @@ export type BrandEvaluationRow = {
   updated_at: string;
 };
 
+/** Estados de bases curadas de marca (Ticket H). */
+export type BrandCuratedBaseStatus = "running" | "succeeded" | "failed";
+
+/** Fila en `brand_knowledge_bases` (Ticket H). */
+export type BrandKnowledgeBaseRow = {
+  id: string;
+  brand_id: string;
+  consolidation_run_id: string;
+  status: BrandCuratedBaseStatus;
+  consolidated_payload: Record<string, unknown>;
+  source_snapshot: Record<string, unknown>;
+  prompt_version: string;
+  model_used: string | null;
+  error_message: string | null;
+  is_active: boolean;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Fila en `brand_limbic_bases` (Ticket H). */
+export type BrandLimbicBaseRow = {
+  id: string;
+  brand_id: string;
+  consolidation_run_id: string;
+  status: BrandCuratedBaseStatus;
+  consolidated_payload: Record<string, unknown>;
+  source_snapshot: Record<string, unknown>;
+  prompt_version: string;
+  model_used: string | null;
+  error_message: string | null;
+  is_active: boolean;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Estados de `brand_improvement_sessions` (Ticket 5). */
 export type BrandImprovementSessionStatus =
   | "open"
