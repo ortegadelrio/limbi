@@ -7,6 +7,16 @@ import type {
 export type BrandQuestionSectionGroup = {
   section_key: string;
   questions: QuestionDefinitionRow[];
+  /** Conteo en sidebar; si no se define, se usa `questions.length`. */
+  navCount?: number;
+  /** Sección sintética: inventario `brand_offer_items`. */
+  isOfferInventory?: boolean;
+  /** Paso operativo final (documentos). */
+  isMaterialContext?: boolean;
+  /** Bloque de `offer_nature` al inicio de Identidad. */
+  showOfferNaturePicker?: boolean;
+  /** Bloque de territorios dentro de Audiencias. */
+  showTerritoriesBlock?: boolean;
 };
 
 /** Filtra filas del catálogo según `offer_nature` (núcleo + `applies_to` coincidente). */

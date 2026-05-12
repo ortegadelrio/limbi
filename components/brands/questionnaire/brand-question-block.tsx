@@ -2,6 +2,7 @@
 
 import type { QuestionDefinitionRow } from "@/types/database";
 import type { BrandAnswerDraft } from "@/lib/brand-answers/serialize-parse";
+import { applyExclusiveMultiChoiceRules } from "@/lib/brands/exclusive-multi-choice";
 import { BrandChoiceOptionGrid } from "@/components/brands/questionnaire/brand-choice-option-grid";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +33,14 @@ export function BrandQuestionBlock({
   );
 
   const hasChoiceOptions = options.length > 0;
+  const isLimbicSection = definition.section_key === "brand_limbic_base";
+  const hasOtherOption = options.some((o) => o.value === "other");
+  const multiDraft = draft.kind === "multi_choice" ? draft : null;
+  const showOtherField =
+    answer_type === "multi_choice" &&
+    hasOtherOption &&
+    multiDraft &&
+    multiDraft.values.includes("other");
 
   return (
     <div className="space-y-2">
@@ -40,7 +49,9 @@ export function BrandQuestionBlock({
           {question_text}
           {is_required ? (
             <span className="text-limbi-muted"> · obligatoria</span>
-          ) : null}
+          ) : (
+            <span className="text-limbi-muted"> · opcional</span>
+          )}
         </span>
         {help_text ? (
           <span className="mt-1 block text-sm text-limbi-muted">{help_text}</span>
@@ -105,6 +116,7 @@ export function BrandQuestionBlock({
           }
           disabled={disabled}
           labelledBy={labelId}
+          visualEmphasis={isLimbicSection ? "limbic" : undefined}
         />
       ) : null}
 
@@ -126,23 +138,56 @@ export function BrandQuestionBlock({
       ) : null}
 
       {answer_type === "multi_choice" && hasChoiceOptions ? (
-        <BrandChoiceOptionGrid
-          mode="multi"
-          options={options}
-          selectedValues={
-            draft.kind === "multi_choice" ? draft.values : []
-          }
-          onToggle={(value) => {
-            const cur =
-              draft.kind === "multi_choice" ? [...draft.values] : [];
-            const next = cur.includes(value)
-              ? cur.filter((v) => v !== value)
-              : [...cur, value];
-            onDraftChange({ kind: "multi_choice", values: next });
-          }}
-          disabled={disabled}
-          labelledBy={labelId}
-        />
+        <>
+          <BrandChoiceOptionGrid
+            mode="multi"
+            options={options}
+            selectedValues={
+              draft.kind === "multi_choice" ? draft.values : []
+            }
+            onToggle={(value) => {
+              const cur =
+                draft.kind === "multi_choice" ? [...draft.values] : [];
+              const next = applyExclusiveMultiChoiceRules(options, cur, value);
+              const otherOn = next.includes("other");
+              const prevOtherText =
+                draft.kind === "multi_choice" ? draft.otherText ?? "" : "";
+              onDraftChange({
+                kind: "multi_choice",
+                values: next,
+                otherText: otherOn ? prevOtherText : "",
+              });
+            }}
+            disabled={disabled}
+            labelledBy={labelId}
+            visualEmphasis={isLimbicSection ? "limbic" : undefined}
+          />
+          {showOtherField ? (
+            <div className="space-y-1 pt-2">
+              <label
+                htmlFor={`${labelId}-other`}
+                className="text-sm font-medium text-limbi-text"
+              >
+                Especifica cuál
+              </label>
+              <Input
+                id={`${labelId}-other`}
+                value={multiDraft?.otherText ?? ""}
+                onChange={(e) =>
+                  onDraftChange({
+                    kind: "multi_choice",
+                    values: multiDraft?.values ?? [],
+                    otherText: e.target.value,
+                  })
+                }
+                disabled={disabled}
+                maxLength={2000}
+                className="rounded-xl border-limbi-border bg-limbi-surface"
+                placeholder="Breve, en tus palabras"
+              />
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {answer_type === "multi_choice" && !hasChoiceOptions ? unsupported : null}

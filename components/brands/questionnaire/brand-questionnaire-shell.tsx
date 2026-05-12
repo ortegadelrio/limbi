@@ -5,6 +5,14 @@ import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BrandDocumentsClient } from "@/components/brands/brand-documents-client";
+import {
+  BrandAudienceTerritoriesBlock,
+  payloadFromTerritoryDrafts,
+  territoryDraftsFromRows,
+  type TerritoryDraft,
+} from "@/components/brands/questionnaire/brand-audience-territories-block";
+import { BrandOfferItemsBlock, offerItemDraftsFromRows, payloadFromOfferItemDrafts, type OfferItemDraft } from "@/components/brands/questionnaire/brand-offer-items-block";
+import { BrandOfferNatureCards } from "@/components/brands/questionnaire/brand-offer-nature-cards";
 import { BrandQuestionBlock } from "@/components/brands/questionnaire/brand-question-block";
 import { BrandQuestionnaireIntro } from "@/components/brands/questionnaire/brand-questionnaire-intro";
 import { BrandQuestionSectionNav } from "@/components/brands/questionnaire/brand-question-section-nav";
@@ -27,6 +35,7 @@ import {
   groupBrandQuestionDefinitionsBySection,
   type BrandQuestionSectionGroup,
 } from "@/lib/questions/get-brand-question-definitions";
+import { buildBrandQuestionnaireShellSections } from "@/lib/questions/build-brand-questionnaire-shell-sections";
 import { cn } from "@/lib/utils";
 import type {
   BrandDocumentListRow,
@@ -38,13 +47,44 @@ import type {
 
 type Props = { brandId: string };
 
-function isAnswered(
-  def: QuestionDefinitionRow,
-  draft: BrandAnswerDraft,
-): boolean {
+const MATERIAL_EMBEDDED_TITLE = "Material de contexto y fuentes de marca";
+const MATERIAL_EMBEDDED_INTRO =
+  "Este paso es opcional. Puedes subir documentos que ayuden a entender mejor la marca. Limbi los leerá como contexto, pero no tomará su contenido como verdad automática. Primero propondrá hallazgos y tú decidirás qué incluir.";
+const MATERIAL_EMBEDDED_FUTURE =
+  "Más adelante podrás conectar otras fuentes de marca.";
+
+function isAnswered(def: QuestionDefinitionRow, draft: BrandAnswerDraft): boolean {
   if (draft.kind === "single_choice") return draft.value.trim().length > 0;
   if (draft.kind === "multi_choice") return draft.values.length > 0;
   return draft.text.trim().length > 0;
+}
+
+function validateRequiredForQuestions(
+  questions: QuestionDefinitionRow[],
+  drafts: Record<string, BrandAnswerDraft>,
+): string | null {
+  for (const def of questions) {
+    if (!def.is_required) continue;
+    const d = drafts[def.question_key] ?? defaultDraftForQuestion(def);
+    if (def.answer_type === "single_choice") {
+      if (d.kind !== "single_choice" || !d.value.trim()) {
+        return "Completa las preguntas obligatorias de esta sección antes de guardar.";
+      }
+    } else if (def.answer_type === "multi_choice") {
+      if (d.kind !== "multi_choice" || d.values.length === 0) {
+        return "Completa las preguntas obligatorias de esta sección antes de guardar.";
+      }
+    } else if (
+      def.answer_type === "textarea" ||
+      def.answer_type === "text" ||
+      def.answer_type === "url"
+    ) {
+      if (d.kind !== "text" || !d.text.trim()) {
+        return "Completa las preguntas obligatorias de esta sección antes de guardar.";
+      }
+    }
+  }
+  return null;
 }
 
 export function BrandQuestionnaireShell({ brandId }: Props) {
@@ -52,8 +92,11 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
   const searchParams = useSearchParams();
   const [brandName, setBrandName] = useState<string | null>(null);
   const [offerNature, setOfferNature] = useState<BrandOfferNature | null>(null);
+  const [pickerNature, setPickerNature] = useState<BrandOfferNature | null>(null);
   const [definitions, setDefinitions] = useState<QuestionDefinitionRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, BrandAnswerDraft>>({});
+  const [offerItemDrafts, setOfferItemDrafts] = useState<OfferItemDraft[]>([]);
+  const [territoryDrafts, setTerritoryDrafts] = useState<TerritoryDraft[]>([]);
   const [brandDocuments, setBrandDocuments] = useState<BrandDocumentListRow[]>([]);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -62,19 +105,25 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [showCompletionCelebration, setShowCompletionCelebration] =
     useState(false);
+  const [gateSubmitting, setGateSubmitting] = useState(false);
 
-  const sections = useMemo(
+  const definitionGroups = useMemo(
     () => groupBrandQuestionDefinitionsBySection(definitions),
     [definitions],
   );
 
-  const extendedSections = useMemo((): BrandQuestionSectionGroup[] => {
-    if (!offerNature) return [];
-    return [
-      ...sections,
-      { section_key: "material_context", questions: [] },
-    ];
-  }, [sections, offerNature]);
+  const sectionPlan = useMemo((): BrandQuestionSectionGroup[] => {
+    const base = buildBrandQuestionnaireShellSections(definitionGroups);
+    return base.map((s) => {
+      if (s.isOfferInventory) {
+        return { ...s, navCount: offerItemDrafts.length };
+      }
+      if (s.isMaterialContext) {
+        return { ...s, navCount: brandDocuments.length };
+      }
+      return { ...s, navCount: s.questions.length };
+    });
+  }, [definitionGroups, offerItemDrafts.length, brandDocuments.length]);
 
   const answeredCount = useMemo(() => {
     return definitions.filter((d) => {
@@ -83,23 +132,88 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     }).length;
   }, [definitions, drafts]);
 
-  const lastQuestionSectionIndex =
-    sections.length > 0 ? sections.length - 1 : -1;
+  const lastNavigableIndex =
+    sectionPlan.length > 0 ? sectionPlan.length - 1 : 0;
+
+  const loadCatalogForNature = useCallback(
+    async (nature: BrandOfferNature) => {
+      const [qd, rr, oi, tr, docsRes] = await Promise.all([
+        fetch(
+          `/api/question-definitions?journey_type=brand&offer_nature=${encodeURIComponent(nature)}`,
+        ),
+        fetch(`/api/brands/${brandId}/responses`),
+        fetch(`/api/brands/${brandId}/offer-items`),
+        fetch(`/api/brands/${brandId}/audience-territories`),
+        fetch(`/api/brands/${brandId}/documents`, { credentials: "include" }),
+      ]);
+
+      if (!qd.ok) {
+        const j = await qd.json().catch(() => ({}));
+        throw new Error(
+          typeof j.error === "string" ? j.error : "Error al cargar preguntas.",
+        );
+      }
+      const qj = await qd.json();
+      const defs = qj.definitions as QuestionDefinitionRow[];
+
+      if (!rr.ok) {
+        const j = await rr.json().catch(() => ({}));
+        throw new Error(
+          typeof j.error === "string" ? j.error : "Error al cargar respuestas.",
+        );
+      }
+      const rj = await rr.json();
+      const responses = rj.responses as BrandResponseRow[];
+      const byKey = new Map(responses.map((r) => [r.question_key, r]));
+      const nextDrafts: Record<string, BrandAnswerDraft> = {};
+      for (const d of defs) {
+        const row = byKey.get(d.question_key);
+        if (row) {
+          nextDrafts[d.question_key] = parseBrandAnswer(
+            d.answer_type as BrandResponseAnswerType,
+            row.answer_value,
+          );
+        } else {
+          nextDrafts[d.question_key] = defaultDraftForQuestion(d);
+        }
+      }
+
+      if (oi.ok) {
+        const oj = (await oi.json()) as { items?: unknown };
+        setOfferItemDrafts(
+          offerItemDraftsFromRows((oj.items ?? []) as import("@/types/database").BrandOfferItemRow[]),
+        );
+      } else {
+        setOfferItemDrafts([]);
+      }
+
+      if (tr.ok) {
+        const tj = (await tr.json()) as { territories?: unknown };
+        setTerritoryDrafts(
+          territoryDraftsFromRows(
+            (tj.territories ?? []) as import("@/types/database").BrandAudienceTerritoryRow[],
+          ),
+        );
+      } else {
+        setTerritoryDrafts([]);
+      }
+
+      if (docsRes.ok) {
+        const docsJson = (await docsRes.json().catch(() => ({}))) as {
+          documents?: BrandDocumentListRow[];
+        };
+        setBrandDocuments(docsJson.documents ?? []);
+      }
+
+      setDefinitions(defs);
+      setDrafts(nextDrafts);
+    },
+    [brandId],
+  );
 
   useEffect(() => {
-    if (extendedSections.length === 0) return;
-    if (activeSectionIndex >= extendedSections.length) {
-      setActiveSectionIndex(extendedSections.length - 1);
-    }
-  }, [activeSectionIndex, extendedSections.length]);
-
-  useEffect(() => {
-    if (loading || extendedSections.length === 0) return;
-    if (searchParams.get("step") === "material_context") {
-      setShowCompletionCelebration(false);
-      setActiveSectionIndex(extendedSections.length - 1);
-    }
-  }, [loading, searchParams, extendedSections.length]);
+    setPickerNature(offerNature);
+  }, [offerNature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,65 +233,18 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
         const b = bj.brand;
         if (cancelled) return;
         setBrandName(b.name);
-        const nature = b.offer_nature ?? null;
+        const nature = (b.offer_nature ?? null) as BrandOfferNature | null;
         setOfferNature(nature);
         if (!nature) {
           setDefinitions([]);
           setDrafts({});
+          setOfferItemDrafts([]);
+          setTerritoryDrafts([]);
           setBrandDocuments([]);
           setLoading(false);
           return;
         }
-
-        const qd = await fetch(
-          `/api/question-definitions?journey_type=brand&offer_nature=${encodeURIComponent(nature)}`,
-        );
-        if (!qd.ok) {
-          const j = await qd.json().catch(() => ({}));
-          throw new Error(
-            typeof j.error === "string" ? j.error : "Error al cargar preguntas.",
-          );
-        }
-        const qj = await qd.json();
-        const defs = qj.definitions as QuestionDefinitionRow[];
-        if (cancelled) return;
-        setDefinitions(defs);
-
-        const rr = await fetch(`/api/brands/${brandId}/responses`);
-        if (!rr.ok) {
-          const j = await rr.json().catch(() => ({}));
-          throw new Error(
-            typeof j.error === "string"
-              ? j.error
-              : "Error al cargar respuestas.",
-          );
-        }
-        const rj = await rr.json();
-        const responses = rj.responses as BrandResponseRow[];
-        const byKey = new Map(responses.map((r) => [r.question_key, r]));
-        const nextDrafts: Record<string, BrandAnswerDraft> = {};
-        for (const d of defs) {
-          const row = byKey.get(d.question_key);
-          if (row) {
-            nextDrafts[d.question_key] = parseBrandAnswer(
-              d.answer_type as BrandResponseAnswerType,
-              row.answer_value,
-            );
-          } else {
-            nextDrafts[d.question_key] = defaultDraftForQuestion(d);
-          }
-        }
-        setDrafts(nextDrafts);
-
-        const docsRes = await fetch(`/api/brands/${brandId}/documents`, {
-          credentials: "include",
-        });
-        if (!cancelled && docsRes.ok) {
-          const docsJson = (await docsRes.json().catch(() => ({}))) as {
-            documents?: BrandDocumentListRow[];
-          };
-          setBrandDocuments(docsJson.documents ?? []);
-        }
+        await loadCatalogForNature(nature);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Error");
@@ -189,10 +256,26 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [brandId]);
+  }, [brandId, loadCatalogForNature]);
 
-  const activeSection = extendedSections[activeSectionIndex];
-  const onMaterialStep = activeSection?.section_key === "material_context";
+  useEffect(() => {
+    if (sectionPlan.length === 0) return;
+    if (activeSectionIndex >= sectionPlan.length) {
+      setActiveSectionIndex(sectionPlan.length - 1);
+    }
+  }, [activeSectionIndex, sectionPlan.length]);
+
+  useEffect(() => {
+    if (loading || sectionPlan.length === 0) return;
+    if (searchParams.get("step") === "material_context") {
+      setShowCompletionCelebration(false);
+      const idx = sectionPlan.findIndex((s) => s.isMaterialContext);
+      if (idx >= 0) setActiveSectionIndex(idx);
+    }
+  }, [loading, searchParams, sectionPlan]);
+
+  const activeSection = sectionPlan[activeSectionIndex];
+  const onMaterialStep = Boolean(activeSection?.isMaterialContext);
   const hasProcessingDocument = brandDocuments.some(
     (d) => d.processing_status === "processing",
   );
@@ -201,8 +284,8 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     (index: number) => {
       setShowCompletionCelebration(false);
       setActiveSectionIndex(index);
-      const sec = extendedSections[index];
-      if (sec?.section_key === "material_context") {
+      const sec = sectionPlan[index];
+      if (sec?.isMaterialContext) {
         router.replace(
           `/brands/${brandId}/questionnaire?step=material_context`,
           { scroll: false },
@@ -211,68 +294,146 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
         router.replace(`/brands/${brandId}/questionnaire`, { scroll: false });
       }
     },
-    [extendedSections, router, brandId],
+    [sectionPlan, router, brandId],
   );
 
   const saveCurrentSection = useCallback(async () => {
-    if (!offerNature || !activeSection || activeSection.questions.length === 0) {
-      return;
-    }
+    if (!offerNature || !activeSection) return;
+
+    if (activeSection.isMaterialContext) return;
+
     setSaving(true);
     setSaveMessage(null);
     setError(null);
+
     try {
-      const answers: { question_definition_id: string; answer_value: unknown }[] =
-        [];
-      const skipped: string[] = [];
-      for (const def of activeSection.questions) {
-        const draft = drafts[def.question_key] ?? defaultDraftForQuestion(def);
-        const ser = serializeBrandAnswer(
-          def.answer_type as BrandResponseAnswerType,
-          draft,
-          def.options,
+      if (activeSection.isOfferInventory) {
+        const sorted = [...offerItemDrafts].sort(
+          (a, b) => a.display_order - b.display_order,
         );
-        if ("error" in ser) {
-          skipped.push(def.question_key);
-          continue;
+        const incomplete = sorted.some((it) => it.title.trim().length === 0);
+        if (incomplete) {
+          throw new Error(
+            "Cada ítem de oferta necesita título o debes eliminar la fila vacía.",
+          );
         }
-        answers.push({
-          question_definition_id: def.id,
-          answer_value: ser.answer_value,
-        });
-      }
-      let savedOk = false;
-      if (skipped.length > 0) {
-        setSaveMessage(`Omitidas (sin editor en UI): ${skipped.join(", ")}.`);
-      }
-      if (answers.length > 0) {
-        const res = await fetch(`/api/brands/${brandId}/responses`, {
-          method: "PATCH",
+        const payload = { items: payloadFromOfferItemDrafts(offerItemDrafts) };
+        const res = await fetch(`/api/brands/${brandId}/offer-items`, {
+          method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify(payload),
         });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          throw new Error(data.error ?? "No se pudo guardar.");
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          items?: import("@/types/database").BrandOfferItemRow[];
+        };
+        if (!res.ok) throw new Error(data.error ?? "No se pudo guardar la oferta.");
+        if (data.items) {
+          setOfferItemDrafts(offerItemDraftsFromRows(data.items));
         }
-        savedOk = true;
+        setSaveMessage("Oferta guardada.");
+      } else {
+        const reqErr = validateRequiredForQuestions(
+          activeSection.questions,
+          drafts,
+        );
+        if (reqErr) throw new Error(reqErr);
+
+        if (activeSection.showOfferNaturePicker && pickerNature && pickerNature !== offerNature) {
+          const pr = await fetch(`/api/brands/${brandId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offer_nature: pickerNature }),
+          });
+          const pj = await pr.json().catch(() => ({}));
+          if (!pr.ok) {
+            throw new Error(
+              typeof pj.error === "string" ? pj.error : "No se pudo actualizar la naturaleza de marca.",
+            );
+          }
+          setOfferNature(pickerNature);
+          await loadCatalogForNature(pickerNature);
+        }
+
+        if (activeSection.showTerritoriesBlock) {
+          const sortedT = [...territoryDrafts].sort(
+            (a, b) => a.display_order - b.display_order,
+          );
+          const incompleteT = sortedT.some((t) => !t.name.trim());
+          if (incompleteT) {
+            throw new Error(
+              "Cada territorio necesita nombre o debes eliminar la fila vacía.",
+            );
+          }
+          const tPayload = {
+            territories: payloadFromTerritoryDrafts(territoryDrafts),
+          };
+          const tr = await fetch(`/api/brands/${brandId}/audience-territories`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(tPayload),
+          });
+          const tj = await tr.json().catch(() => ({}));
+          if (!tr.ok) {
+            throw new Error(
+              typeof tj.error === "string" ? tj.error : "No se pudieron guardar los territorios.",
+            );
+          }
+          if (tj.territories) {
+            setTerritoryDrafts(
+              territoryDraftsFromRows(tj.territories as import("@/types/database").BrandAudienceTerritoryRow[]),
+            );
+          }
+        }
+
+        const answers: { question_definition_id: string; answer_value: unknown }[] =
+          [];
+        const skipped: string[] = [];
+        for (const def of activeSection.questions) {
+          const draft = drafts[def.question_key] ?? defaultDraftForQuestion(def);
+          const ser = serializeBrandAnswer(
+            def.answer_type as BrandResponseAnswerType,
+            draft,
+            def.options,
+          );
+          if ("error" in ser) {
+            skipped.push(def.question_key);
+            continue;
+          }
+          answers.push({
+            question_definition_id: def.id,
+            answer_value: ser.answer_value,
+          });
+        }
+        if (skipped.length > 0) {
+          setSaveMessage(`Omitidas (sin editor en UI): ${skipped.join(", ")}.`);
+        }
+        if (answers.length > 0) {
+          const res = await fetch(`/api/brands/${brandId}/responses`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ answers }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) {
+            throw new Error(data.error ?? "No se pudo guardar.");
+          }
+        }
         setSaveMessage((m) =>
           m ? `${m} Cambios guardados.` : "Cambios guardados.",
         );
-      } else if (skipped.length === activeSection.questions.length) {
-        savedOk = true;
-        setSaveMessage("Sección sin campos editables aquí; avanzamos.");
       }
-      if (savedOk && sections.length > 0) {
-        if (activeSectionIndex < lastQuestionSectionIndex) {
-          setActiveSectionIndex((i) => i + 1);
-          router.replace(`/brands/${brandId}/questionnaire`, { scroll: false });
-        } else if (activeSectionIndex === lastQuestionSectionIndex) {
-          setActiveSectionIndex(sections.length);
+
+      if (activeSectionIndex < lastNavigableIndex) {
+        setActiveSectionIndex((i) => i + 1);
+        const next = sectionPlan[activeSectionIndex + 1];
+        if (next?.isMaterialContext) {
           router.replace(
             `/brands/${brandId}/questionnaire?step=material_context`,
             { scroll: false },
           );
+        } else {
+          router.replace(`/brands/${brandId}/questionnaire`, { scroll: false });
         }
       }
     } catch (e) {
@@ -285,11 +446,47 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     activeSectionIndex,
     brandId,
     drafts,
-    lastQuestionSectionIndex,
+    lastNavigableIndex,
+    loadCatalogForNature,
+    offerItemDrafts,
     offerNature,
+    pickerNature,
     router,
-    sections.length,
+    sectionPlan,
+    territoryDrafts,
   ]);
+
+  const onCompleteNatureGate = useCallback(async () => {
+    if (!pickerNature) {
+      setError("Elige un tipo de marca para continuar.");
+      return;
+    }
+    setGateSubmitting(true);
+    setError(null);
+    try {
+      const pr = await fetch(`/api/brands/${brandId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offer_nature: pickerNature }),
+      });
+      const pj = await pr.json().catch(() => ({}));
+      if (!pr.ok) {
+        throw new Error(
+          typeof pj.error === "string"
+            ? pj.error
+            : "No se pudo guardar la naturaleza de marca.",
+        );
+      }
+      setOfferNature(pickerNature);
+      setLoading(true);
+      await loadCatalogForNature(pickerNature);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setGateSubmitting(false);
+      setLoading(false);
+    }
+  }, [brandId, loadCatalogForNature, pickerNature]);
 
   if (loading) {
     return (
@@ -301,20 +498,43 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
 
   if (!offerNature) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-12">
-        <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
+          <Link href={`/brands/${brandId}`}>
+            <ArrowLeft className="size-4" aria-hidden />
+            Marca
+          </Link>
+        </Button>
+        <BrandQuestionnaireIntro />
+        <Card className={cn(limbiDocumentCardClass, "mt-8 border-limbi-border")}>
           <CardHeader>
-            <CardTitle className="text-lg text-limbi-text">
-              Naturaleza de oferta requerida
+            <CardTitle id="gate-nature-title" className="text-lg text-limbi-text">
+              ¿Qué tipo de marca estás construyendo o describiendo?
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm text-limbi-muted">
-            <p>
-              Esta marca necesita una naturaleza de oferta antes de responder el
-              cuestionario.
+          <CardContent className="space-y-6">
+            <p className="text-sm text-limbi-muted">
+              Esto no es una respuesta del cuestionario: define la naturaleza en el perfil
+              de la marca y sirve para adaptar etiquetas y el inventario de oferta.
             </p>
-            <Button variant="outline" className={limbiOutlineButtonClass} asChild>
-              <Link href={`/brands/${brandId}`}>Volver a la marca</Link>
+            <BrandOfferNatureCards
+              value={pickerNature}
+              onSelect={setPickerNature}
+              disabled={gateSubmitting}
+              labelledBy="gate-nature-title"
+            />
+            {error ? (
+              <p className="text-sm text-red-600" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              className={limbiPrimaryButtonClass}
+              disabled={gateSubmitting || !pickerNature}
+              onClick={() => void onCompleteNatureGate()}
+            >
+              {gateSubmitting ? "Guardando…" : "Continuar al cuestionario"}
             </Button>
           </CardContent>
         </Card>
@@ -322,7 +542,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
     );
   }
 
-  if (error && definitions.length === 0) {
+  if (error && definitions.length === 0 && offerNature) {
     return (
       <div className="mx-auto max-w-lg px-4 py-12 text-center">
         <p className="text-sm text-red-600" role="alert">
@@ -347,7 +567,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
           </Link>
         </Button>
         <BrandQuestionSectionNav
-          sections={extendedSections}
+          sections={sectionPlan}
           activeIndex={activeSectionIndex}
           onSelectSection={selectSection}
           disabled={saving}
@@ -396,7 +616,7 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
             </CardHeader>
             <CardContent className="space-y-4 text-sm text-limbi-muted">
               <p>
-                Pueden volver a editar cualquier parte del cuestionario o subir más
+                Puedes volver a editar cualquier parte del cuestionario o subir más
                 documentos desde el menú de secciones a la izquierda.
               </p>
               <p>
@@ -418,11 +638,62 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
                 brandName={brandName ?? "Marca"}
                 initialDocuments={brandDocuments}
                 mode="embedded"
+                embeddedSectionTitle={MATERIAL_EMBEDDED_TITLE}
+                embeddedSectionIntro={MATERIAL_EMBEDDED_INTRO}
+                embeddedFutureNote={MATERIAL_EMBEDDED_FUTURE}
                 onDocumentsChange={(docs) => setBrandDocuments(docs)}
               />
             ) : (
               <Card className={cn(limbiDocumentCardClass, "border-limbi-border")}>
                 <CardContent className="space-y-8 p-6 sm:p-8">
+                  {activeSection?.showOfferNaturePicker ? (
+                    <div className="space-y-4 border-b border-limbi-border pb-8">
+                      <div id="identity-nature-title">
+                        <h2 className="text-base font-semibold text-limbi-text">
+                          ¿Qué tipo de marca estás construyendo o describiendo?
+                        </h2>
+                        <p className="mt-1 text-sm text-limbi-muted">
+                          Se guarda en el perfil de la marca, no como respuesta del
+                          cuestionario. Puedes cambiarlo aquí si hace falta.
+                        </p>
+                      </div>
+                      <BrandOfferNatureCards
+                        value={pickerNature}
+                        onSelect={setPickerNature}
+                        disabled={saving}
+                        labelledBy="identity-nature-title"
+                      />
+                    </div>
+                  ) : null}
+
+                  {activeSection?.isOfferInventory && offerNature ? (
+                    <div className="space-y-2">
+                      <h2 className="text-base font-semibold text-limbi-text">Oferta</h2>
+                      <BrandOfferItemsBlock
+                        offerNature={offerNature}
+                        items={offerItemDrafts}
+                        onItemsChange={setOfferItemDrafts}
+                        disabled={saving}
+                      />
+                    </div>
+                  ) : null}
+
+                  {activeSection?.showTerritoriesBlock ? (
+                    <BrandAudienceTerritoriesBlock
+                      territories={territoryDrafts}
+                      onTerritoriesChange={setTerritoryDrafts}
+                      disabled={saving}
+                    />
+                  ) : null}
+
+                  {activeSection?.section_key === "brand_limbic_base" &&
+                  activeSection.questions.length > 0 ? (
+                    <p className="rounded-xl border border-limbi-border/80 bg-limbi-bg-soft/50 p-4 text-sm leading-relaxed text-limbi-muted">
+                      Estas elecciones no se usarán de forma literal. Limbi las interpreta
+                      como señales de tono, ritmo, atmósfera y energía de la marca.
+                    </p>
+                  ) : null}
+
                   {activeSection?.questions.map((def) => (
                     <BrandQuestionBlock
                       key={def.question_key}

@@ -11,7 +11,8 @@ export const patchBrandResponsesBodySchema = z
           })
           .strict(),
       )
-      .min(1, "Envía al menos una respuesta."),
+      .optional()
+      .default([]),
   })
   .strict();
 

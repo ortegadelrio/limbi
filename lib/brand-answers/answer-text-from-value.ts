@@ -8,8 +8,13 @@ export function answerTextFromValidatedValue(
     const t = value.text.trim();
     return t.length > 0 ? value.text : null;
   }
-  if ("values" in value) {
-    return value.values.length > 0 ? value.values.join(", ") : null;
+  if ("values" in value && Array.isArray(value.values)) {
+    const parts = [...value.values];
+    if ("other_text" in value && typeof value.other_text === "string") {
+      const ot = value.other_text.trim();
+      if (ot.length > 0) parts.push(`Otro: ${ot}`);
+    }
+    return parts.length > 0 ? parts.join(", ") : null;
   }
   if ("value" in value) {
     const v = value.value;

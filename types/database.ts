@@ -81,7 +81,7 @@ export type BrandResponseAnswerType =
 export type BrandAnswerValueJson =
   | { text: string }
   | { value: string }
-  | { values: string[] }
+  | { values: string[]; other_text?: string | null }
   | { value: number }
   | { value: boolean };
 
@@ -119,6 +119,55 @@ export type BrandOfferProfileRow = {
   id: string;
   brand_id: string;
   offer_nature: BrandOfferNature;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Inventario de oferta (Ticket A / C); `offer_nature` copia del perfil al insertar. */
+export type BrandOfferItemType =
+  | "service"
+  | "solution"
+  | "product"
+  | "feature"
+  | "offer"
+  | "module"
+  | "function"
+  | "use_case"
+  | "moment"
+  | "component"
+  | "program"
+  | "line_of_action"
+  | "theme"
+  | "format"
+  | "other";
+
+export type BrandOfferItemRow = {
+  id: string;
+  brand_id: string;
+  offer_nature: BrandOfferNature;
+  item_type: BrandOfferItemType;
+  title: string;
+  description: string | null;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BrandAudienceTerritoryType =
+  | "city"
+  | "state_department"
+  | "region"
+  | "country"
+  | "continent"
+  | "cultural_community"
+  | "global_market";
+
+export type BrandAudienceTerritoryRow = {
+  id: string;
+  brand_id: string;
+  territory_type: BrandAudienceTerritoryType;
+  name: string;
+  display_order: number;
   created_at: string;
   updated_at: string;
 };

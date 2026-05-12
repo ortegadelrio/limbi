@@ -14,6 +14,8 @@ type Props = {
   onToggle: (value: string) => void;
   disabled?: boolean;
   labelledBy?: string;
+  /** Tarjetas más amplias para Base Límbica (emoji + descripción). */
+  visualEmphasis?: "limbic";
 };
 
 function OptionCard({
@@ -22,12 +24,14 @@ function OptionCard({
   selected,
   onSelect,
   disabled,
+  emphasize,
 }: {
   opt: QuestionOption;
   mode: Mode;
   selected: boolean;
   onSelect: () => void;
   disabled?: boolean;
+  emphasize?: boolean;
 }) {
   const hasVisual =
     Boolean(opt.image_url) ||
@@ -63,7 +67,13 @@ function OptionCard({
       ) : null}
       <div className="flex items-start gap-2">
         {opt.emoji ? (
-          <span className="text-2xl leading-none" aria-hidden>
+          <span
+            className={cn(
+              "leading-none",
+              emphasize ? "text-3xl" : "text-2xl",
+            )}
+            aria-hidden
+          >
             {opt.emoji}
           </span>
         ) : null}
@@ -113,18 +123,22 @@ export function BrandChoiceOptionGrid({
   onToggle,
   disabled,
   labelledBy,
+  visualEmphasis,
 }: Props) {
   if (options.length === 0) return null;
 
-  const compact = options.length > 5 && !options.some((o) => o.image_url);
+  const limbic = visualEmphasis === "limbic";
+  const compact = !limbic && options.length > 5 && !options.some((o) => o.image_url);
 
   return (
     <div
       className={cn(
         "grid gap-3",
-        compact
-          ? "grid-cols-1 sm:grid-cols-2"
-          : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2",
+        limbic
+          ? "grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+          : compact
+            ? "grid-cols-1 sm:grid-cols-2"
+            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2",
       )}
       role="group"
       aria-labelledby={labelledBy}
@@ -138,6 +152,7 @@ export function BrandChoiceOptionGrid({
             mode={mode}
             selected={selected}
             disabled={disabled}
+            emphasize={limbic}
             onSelect={() => onToggle(opt.value)}
           />
         );

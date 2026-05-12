@@ -147,6 +147,12 @@ export async function PATCH(request: Request, { params }: Params) {
     return jsonBadRequest(first);
   }
 
+  const { answers } = parsed.data;
+
+  if (answers.length === 0) {
+    return NextResponse.json({ ok: true, saved: 0 });
+  }
+
   const { rows: allowedDefs, error: allowedErr } =
     await fetchAllowedBrandQuestionDefinitions(supabase, offerNature);
   if (allowedErr) {
@@ -159,7 +165,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const upsertRows: Record<string, unknown>[] = [];
 
-  for (const item of parsed.data.answers) {
+  for (const item of answers) {
     const def = byDefinitionId.get(item.question_definition_id);
     if (!def) {
       return jsonBadRequest(

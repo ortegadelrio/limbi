@@ -3,7 +3,18 @@ import type { BrandResponseAnswerType } from "@/types/database";
 
 const textLikeSchema = z.object({ text: z.string() });
 const singleChoiceSchema = z.object({ value: z.string() });
-const multiChoiceSchema = z.object({ values: z.array(z.string()) });
+const multiChoiceSchema = z
+  .object({
+    values: z.array(z.string()),
+    other_text: z.string().optional(),
+  })
+  .transform((o) => {
+    const trimmed = o.other_text?.trim();
+    if (trimmed && trimmed.length > 0) {
+      return { values: o.values, other_text: trimmed };
+    }
+    return { values: o.values };
+  });
 const numericValueSchema = z.object({ value: z.number() });
 const booleanValueSchema = z.object({ value: z.boolean() });
 

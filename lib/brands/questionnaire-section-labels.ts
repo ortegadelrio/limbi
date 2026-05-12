@@ -3,7 +3,7 @@ const LABELS: Record<string, string> = {
   identity: "Identidad",
   description: "Qué hacen",
   purpose: "Propósito",
-  value_proposition: "Propuesta de valor",
+  value_proposition: "Oferta de valor",
   audiences: "Audiencias",
   differentiators: "Diferenciación",
   differentiation: "Diferenciación",

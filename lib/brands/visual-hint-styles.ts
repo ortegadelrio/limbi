@@ -30,6 +30,16 @@ export function visualHintCardClass(visualHint?: string | null): string {
       "border-limbi-border/80 bg-gradient-to-br from-violet-50/90 to-pink-50/60 dark:from-violet-950/25 dark:to-pink-950/20",
     fresh:
       "border-limbi-border/80 bg-gradient-to-br from-teal-50/90 to-cyan-50/50 dark:from-teal-950/25 dark:to-cyan-950/20",
+    authority:
+      "border-limbi-border/80 bg-gradient-to-br from-slate-100 to-indigo-50/70 dark:from-slate-900/50 dark:to-indigo-950/30",
+    human:
+      "border-limbi-border/80 bg-gradient-to-br from-rose-50/80 to-amber-50/50 dark:from-rose-950/20 dark:to-amber-950/15",
+    edge:
+      "border-limbi-border/80 bg-gradient-to-br from-orange-50/90 to-fuchsia-50/60 dark:from-orange-950/25 dark:to-fuchsia-950/20",
+    technical:
+      "border-limbi-border/80 bg-gradient-to-br from-slate-100 to-cyan-50/60 dark:from-slate-900/45 dark:to-cyan-950/25",
+    elegant:
+      "border-limbi-border/80 bg-gradient-to-br from-zinc-50 to-stone-100 dark:from-zinc-900/35 dark:to-stone-900/30",
   };
   return cn(
     map[key] ??

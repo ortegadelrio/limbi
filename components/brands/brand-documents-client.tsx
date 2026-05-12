@@ -41,6 +41,10 @@ type Props = {
   initialDocuments: BrandDocumentListRow[];
   mode?: "standalone" | "embedded";
   onDocumentsChange?: (docs: BrandDocumentListRow[]) => void;
+  /** En modo embedded: título y texto introductorio del paso (Ticket C). */
+  embeddedSectionTitle?: string;
+  embeddedSectionIntro?: string;
+  embeddedFutureNote?: string;
 };
 
 type UploadErrorJson = {
@@ -75,6 +79,9 @@ export function BrandDocumentsClient({
   initialDocuments,
   mode = "standalone",
   onDocumentsChange,
+  embeddedSectionTitle,
+  embeddedSectionIntro,
+  embeddedFutureNote,
 }: Props) {
   const router = useRouter();
   const [documents, setDocuments] = useState(initialDocuments);
@@ -524,11 +531,16 @@ export function BrandDocumentsClient({
       ) : (
         <div>
           <h2 className="font-heading text-lg font-semibold text-limbi-text">
-            Material de contexto
+            {embeddedSectionTitle ?? "Material de contexto"}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-limbi-muted">
-            {BRAND_MATERIAL_CONTEXT_COPY}
+            {embeddedSectionIntro ?? BRAND_MATERIAL_CONTEXT_COPY}
           </p>
+          {embeddedFutureNote ? (
+            <p className="mt-2 text-xs leading-relaxed text-limbi-muted">
+              {embeddedFutureNote}
+            </p>
+          ) : null}
         </div>
       )}
 

@@ -4,9 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 
-const COPY = `Antes de empezar: no necesitan tener todas las respuestas perfectas. Completen la información que tengan hoy con la mayor claridad posible. Mientras más contexto le den a Limbi, mejores serán el diagnóstico, la Base de Marca y las piezas que se generen después.
+const COPY = `No necesitas tener todas las respuestas perfectas desde el inicio. Puedes escribir poco y avanzar. Mientras más contexto entregues, mejores serán los resultados. Si alguna sección te genera dudas, Limbi podrá ayudarte más adelante a mejorarla con criterio estratégico.
 
-Si alguna sección les genera dudas, pueden dejarla con la información disponible. En el siguiente paso, Limbi evaluará la calidad de cada sección y podrá ayudarles a mejorarla con preguntas guiadas.`;
+En secciones opcionales puedes avanzar aunque escribas poco: no están pensadas para frenarte.`;
 
 export function BrandQuestionnaireIntro() {
   return (

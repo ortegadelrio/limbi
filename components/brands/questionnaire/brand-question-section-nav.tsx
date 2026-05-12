@@ -29,11 +29,14 @@ export function BrandQuestionSectionNav({
           const label = brandQuestionnaireSectionLabelEs(s.section_key);
           const active = idx === activeIndex;
           const isMaterialContext = s.section_key === "material_context";
-          const count = isMaterialContext && materialContextDocumentCount != null
-            ? materialContextDocumentCount
-            : s.questions.length;
+          const count =
+            s.navCount !== undefined
+              ? s.navCount
+              : isMaterialContext && materialContextDocumentCount != null
+                ? materialContextDocumentCount
+                : s.questions.length;
           return (
-            <li key={s.section_key}>
+            <li key={`${s.section_key}-${idx}`}>
               <button
                 type="button"
                 disabled={disabled}

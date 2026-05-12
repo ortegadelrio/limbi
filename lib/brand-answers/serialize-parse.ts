@@ -9,7 +9,7 @@ import type {
 export type BrandAnswerDraft =
   | { kind: "text"; text: string }
   | { kind: "single_choice"; value: string }
-  | { kind: "multi_choice"; values: string[] };
+  | { kind: "multi_choice"; values: string[]; otherText?: string };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -32,7 +32,7 @@ export function defaultDraftForQuestion(def: {
     return { kind: "single_choice", value: "" };
   }
   if (def.answer_type === "multi_choice") {
-    return { kind: "multi_choice", values: [] };
+    return { kind: "multi_choice", values: [], otherText: "" };
   }
   return { kind: "text", text: "" };
 }
@@ -47,7 +47,7 @@ export function parseBrandAnswer(
       return { kind: "single_choice", value: "" };
     }
     if (answerType === "multi_choice") {
-      return { kind: "multi_choice", values: [] };
+      return { kind: "multi_choice", values: [], otherText: "" };
     }
     return { kind: "text", text: "" };
   }
@@ -62,7 +62,10 @@ export function parseBrandAnswer(
       const values = Array.isArray(raw)
         ? raw.filter((x): x is string => typeof x === "string")
         : [];
-      return { kind: "multi_choice", values };
+      const ot = answerValue.other_text;
+      const otherText =
+        typeof ot === "string" ? ot : "";
+      return { kind: "multi_choice", values, otherText };
     }
     case "text":
     case "textarea":
@@ -102,10 +105,24 @@ export function serializeBrandAnswer(
     if (answerType !== "multi_choice") {
       return { error: "Inconsistencia entre borrador y tipo de pregunta." };
     }
-    const answer_value: BrandAnswerValueJson = { values: draft.values };
+    const hasOtherOption = options?.some((o) => o.value === "other") ?? false;
+    const otherSelected = draft.values.includes("other");
+    const trimmedOther = draft.otherText?.trim() ?? "";
+    const includeOtherText =
+      hasOtherOption && otherSelected && trimmedOther.length > 0;
+
+    const answer_value: BrandAnswerValueJson = includeOtherText
+      ? { values: draft.values, other_text: trimmedOther }
+      : { values: draft.values };
+
+    let answer_text = labelsForOptionValues(draft.values, options);
+    if (includeOtherText) {
+      const suffix = ` · Otro: ${trimmedOther}`;
+      answer_text = answer_text ? `${answer_text}${suffix}` : `Otro: ${trimmedOther}`;
+    }
     return {
       answer_value,
-      answer_text: labelsForOptionValues(draft.values, options),
+      answer_text,
     };
   }
 
