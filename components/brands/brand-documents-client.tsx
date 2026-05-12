@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Loader2, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   limbiDocumentCardClass,
   limbiOutlineButtonClass,
@@ -15,6 +16,16 @@ import {
   brandDocumentListStatusLabelEs,
   brandDocumentTypeLabelEs,
 } from "@/lib/brands/brand-document-labels";
+import { humanizeBrandDocumentStorageError } from "@/lib/brands/brand-documents-storage";
+import {
+  BRAND_MATERIAL_SUBIR_ARCHIVO_SUBTITLE_ES,
+  BRAND_MATERIAL_WEB_HELP_ES,
+  BRAND_MATERIAL_WEB_PENDING_REVIEW_BLOCK_ES,
+  BRAND_MATERIAL_WEB_SECTION_HEADING,
+  BRAND_MATERIAL_WEB_URL_PLACEHOLDER,
+  isWebExploreButtonDisabled,
+  isWebExploreInteractionLocked,
+} from "@/lib/brands/brand-material-context-ui";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   BRAND_ANALYSIS_NO_USEFUL_HINT,
@@ -22,18 +33,30 @@ import {
 } from "@/lib/brands/brand-document-analysis-empty-copy";
 import { BRAND_DOCUMENT_ANALYSIS_AI_OUTPUT_STRUCTURE_CODE } from "@/lib/schemas/brand-document-analysis";
 import {
+  inferBrandContextFileKind,
+  validateBrandContextMagicBytesClient,
+  validateBrandContextUploadMetadata,
+} from "@/lib/brands/validate-brand-context-upload";
+import {
   BRAND_DOCUMENT_MAX_BYTES,
   BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS,
-  validatePdfMagicBytesClient,
-  validatePdfUploadMetadata,
 } from "@/lib/brands/validate-pdf-upload";
+import {
+  assertPublicExplorableHttpUrl,
+  BRAND_WEB_EXPLORE_URL_HELP_ES,
+  normalizeWebsiteUrl,
+  sanitizeWebsiteUrlInput,
+} from "@/lib/brands/normalize-website-url";
 import { cn } from "@/lib/utils";
 import type { BrandDocumentListRow } from "@/types/database";
 
 const BRAND_MATERIAL_CONTEXT_COPY =
-  "Sube aquí documentos que ayuden a entender mejor la marca: manuales, briefs, presentaciones, portafolios, estudios o textos institucionales. Limbi los usará como fuente de contexto en etapas posteriores, pero no tomará su contenido como verdad automática sin revisión.";
+  "Subí PDF, Word (.docx) o texto (.txt), o explorá el sitio público de la marca. Limbi usará eso como material de contexto en etapas posteriores, pero no tomará el contenido como verdad automática sin tu revisión (hallazgos pendientes de aprobación).";
 
 const STORAGE_BUCKET = "brand-documents";
+
+const BRAND_MATERIAL_FILE_ACCEPT =
+  "application/pdf,.pdf,application/x-pdf,application/octet-stream,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,text/plain";
 
 type Props = {
   brandId: string;
@@ -74,15 +97,17 @@ type PrepareUploadResponse = {
   path: string;
 };
 
+function humanMaterialFormatLabel(d: BrandDocumentListRow): string {
+  if (d.source_kind === "website_crawl") return "Exploración web";
+  const k = inferBrandContextFileKind(d.file_name);
+  if (k === "pdf") return "PDF";
+  if (k === "docx") return "Word (.docx)";
+  if (k === "txt") return "Texto (.txt)";
+  return "Archivo";
+}
+
 function formatUploadError(j: UploadErrorJson, fallback: string): string {
-  const base = j.error ?? fallback;
-  const tech =
-    j.detail && j.detail !== j.error
-      ? `\n\nDetalle (${j.stage ?? "?"}/${j.code ?? "?"}): ${j.detail}`
-      : j.code
-        ? `\n\nReferencia: ${j.stage ?? "?"}/${j.code}`
-        : "";
-  return `${base}${tech}`;
+  return j.error?.trim() || fallback;
 }
 
 export function BrandDocumentsClient({
@@ -108,6 +133,22 @@ export function BrandDocumentsClient({
   const [analyzingDocuments, setAnalyzingDocuments] = useState(false);
   /** Resultado válido: análisis sin hallazgos útiles (no es error). */
   const [analysisEmptyUseful, setAnalysisEmptyUseful] = useState(false);
+  const [webExploreUrl, setWebExploreUrl] = useState("");
+  const [webExploreBusy, setWebExploreBusy] = useState(false);
+
+  const webExploreLockArgs = {
+    hasPendingReview,
+    analyzingDocuments,
+    extractingId,
+    uploading,
+    webExploreBusy,
+  };
+  const webExploreLocked = isWebExploreInteractionLocked(webExploreLockArgs);
+  const webExploreUrlEmpty = sanitizeWebsiteUrlInput(webExploreUrl).length === 0;
+  const webExploreButtonDisabled = isWebExploreButtonDisabled(
+    webExploreLockArgs,
+    webExploreUrlEmpty,
+  );
 
   const readyForAnalysisCount = useMemo(
     () =>
@@ -135,9 +176,10 @@ export function BrandDocumentsClient({
     if (hasPendingReview) return "pending_review";
     if (analyzingDocuments) return "analyzing";
     if (analysisEmptyUseful) return "empty_findings";
-    if (documents.length === 0 && !uploading) return "no_docs";
-    if (uploading) return "uploading";
+    if (documents.length === 0 && !uploading && !webExploreBusy) return "no_docs";
+    if (uploading || webExploreBusy) return "uploading";
     const reading =
+      webExploreBusy ||
       extractingId !== null ||
       documents.some((d) => d.processing_status === "processing");
     if (reading) return "reading";
@@ -157,6 +199,7 @@ export function BrandDocumentsClient({
     analysisEmptyUseful,
     documents,
     uploading,
+    webExploreBusy,
     extractingId,
     readyForAnalysisCount,
   ]);
@@ -323,7 +366,7 @@ export function BrandDocumentsClient({
         extraction?: { message?: string };
       };
       if (!res.ok) {
-        throw new Error(j.error ?? "No se pudo extraer el texto del PDF.");
+        throw new Error(j.error ?? "No se pudo extraer el texto del archivo.");
       }
       setMessage(
         j.extraction?.message ??
@@ -356,7 +399,10 @@ export function BrandDocumentsClient({
     }
 
     if (d.processing_status === "ready" && ex?.extraction_status === "succeeded") {
-      const pages = ex.page_count != null ? `${ex.page_count} páginas` : "— páginas";
+      const pagesLabel =
+        ex.page_count != null && ex.page_count > 0
+          ? `${ex.page_count} páginas`
+          : "Texto (sin paginación)";
       const chars =
         ex.character_count != null
           ? `${ex.character_count.toLocaleString("es")} caracteres`
@@ -365,7 +411,7 @@ export function BrandDocumentsClient({
         <div className="mt-2 space-y-1 text-xs text-limbi-muted">
           <p className="font-medium text-[var(--limbi-green)]">Texto extraído</p>
           <p>
-            {pages} · {chars}
+            {pagesLabel} · {chars}
           </p>
           <p>Listo para análisis posterior.</p>
           {ex.truncated ? (
@@ -426,7 +472,7 @@ export function BrandDocumentsClient({
     setAnalysisEmptyUseful(false);
     setUploading(true);
 
-    const metaQuick = validatePdfUploadMetadata({
+    const metaQuick = validateBrandContextUploadMetadata({
       file_name: file.name,
       file_size_bytes: file.size,
       file_type: file.type,
@@ -441,7 +487,7 @@ export function BrandDocumentsClient({
       return;
     }
 
-    const magic = await validatePdfMagicBytesClient(file);
+    const magic = await validateBrandContextMagicBytesClient(file);
     if (!magic.ok) {
       setError(magic.detail ? `${magic.message}\n\n${magic.detail}` : magic.message);
       setUploading(false);
@@ -476,10 +522,18 @@ export function BrandDocumentsClient({
       documentId = pj.document.id;
 
       const supabase = createBrowserSupabaseClient();
+      const contentType =
+        file.type && file.type.trim().length > 0
+          ? file.type
+          : inferBrandContextFileKind(file.name) === "pdf"
+            ? "application/pdf"
+            : inferBrandContextFileKind(file.name) === "docx"
+              ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              : "text/plain";
       const { error: uploadErr } = await supabase.storage
         .from(STORAGE_BUCKET)
         .uploadToSignedUrl(pj.path, pj.token, file, {
-          contentType: "application/pdf",
+          contentType,
         });
 
       if (uploadErr) {
@@ -515,7 +569,7 @@ export function BrandDocumentsClient({
       }
 
       setMessage(
-        "Documento subido. Limbi está leyendo el PDF para preparar el análisis posterior.",
+        "Archivo subido. Limbi está extrayendo el texto para preparar el análisis posterior.",
       );
       await refreshList();
       if (documentId) {
@@ -525,6 +579,61 @@ export function BrandDocumentsClient({
       setError(err instanceof Error ? err.message : "Error al subir.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function onWebExplore() {
+    const pre = sanitizeWebsiteUrlInput(webExploreUrl);
+    if (!pre) {
+      setError("Ingresá la URL del sitio público de la marca.");
+      return;
+    }
+    const normalized = normalizeWebsiteUrl(webExploreUrl);
+    if (!normalized) {
+      setError(BRAND_WEB_EXPLORE_URL_HELP_ES);
+      return;
+    }
+    try {
+      assertPublicExplorableHttpUrl(normalized);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : BRAND_WEB_EXPLORE_URL_HELP_ES);
+      return;
+    }
+    setError(null);
+    setMessage(null);
+    setAnalysisEmptyUseful(false);
+    setWebExploreBusy(true);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/documents/web-explore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          entry_url: normalized,
+          document_type: documentType,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as UploadErrorJson & {
+        document?: BrandDocumentListRow;
+      };
+      if (!res.ok) {
+        throw new Error(formatUploadError(j, "No se pudo explorar el sitio."));
+      }
+      if (!j.document?.id) {
+        throw new Error("Respuesta inválida del servidor.");
+      }
+      setWebExploreUrl("");
+      setMessage(
+        "Sitio leído. Se agregó material de contexto; Limbi está extrayendo el texto consolidado.",
+      );
+      await refreshList();
+      void onExtractText(j.document.id);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "Error al explorar el sitio.";
+      setError(humanizeBrandDocumentStorageError(raw));
+      await refreshList();
+    } finally {
+      setWebExploreBusy(false);
     }
   }
 
@@ -567,7 +676,8 @@ export function BrandDocumentsClient({
       <h3 className="text-sm font-semibold text-limbi-text">Documentos subidos</h3>
       {documents.length === 0 ? (
         <p className="mt-3 text-sm text-limbi-muted">
-          Todavía no hay documentos. Sube un PDF para empezar; luego puedes añadir más.
+          Todavía no hay material. Subí PDF, Word (.docx) o .txt, o explorá el sitio público de la
+          marca.
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-limbi-border">
@@ -579,12 +689,17 @@ export function BrandDocumentsClient({
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-limbi-text">{d.file_name}</p>
                 <p className="text-xs text-limbi-muted">
-                  {brandDocumentTypeLabelEs(d.document_type)} ·{" "}
+                  {brandDocumentTypeLabelEs(d.document_type)} · {humanMaterialFormatLabel(d)} ·{" "}
                   {brandDocumentListStatusLabelEs(d.processing_status)}
                   {d.file_size_bytes != null
                     ? ` · ${(d.file_size_bytes / 1024).toFixed(0)} KB`
                     : null}
                 </p>
+                {d.web_entry_url ? (
+                  <p className="mt-0.5 truncate text-[11px] text-limbi-muted" title={d.web_entry_url}>
+                    URL: {d.web_entry_url}
+                  </p>
+                ) : null}
                 {renderExtractionBlock(d)}
                 {d.processing_error && d.processing_status !== "failed" ? (
                   <p className="mt-1 text-xs text-red-600">{d.processing_error}</p>
@@ -622,7 +737,7 @@ export function BrandDocumentsClient({
           id="doc-type"
           value={documentType}
           onChange={(e) => setDocumentType(e.target.value)}
-          disabled={uploading}
+          disabled={webExploreLocked}
           className="flex h-10 w-full rounded-xl border border-limbi-border bg-limbi-surface px-3 py-2 text-sm text-limbi-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35"
         >
           {BRAND_DOCUMENT_TYPE_OPTIONS.map((o) => (
@@ -633,13 +748,14 @@ export function BrandDocumentsClient({
         </select>
       </div>
       <p className="text-xs text-limbi-muted">
-        Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Solo PDF.
+        Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Formatos: PDF, Word (.docx) o
+        texto plano (.txt).
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"
           className={cn(limbiPrimaryButtonClass, "relative")}
-          disabled={uploading}
+          disabled={webExploreLocked}
           asChild
         >
           <label
@@ -656,6 +772,52 @@ export function BrandDocumentsClient({
         </Button>
       </div>
     </>
+  );
+
+  const webSiteSourceSection = (
+    <div className="space-y-3">
+      <p className="text-xs leading-relaxed text-limbi-muted">{BRAND_MATERIAL_WEB_HELP_ES}</p>
+      {hasPendingReview ? (
+        <p className="text-xs text-amber-800 dark:text-amber-200" role="note">
+          {BRAND_MATERIAL_WEB_PENDING_REVIEW_BLOCK_ES}
+        </p>
+      ) : null}
+      <Input
+        type="text"
+        inputMode="url"
+        autoComplete="url"
+        placeholder={BRAND_MATERIAL_WEB_URL_PLACEHOLDER}
+        value={webExploreUrl}
+        onChange={(e) => setWebExploreUrl(e.target.value)}
+        disabled={webExploreLocked}
+        className="border-limbi-border bg-limbi-surface"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className={limbiOutlineButtonClass}
+        disabled={webExploreButtonDisabled}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void onWebExplore();
+        }}
+      >
+        {webExploreBusy ? (
+          <>
+            <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+            Leyendo sitio…
+          </>
+        ) : (
+          "Explorar sitio"
+        )}
+      </Button>
+      {webExploreBusy ? (
+        <p className="text-xs text-limbi-muted" role="status">
+          Conectando con el sitio y recopilando texto. Este paso no usa el selector de archivos.
+        </p>
+      ) : null}
+    </div>
   );
 
   const inner = (
@@ -703,7 +865,9 @@ export function BrandDocumentsClient({
                       : materialEmbeddedPhase === "no_docs"
                         ? "Documentos"
                         : materialEmbeddedPhase === "uploading"
-                          ? "Subida"
+                          ? webExploreBusy && !uploading
+                            ? "Sitio web"
+                            : "Subida"
                           : materialEmbeddedPhase === "reading"
                             ? "Lectura"
                             : materialEmbeddedPhase === "uploaded_pending"
@@ -814,6 +978,7 @@ export function BrandDocumentsClient({
                     analyzingDocuments ||
                     readyForAnalysisCount === 0 ||
                     Boolean(uploading) ||
+                    webExploreBusy ||
                     Boolean(extractingId)
                   }
                   onClick={() => void onAnalyzeDocuments()}
@@ -841,46 +1006,25 @@ export function BrandDocumentsClient({
             ) : null}
           </div>
 
-          {(materialEmbeddedPhase === "no_docs" ||
-            materialEmbeddedPhase === "uploading") && (
-            <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
-              <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
-              {embeddedMaterialUploadControls}
-            </div>
-          )}
+          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+            <h3 className="text-sm font-semibold text-limbi-text">Subir archivo</h3>
+            <p className="text-xs text-limbi-muted">{BRAND_MATERIAL_SUBIR_ARCHIVO_SUBTITLE_ES}</p>
+            {embeddedMaterialUploadControls}
+          </div>
 
-          {materialEmbeddedPhase !== "no_docs" &&
-            materialEmbeddedPhase !== "uploading" && (
-              <div
-                className={cn(
-                  limbiDocumentCardClass,
-                  "flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5",
-                )}
-              >
-                <p className="text-sm text-limbi-muted">¿Quieres añadir otro PDF?</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={limbiOutlineButtonClass}
-                  disabled={uploading}
-                  onClick={triggerMaterialUploadClick}
-                >
-                  {uploading ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <Upload className="size-4" aria-hidden />
-                  )}
-                  Subir otro PDF
-                </Button>
-              </div>
-            )}
+          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+            <h3 className="text-sm font-semibold text-limbi-text">
+              {BRAND_MATERIAL_WEB_SECTION_HEADING}
+            </h3>
+            {webSiteSourceSection}
+          </div>
 
           <input
             type="file"
-            accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
+            accept={BRAND_MATERIAL_FILE_ACCEPT}
             id="brand-material-upload-input"
             className="sr-only"
-            disabled={uploading}
+            disabled={webExploreLocked}
             onChange={(ev) => void onUpload(ev)}
           />
         </>
@@ -935,6 +1079,7 @@ export function BrandDocumentsClient({
                     analyzingDocuments ||
                     readyForAnalysisCount === 0 ||
                     Boolean(uploading) ||
+                    webExploreBusy ||
                     Boolean(extractingId)
                   }
                   onClick={() => void onAnalyzeDocuments()}
@@ -958,8 +1103,17 @@ export function BrandDocumentsClient({
             )}
           </div>
 
-          <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
-            <h3 className="text-sm font-semibold text-limbi-text">Subir PDF</h3>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className={cn(limbiDocumentCardClass, "space-y-4 border-limbi-border/90 p-6 sm:p-8")}>
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-limbi-green/10 text-limbi-green">
+                  <Upload className="size-5" aria-hidden />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <h3 className="text-sm font-semibold text-limbi-text">Subir archivo</h3>
+                  <p className="text-xs text-limbi-muted">{BRAND_MATERIAL_SUBIR_ARCHIVO_SUBTITLE_ES}</p>
+                </div>
+              </div>
             <div className="space-y-2">
               <label htmlFor="doc-type" className="text-sm font-medium text-limbi-text">
                 Tipo de documento
@@ -968,7 +1122,7 @@ export function BrandDocumentsClient({
                 id="doc-type"
                 value={documentType}
                 onChange={(e) => setDocumentType(e.target.value)}
-                disabled={uploading}
+                disabled={webExploreLocked}
                 className="flex h-10 w-full rounded-xl border border-limbi-border bg-limbi-surface px-3 py-2 text-sm text-limbi-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-limbi-green/35"
               >
                 {BRAND_DOCUMENT_TYPE_OPTIONS.map((o) => (
@@ -979,14 +1133,14 @@ export function BrandDocumentsClient({
               </select>
             </div>
             <p className="text-xs text-limbi-muted">
-              Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Puedes subir varios
-              PDFs; cada uno aparecerá en la lista con su propio estado.
+              Tamaño máximo: {BRAND_DOCUMENT_MAX_BYTES / (1024 * 1024)} MB. Podés subir varios
+              archivos (PDF, .docx o .txt); cada uno aparece en la lista con su estado.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
                 className={cn(limbiPrimaryButtonClass, "relative")}
-                disabled={uploading}
+                disabled={webExploreLocked}
                 asChild
               >
                 <label className="inline-flex cursor-pointer items-center gap-2">
@@ -995,17 +1149,25 @@ export function BrandDocumentsClient({
                   ) : (
                     <Upload className="size-4" aria-hidden />
                   )}
-                  Elegir PDF
+                  Elegir archivo
                   <input
                     type="file"
-                    accept="application/pdf,.pdf,application/x-pdf,application/octet-stream"
+                    accept={BRAND_MATERIAL_FILE_ACCEPT}
                     id="brand-material-upload-input"
                     className="sr-only"
-                    disabled={uploading}
+                    disabled={webExploreLocked}
                     onChange={(ev) => void onUpload(ev)}
                   />
                 </label>
               </Button>
+            </div>
+            </div>
+
+            <div className={cn(limbiDocumentCardClass, "space-y-4 border-limbi-border/90 p-6 sm:p-8")}>
+              <h3 className="text-sm font-semibold text-limbi-text">
+                {BRAND_MATERIAL_WEB_SECTION_HEADING}
+              </h3>
+              {webSiteSourceSection}
             </div>
           </div>
         </>
@@ -1061,7 +1223,7 @@ export function BrandDocumentsClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
       <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
         <Link href={`/brands/${brandId}`}>
           <ArrowLeft className="size-4" aria-hidden />

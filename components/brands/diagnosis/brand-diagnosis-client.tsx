@@ -347,12 +347,15 @@ export function BrandDiagnosisClient({
           </div>
         ) : (
           <div className="space-y-8">
-            <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
+            <section className="rounded-2xl border border-limbi-border/80 bg-limbi-bg-soft/50 p-4 sm:flex sm:items-start sm:gap-8 sm:p-6">
               <QualityScoreRing
                 score={evaluation.overall_score ?? 0}
                 className="shrink-0"
               />
-              <div className="min-w-0 flex-1 space-y-2">
+              <div className="min-w-0 flex-1 space-y-3 pt-4 sm:pt-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+                  Calidad de información
+                </p>
                 <p className="text-sm font-medium text-limbi-text">
                   {overallProgressLabelEs(evaluation.overall_score)} · Nivel global:{" "}
                   <span className="text-limbi-muted">
@@ -373,7 +376,7 @@ export function BrandDiagnosisClient({
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+              <h2 className="font-heading text-base font-semibold text-limbi-text">
                 Por sección
               </h2>
               <ul className="space-y-4">
@@ -393,7 +396,7 @@ export function BrandDiagnosisClient({
 
             {criticalGaps.length > 0 ? (
               <section className="space-y-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+                <h2 className="font-heading text-base font-semibold text-limbi-text">
                   Vacíos críticos
                 </h2>
                 <ul className="space-y-3 text-sm">
@@ -415,7 +418,7 @@ export function BrandDiagnosisClient({
 
             {contradictions.length > 0 ? (
               <section className="space-y-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+                <h2 className="font-heading text-base font-semibold text-limbi-text">
                   Contradicciones o tensiones
                 </h2>
                 <ul className="space-y-3 text-sm">
@@ -437,7 +440,7 @@ export function BrandDiagnosisClient({
 
             {improvementPlan.length > 0 ? (
               <section className="space-y-2">
-                <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+                <h2 className="font-heading text-base font-semibold text-limbi-text">
                   Plan de mejora priorizado
                 </h2>
                 <ol className="list-decimal space-y-2 pl-5 text-sm text-limbi-muted">

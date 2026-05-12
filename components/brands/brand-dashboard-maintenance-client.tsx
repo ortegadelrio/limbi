@@ -9,6 +9,7 @@ import {
   limbiDocumentCardClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
+import { QualityScoreRing } from "@/components/projects/quality-score-ring";
 import { cn } from "@/lib/utils";
 import type { BrandDashboardMaintenanceResolved } from "@/lib/brands/brand-dashboard-maintenance-action";
 import {
@@ -150,46 +151,49 @@ export function BrandDashboardMaintenanceClient({
       <section
         className={cn(
           limbiDocumentCardClass,
-          "space-y-4 border border-limbi-border p-4 sm:p-5",
+          "space-y-4 border border-limbi-border/90 bg-limbi-surface/40 p-4 sm:p-6",
         )}
       >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <h2 className="text-sm font-semibold text-limbi-text">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
+            <h2 className="font-heading text-base font-semibold tracking-tight text-limbi-text">
               Calidad de información de la marca
             </h2>
-            <p className="text-xs leading-relaxed text-limbi-muted">
-              Este porcentaje mide qué tan completa y útil es la información disponible para que
-              Limbi construya una Base de Marca confiable.
+            <p className="max-w-prose text-xs leading-relaxed text-limbi-muted sm:text-sm">
+              Este porcentaje resume qué tan completa y útil es la información para que Limbi
+              construya una Base de Marca confiable.
             </p>
           </div>
-          {scoreDisplay ? (
-            <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-              <p
-                className={cn(
-                  "font-heading text-4xl font-semibold tabular-nums sm:text-5xl",
-                  band === "high" && "text-emerald-600",
-                  band === "medium" && "text-amber-600",
-                  band === "low" && "text-red-600/90",
-                )}
-              >
-                {scoreDisplay}
-              </p>
-              {bandHint ? (
-                <p className="text-right text-xs text-limbi-muted">{bandHint}</p>
-              ) : null}
+          {scoreDisplay && overallScore != null ? (
+            <div className="flex shrink-0 items-center gap-5 sm:flex-col sm:items-end sm:gap-2">
+              <QualityScoreRing score={overallScore} size="md" />
+              <div className="text-left sm:text-right">
+                <p
+                  className={cn(
+                    "font-heading text-3xl font-semibold tabular-nums sm:hidden",
+                    band === "high" && "text-emerald-600",
+                    band === "medium" && "text-amber-600",
+                    band === "low" && "text-red-600/90",
+                  )}
+                >
+                  {scoreDisplay}
+                </p>
+                {bandHint ? (
+                  <p className="max-w-[16rem] text-xs text-limbi-muted sm:text-right">{bandHint}</p>
+                ) : null}
+              </div>
             </div>
           ) : (
             <p className="text-sm font-medium text-limbi-muted">Aún no hay diagnóstico</p>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs text-limbi-muted">
+        <div className="flex flex-wrap items-center gap-2 border-t border-limbi-border/60 pt-4 text-xs text-limbi-muted">
           {hasActiveDiagnosis ? (
             <>
               <span
                 className={cn(
-                  "inline-flex rounded-full border px-2 py-0.5 text-xs font-medium",
+                  "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
                   diagnosisIsStale
                     ? "border-amber-500/45 bg-amber-500/10 text-limbi-text"
                     : "border-emerald-500/40 bg-emerald-500/10 text-limbi-text",
@@ -198,7 +202,9 @@ export function BrandDashboardMaintenanceClient({
                 {diagnosisIsStale ? "Diagnóstico desactualizado" : "Diagnóstico vigente"}
               </span>
               {diagnosisGeneratedAtBogota ? (
-                <span>Generado el {diagnosisGeneratedAtBogota}</span>
+                <span>
+                  Hora Bogotá · generado el {diagnosisGeneratedAtBogota}
+                </span>
               ) : null}
             </>
           ) : null}
@@ -206,42 +212,71 @@ export function BrandDashboardMaintenanceClient({
 
         {hasActiveBases && baseConsolidatedAtBogota ? (
           <p className="text-xs text-limbi-muted">
-            Base de Marca consolidada el {baseConsolidatedAtBogota}
+            Base de Marca consolidada (Hora Bogotá) · {baseConsolidatedAtBogota}
           </p>
         ) : null}
       </section>
 
-      {maintenance.combinedStaleNotice ? (
-        <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 text-sm">
-          <p className="font-medium text-limbi-text">{maintenance.combinedStaleNotice.title}</p>
-          <p className="mt-1 text-limbi-muted">{maintenance.combinedStaleNotice.body}</p>
-        </div>
-      ) : null}
-
-      {maintenance.diagnosisStaleNotice ? (
-        <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 text-sm">
-          <p className="font-medium text-limbi-text">{maintenance.diagnosisStaleNotice.title}</p>
-          <p className="mt-1 text-limbi-muted">{maintenance.diagnosisStaleNotice.body}</p>
-        </div>
-      ) : null}
-
-      {maintenance.baseStaleNotice ? (
-        <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 text-sm">
-          <p className="font-medium text-limbi-text">{maintenance.baseStaleNotice.title}</p>
-          <p className="mt-1 text-limbi-muted">{maintenance.baseStaleNotice.body}</p>
+      {maintenance.combinedStaleNotice ||
+      maintenance.diagnosisStaleNotice ||
+      maintenance.baseStaleNotice ? (
+        <div
+          className="space-y-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] p-4 sm:p-5"
+          role="region"
+          aria-label="Avisos de actualización"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-900/80 dark:text-amber-200/90">
+            Hay información nueva en la marca
+          </p>
+          {maintenance.combinedStaleNotice ? (
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-limbi-text">{maintenance.combinedStaleNotice.title}</p>
+              <p className="text-limbi-muted">{maintenance.combinedStaleNotice.body}</p>
+            </div>
+          ) : null}
+          {maintenance.diagnosisStaleNotice ? (
+            <div
+              className={cn(
+                "space-y-1 text-sm",
+                maintenance.combinedStaleNotice && "border-t border-amber-500/25 pt-4",
+              )}
+            >
+              <p className="font-medium text-limbi-text">{maintenance.diagnosisStaleNotice.title}</p>
+              <p className="text-limbi-muted">{maintenance.diagnosisStaleNotice.body}</p>
+            </div>
+          ) : null}
+          {maintenance.baseStaleNotice ? (
+            <div
+              className={cn(
+                "space-y-1 text-sm",
+                (maintenance.combinedStaleNotice || maintenance.diagnosisStaleNotice) &&
+                  "border-t border-amber-500/25 pt-4",
+              )}
+            >
+              <p className="font-medium text-limbi-text">{maintenance.baseStaleNotice.title}</p>
+              <p className="text-limbi-muted">{maintenance.baseStaleNotice.body}</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       <section
         className={cn(
           limbiDocumentCardClass,
-          "space-y-4 border border-limbi-border p-4 sm:p-5",
+          "space-y-5 border border-limbi-border/90 bg-limbi-surface/50 p-4 sm:p-6",
         )}
       >
-        <h2 className="text-sm font-semibold text-limbi-text">Mantener marca</h2>
+        <div className="space-y-1">
+          <h2 className="font-heading text-base font-semibold tracking-tight text-limbi-text">
+            Mantener marca
+          </h2>
+          <p className="text-xs text-limbi-muted">
+            Un solo paso principal: Limbi te guía según lo que haga falta actualizar.
+          </p>
+        </div>
 
         {maintenance.upToDateHeadline ? (
-          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200/90">
+          <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm font-medium text-emerald-900 dark:text-emerald-100/90">
             {maintenance.upToDateHeadline}
           </p>
         ) : null}
@@ -268,13 +303,13 @@ export function BrandDashboardMaintenanceClient({
         {maintenance.primaryRole !== "none_up_to_date" ? (
           <div className="flex flex-wrap gap-2">
             {maintenance.primaryRole === "review_pending_facts" && maintenance.primaryHref ? (
-              <Button className={limbiPrimaryButtonClass} asChild>
+              <Button className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")} asChild>
                 <Link href={maintenance.primaryHref}>{maintenance.primaryLabel}</Link>
               </Button>
             ) : (
               <Button
                 type="button"
-                className={limbiPrimaryButtonClass}
+                className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")}
                 disabled={primaryDisabled}
                 onClick={() => void onPrimary()}
               >
@@ -291,16 +326,16 @@ export function BrandDashboardMaintenanceClient({
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-2 border-t border-limbi-border/80 pt-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-limbi-muted">
+        <div className="flex flex-col gap-3 border-t border-limbi-border/70 pt-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-limbi-muted">
             Accesos rápidos
           </p>
-          <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <ul className="grid gap-2 sm:grid-cols-2">
             {secondaryLinks.map((l) => (
               <li key={l.href}>
                 <Link
                   href={l.href}
-                  className="text-sm text-limbi-green underline-offset-4 hover:underline"
+                  className="block rounded-xl border border-transparent px-1 py-1.5 text-sm text-limbi-muted transition-colors hover:border-limbi-border/80 hover:bg-limbi-bg-soft/50 hover:text-limbi-green"
                 >
                   {l.label}
                 </Link>

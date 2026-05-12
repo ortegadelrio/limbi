@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
+import { cn } from "@/lib/utils";
 import type { BrandDashboardMaintenanceResolved } from "@/lib/brands/brand-dashboard-maintenance-action";
 import {
   postBrandConsolidate,
@@ -97,13 +98,13 @@ export function BrandOverviewCardCta({ brandId, maintenance }: Props) {
         </p>
       ) : null}
       {isLink ? (
-        <Button className={limbiPrimaryButtonClass} asChild>
+        <Button className={cn(limbiPrimaryButtonClass, "w-full sm:w-auto")} asChild>
           <Link href={maintenance.primaryHref!}>{maintenance.primaryLabel}</Link>
         </Button>
       ) : (
         <Button
           type="button"
-          className={limbiPrimaryButtonClass}
+          className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-5 text-[15px] sm:w-auto")}
           disabled={disabled}
           onClick={() => void onPrimary()}
         >

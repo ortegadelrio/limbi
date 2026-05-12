@@ -27,6 +27,7 @@ describe("Listado /brands — contrato mantenimiento (sin RTL)", () => {
     const p = path.join(__dirname, "../../components/brands/brand-list.tsx");
     const src = readFileSync(p, "utf8");
     expect(src).toContain("Calidad de información");
+    expect(src).toContain("QualityScoreRing");
     expect(src).toContain("BRAND_INFORMATION_QUALITY_MICROCOPY_ES");
     expect(src).toContain("Aún no hay diagnóstico");
     expect(src).toContain("executiveStatusLabel");

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import {
@@ -115,7 +115,7 @@ export default async function BrandDetailPage({ params }: Props) {
     : null;
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
+    <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
       <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
         <Link href="/brands">
           <ArrowLeft className="size-4" aria-hidden />
@@ -188,10 +188,23 @@ export default async function BrandDetailPage({ params }: Props) {
         <div
           className={cn(
             limbiDocumentCardClass,
-            "space-y-3 border border-limbi-border p-4 sm:p-5",
+            "space-y-4 border border-limbi-border/90 bg-limbi-surface/30 p-4 sm:p-5",
           )}
         >
-          <h2 className="text-sm font-semibold text-limbi-text">Material de contexto</h2>
+          <div className="flex items-start gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-limbi-green/10 text-limbi-green">
+              <FolderOpen className="size-5" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <h2 className="font-heading text-base font-semibold text-limbi-text">
+                Material de contexto
+              </h2>
+              <p className="text-sm leading-relaxed text-limbi-muted">
+                PDF, Word, texto o exploración web: Limbi lo usa como referencia y siempre pasa por
+                tu revisión antes de influir en diagnóstico o bases.
+              </p>
+            </div>
+          </div>
           {docStats.total === 0 ? (
             <p className="text-sm text-limbi-muted">
               Aún no has subido documentos de marca.

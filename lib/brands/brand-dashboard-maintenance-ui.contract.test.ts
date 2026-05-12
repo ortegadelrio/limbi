@@ -37,7 +37,8 @@ describe("Dashboard marca — contrato UI mantenimiento (sin RTL)", () => {
     const src = readFileSync(p, "utf8");
     expect(src).toContain("Calidad de información de la marca");
     expect(src).toContain("Base de Marca confiable");
-    expect(src).toContain("Generado el");
+    expect(src).toContain("Hora Bogotá");
     expect(src).toContain("Diagnóstico desactualizado");
+    expect(src).toContain("QualityScoreRing");
   });
 });

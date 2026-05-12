@@ -132,13 +132,14 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
         <p className="mt-1 text-sm text-limbi-muted">{brandName}</p>
       </div>
 
-      <div className="space-y-2">
-        {bases.knowledge_consolidated_at_bogota ? (
-          <>
-            <p className="text-xs text-limbi-muted">
-              Base de Marca consolidada el {bases.knowledge_consolidated_at_bogota}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-3 rounded-2xl border border-limbi-border/90 bg-limbi-surface/40 p-4 sm:p-5">
+        <p className="text-sm leading-relaxed text-limbi-text">{closureStatusLine}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {bases.knowledge_consolidated_at_bogota ? (
+            <>
+              <p className="text-xs text-limbi-muted">
+                Última consolidación (Hora Bogotá): {bases.knowledge_consolidated_at_bogota}
+              </p>
               {anyStale ? (
                 <span className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-limbi-text">
                   Base desactualizada
@@ -148,24 +149,20 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
                   Base vigente
                 </span>
               )}
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-limbi-muted">
-            Aún no hay una Base de Marca consolidada para esta marca.
-          </p>
-        )}
+            </>
+          ) : (
+            <p className="text-xs text-limbi-muted">
+              Aún no hay una Base de Marca consolidada para esta marca.
+            </p>
+          )}
+        </div>
         {anyStale && !diagnosisIsStale ? (
           <p className="text-xs text-limbi-muted">
-            Esta base no incluye cambios recientes del cuestionario, documentos, hallazgos, oferta,
-            territorios o mejoras.
+            Esta lectura no incluye cambios recientes del cuestionario, documentos, hallazgos,
+            oferta, territorios o mejoras aprobadas.
           </p>
         ) : null}
       </div>
-
-      <p className="rounded-xl border border-limbi-border bg-limbi-surface/50 px-3 py-2 text-sm text-limbi-muted">
-        {closureStatusLine}
-      </p>
 
       {pending ? (
         <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
@@ -181,7 +178,7 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
 
       {hasActiveDiagnosis && diagnosisIsStale ? (
         <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
-          <span className="font-medium">Actualiza primero el diagnóstico.</span>{" "}
+          <span className="font-medium">Actualizá primero el diagnóstico.</span>{" "}
           <Link
             href={`/brands/${brandId}/diagnosis`}
             className="text-limbi-green underline-offset-4 hover:underline"
@@ -235,9 +232,25 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
       ) : null}
 
       {hasKnowledge && knowledgeUi ? (
-        <div className="space-y-8">
+        <div className="space-y-10">
+          <div className="space-y-2">
+            <h2 className="font-heading text-lg font-semibold text-limbi-text">
+              Base de Conocimiento
+            </h2>
+            <p className="text-xs text-limbi-muted">
+              Lectura ejecutiva para equipos: cómo Limbi entiende la marca hoy, en lenguaje claro.
+            </p>
+          </div>
           <BrandBasesInterpretiveReading knowledgeUi={knowledgeUi} />
-          {hasLimbic ? <BrandBasesLimbicReading payload={limbicPayload} /> : null}
+          {hasLimbic ? (
+            <div className="space-y-4 border-t border-limbi-border/80 pt-10">
+              <p className="max-w-prose text-xs leading-relaxed text-limbi-muted">
+                La Base Límbica resume señales simbólicas y metafóricas: útil para tono y creatividad,
+                no como datos literales.
+              </p>
+              <BrandBasesLimbicReading payload={limbicPayload} />
+            </div>
+          ) : null}
         </div>
       ) : !hasKnowledge && !hasLimbic ? (
         <p className="text-sm text-limbi-muted">
