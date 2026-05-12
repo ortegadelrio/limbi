@@ -5,7 +5,7 @@ import type { BrandDiagnosisNextRecommendedAction, BrandEvaluationRow } from "@/
 export type BrandDashboardDiagnosisState = {
   pendingFactsCount: number;
   hasActiveDiagnosis: boolean;
-  activeDiagnosis: Pick<BrandEvaluationRow, "id" | "created_at"> | null;
+  activeDiagnosis: Pick<BrandEvaluationRow, "id" | "created_at" | "overall_score"> | null;
   diagnosisIsStale: boolean;
   /** Solo con diagnóstico activo succeeded; para copy del journey (consolidar). */
   nextRecommendedAction: BrandDiagnosisNextRecommendedAction | null;
@@ -28,7 +28,7 @@ export async function fetchBrandDashboardDiagnosisState(
 
   const { data: activeRow } = await supabase
     .from("brand_evaluations")
-    .select("id, created_at, next_recommended_action, critical_gaps")
+    .select("id, created_at, overall_score, next_recommended_action, critical_gaps")
     .eq("brand_id", brandId)
     .eq("is_active", true)
     .eq("status", "succeeded")
@@ -36,7 +36,11 @@ export async function fetchBrandDashboardDiagnosisState(
 
   const pendingFacts = pendingFactsCount ?? 0;
   const activeDiagnosis = activeRow
-    ? { id: activeRow.id, created_at: activeRow.created_at }
+    ? {
+        id: activeRow.id,
+        created_at: activeRow.created_at,
+        overall_score: activeRow.overall_score ?? null,
+      }
     : null;
 
   if (!activeDiagnosis) {
