@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { BrandDiagnosisClient } from "@/components/brands/diagnosis/brand-diagnosis-client";
+import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import type { BrandEvaluationRow } from "@/types/database";
 
 type Props = { params: Promise<{ brandId: string }> };
@@ -43,12 +44,34 @@ export default async function BrandDiagnosisPage({ params }: Props) {
     throw new Error(evErr.message);
   }
 
+  const activeEvaluation = (evaluation ?? null) as BrandEvaluationRow | null;
+
+  const { data: improvementBadgeRows, error: impErr } = await supabase
+    .from("brand_section_improvements")
+    .select("section_key, approved_at")
+    .eq("brand_id", brandId)
+    .eq("status", "approved")
+    .eq("is_active", true);
+
+  if (impErr) {
+    throw new Error(impErr.message);
+  }
+
+  const sectionKeysWithImprovementAfterDiagnosis =
+    sectionKeysWithApprovedImprovementAfterEvaluation(
+      activeEvaluation,
+      (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
+    );
+
   return (
     <BrandDiagnosisClient
       brandId={brandId}
       brandName={brand.name}
       initialPendingReviewCount={pendingCount ?? 0}
-      initialEvaluation={(evaluation ?? null) as BrandEvaluationRow | null}
+      initialEvaluation={activeEvaluation}
+      initialSectionKeysWithImprovementAfterDiagnosis={
+        sectionKeysWithImprovementAfterDiagnosis
+      }
     />
   );
 }

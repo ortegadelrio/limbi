@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v1.0";
+export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v1.3";
 
 export const brandDiagnosisQualityLevelSchema = z.enum([
   "critical",
@@ -86,14 +86,56 @@ export function brandDiagnosisQualityLevelFromScore(score: number): z.infer<
 export function applyServerDiagnosisQualityLevels(
   parsed: BrandDiagnosisRawOutputParsed,
 ): BrandDiagnosisRawOutputParsed {
+  const hasBlockingContradiction = parsed.contradictions.length > 0;
+  const hasCriticalGap = parsed.critical_gaps.length > 0;
+  let nextAction = parsed.next_recommended_action;
+
+  if (parsed.overall_score >= 80 && !hasBlockingContradiction && !hasCriticalGap) {
+    nextAction = "ready_for_consolidation";
+  } else if (parsed.overall_score >= 70 && nextAction === "improve_required") {
+    nextAction = "improve_recommended";
+  } else if (parsed.overall_score >= 60 && nextAction === "improve_required" && !hasCriticalGap) {
+    nextAction = "improve_recommended";
+  }
+  const strategicReading =
+    parsed.overall_score >= 70
+      ? softenBlockingStrategicReading(parsed.strategic_reading)
+      : parsed.strategic_reading;
+
   return {
     ...parsed,
     quality_level: brandDiagnosisQualityLevelFromScore(parsed.overall_score),
+    strategic_reading: strategicReading,
+    next_recommended_action: nextAction,
     section_scores: parsed.section_scores.map((row) => ({
       ...row,
       quality_level: brandDiagnosisQualityLevelFromScore(row.score),
+      can_generate_base:
+        row.score >= 70 && row.contradictions.length === 0 ? true : row.can_generate_base,
+      should_improve_before_consolidation:
+        row.score >= 70 && row.contradictions.length === 0
+          ? false
+          : row.should_improve_before_consolidation,
     })),
   };
+}
+
+function softenBlockingStrategicReading(text: string): string {
+  const hasBlockingLanguage =
+    /impide(?:n)?\s+(?:una\s+)?consolidaci[oó]n/i.test(text) ||
+    /no\s+est[aá]\s+lista/i.test(text) ||
+    /base\s+m[ií]nima/i.test(text) ||
+    /deficiencias\s+que\s+impiden/i.test(text) ||
+    /informaci[oó]n\s+insuficiente/i.test(text) ||
+    /no\s+hay\s+suficiente\s+informaci[oó]n/i.test(text);
+
+  if (!hasBlockingLanguage) return text;
+
+  return [
+    "La marca cuenta con una base suficiente para avanzar hacia la consolidación.",
+    "La información disponible permite construir una primera lectura estratégica, aunque conviene fortalecer algunos puntos para ganar precisión, evidencia y mayor capacidad de decisión.",
+    "Las recomendaciones deben leerse como oportunidades de refinamiento y fortalecimiento, no como un bloqueo para seguir construyendo.",
+  ].join(" ");
 }
 
 /**

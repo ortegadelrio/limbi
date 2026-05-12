@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { QualityScoreRing } from "@/components/projects/quality-score-ring";
 import {
   limbiDocumentCardClass,
+  limbiOutlineButtonClass,
 } from "@/components/projects/limbi-ui";
+import { Button } from "@/components/ui/button";
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
 import { cn } from "@/lib/utils";
@@ -25,6 +28,15 @@ function qualityLevelLabelEs(level: string): string {
   }
 }
 
+function sectionProgressLabelEs(score: number): string {
+  if (score >= 90) return "Lista para consolidarse";
+  if (score >= 80) return "Bien encaminada";
+  if (score >= 70) return "Buena base para avanzar";
+  if (score >= 60) return "Base funcional por fortalecer";
+  if (score >= 40) return "Punto de partida por reforzar";
+  return "Necesita información esencial";
+}
+
 function priorityLabelEs(p: string): string {
   if (p === "high") return "Alta";
   if (p === "medium") return "Media";
@@ -33,12 +45,19 @@ function priorityLabelEs(p: string): string {
 }
 
 type Props = {
+  brandId: string;
   row: BrandDiagnosisSectionScoreParsed;
+  hasApprovedImprovementAfterDiagnosis?: boolean;
 };
 
-export function BrandDiagnosisSectionCard({ row }: Props) {
+export function BrandDiagnosisSectionCard({
+  brandId,
+  row,
+  hasApprovedImprovementAfterDiagnosis = false,
+}: Props) {
   const title =
     row.section_label?.trim() || brandQuestionnaireSectionLabelEs(row.section_key);
+  const canImproveSection = row.section_key !== "material_context";
 
   return (
     <div className={cn(limbiDocumentCardClass, "border border-limbi-border p-4 sm:p-5")}>
@@ -46,12 +65,25 @@ export function BrandDiagnosisSectionCard({ row }: Props) {
         <QualityScoreRing score={row.score} size="sm" className="shrink-0" />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 className="font-medium text-limbi-text">{title}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-medium text-limbi-text">{title}</h3>
+              {hasApprovedImprovementAfterDiagnosis ? (
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-300">
+                  Mejora aprobada
+                </span>
+              ) : null}
+            </div>
             <p className="text-xs text-limbi-muted">
-              {qualityLevelLabelEs(row.quality_level)} · Prioridad:{" "}
+              {sectionProgressLabelEs(row.score)} · {qualityLevelLabelEs(row.quality_level)} · Prioridad:{" "}
               {priorityLabelEs(row.priority)}
             </p>
           </div>
+          {hasApprovedImprovementAfterDiagnosis ? (
+            <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs leading-relaxed text-limbi-muted">
+              Esta sección ya tiene una mejora aprobada. El puntaje corresponde al último
+              diagnóstico y puede actualizarse al regenerar la evaluación.
+            </p>
+          ) : null}
           <p className="text-sm leading-relaxed text-limbi-muted">{row.diagnosis}</p>
 
           {row.strengths.length > 0 ? (
@@ -113,6 +145,16 @@ export function BrandDiagnosisSectionCard({ row }: Props) {
             Puede apoyar base: {row.can_generate_base ? "sí" : "no"} · Mejorar antes de
             consolidar: {row.should_improve_before_consolidation ? "sí" : "no"}
           </p>
+
+          {canImproveSection ? (
+            <div className="pt-1">
+              <Button variant="outline" size="sm" className={limbiOutlineButtonClass} asChild>
+                <Link href={`/brands/${brandId}/improve/${encodeURIComponent(row.section_key)}`}>
+                  Mejorar esta sección
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

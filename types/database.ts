@@ -347,6 +347,61 @@ export type BrandEvaluationRow = {
   updated_at: string;
 };
 
+/** Estados de `brand_improvement_sessions` (Ticket 5). */
+export type BrandImprovementSessionStatus =
+  | "open"
+  | "draft_ready"
+  | "approved"
+  | "abandoned"
+  | "failed";
+
+/** Estados de `brand_section_improvements` (Ticket 5). */
+export type BrandSectionImprovementStatus = "approved" | "superseded";
+
+export type BrandImprovementSessionRow = {
+  id: string;
+  brand_id: string;
+  section_key: string;
+  status: BrandImprovementSessionStatus;
+  brand_evaluation_id: string | null;
+  max_user_turns: number;
+  user_turn_count: number;
+  draft_payload: Record<string, unknown>;
+  closed_reason: string | null;
+  summary_for_consolidation: string | null;
+  model_used: string | null;
+  prompt_version: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BrandImprovementMessageRole = "user" | "assistant" | "system";
+
+export type BrandImprovementMessageRow = {
+  id: string;
+  session_id: string;
+  role: BrandImprovementMessageRole;
+  content: string;
+  structured_payload: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type BrandSectionImprovementRow = {
+  id: string;
+  brand_id: string;
+  section_key: string;
+  session_id: string | null;
+  status: BrandSectionImprovementStatus;
+  is_active: boolean;
+  payload: Record<string, unknown>;
+  approved_at: string | null;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 
 export type ProjectStatus =

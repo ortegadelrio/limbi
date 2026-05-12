@@ -22,6 +22,7 @@ type Props = {
   brandName: string;
   initialPendingReviewCount: number;
   initialEvaluation: BrandEvaluationRow | null;
+  initialSectionKeysWithImprovementAfterDiagnosis: string[];
 };
 
 function qualityLevelLabelEs(
@@ -43,14 +44,24 @@ function qualityLevelLabelEs(
   }
 }
 
+function overallProgressLabelEs(score: number | null): string {
+  const s = score ?? 0;
+  if (s >= 90) return "Base muy sólida para consolidar";
+  if (s >= 80) return "Buena base para avanzar";
+  if (s >= 70) return "Base suficiente para avanzar";
+  if (s >= 60) return "Base funcional por fortalecer";
+  if (s >= 40) return "Punto de partida por reforzar";
+  return "Necesita información esencial";
+}
+
 function nextActionLabelEs(action: BrandDiagnosisNextRecommendedAction | null): string {
   switch (action) {
     case "improve_required":
-      return "Se requieren mejoras antes de consolidar la Base de Marca.";
+      return "Conviene reforzar información esencial antes de una consolidación definitiva.";
     case "improve_recommended":
-      return "Conviene reforzar algunas secciones antes de consolidar.";
+      return "Hay una base para avanzar; reforzar algunas secciones dará más precisión estratégica.";
     case "ready_for_consolidation":
-      return "La información es sólida para avanzar hacia la consolidación (siguiente paso).";
+      return "La información es sólida para avanzar hacia la consolidación.";
     default:
       return "";
   }
@@ -68,10 +79,15 @@ export function BrandDiagnosisClient({
   brandName,
   initialPendingReviewCount,
   initialEvaluation,
+  initialSectionKeysWithImprovementAfterDiagnosis,
 }: Props) {
   const router = useRouter();
   const [pendingReviewCount, setPendingReviewCount] = useState(initialPendingReviewCount);
   const [evaluation, setEvaluation] = useState<BrandEvaluationRow | null>(initialEvaluation);
+  const [
+    sectionKeysWithImprovementAfterDiagnosis,
+    setSectionKeysWithImprovementAfterDiagnosis,
+  ] = useState(initialSectionKeysWithImprovementAfterDiagnosis);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,10 +96,14 @@ export function BrandDiagnosisClient({
     const j = (await res.json().catch(() => ({}))) as {
       pending_review_count?: number;
       evaluation?: BrandEvaluationRow | null;
+      section_keys_with_improvement_after_diagnosis?: string[];
     };
     if (res.ok) {
       setPendingReviewCount(j.pending_review_count ?? 0);
       setEvaluation(j.evaluation ?? null);
+      setSectionKeysWithImprovementAfterDiagnosis(
+        j.section_keys_with_improvement_after_diagnosis ?? [],
+      );
     }
   }, [brandId]);
 
@@ -138,6 +158,8 @@ export function BrandDiagnosisClient({
     priority: string;
     recommended_focus: string;
   }[];
+  const improvedAfterDiagnosisSet = new Set(sectionKeysWithImprovementAfterDiagnosis);
+  const hasImprovementsAfterDiagnosis = sectionKeysWithImprovementAfterDiagnosis.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
@@ -206,7 +228,7 @@ export function BrandDiagnosisClient({
               />
               <div className="min-w-0 flex-1 space-y-2">
                 <p className="text-sm font-medium text-limbi-text">
-                  Nivel global:{" "}
+                  {overallProgressLabelEs(evaluation.overall_score)} · Nivel global:{" "}
                   <span className="text-limbi-muted">
                     {qualityLevelLabelEs(evaluation.quality_level)}
                   </span>
@@ -224,6 +246,32 @@ export function BrandDiagnosisClient({
               </div>
             </section>
 
+            {hasImprovementsAfterDiagnosis ? (
+              <section className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm">
+                <p className="font-medium text-limbi-text">
+                  Hay mejoras aprobadas después de este diagnóstico.
+                </p>
+                <p className="mt-1 text-limbi-muted">
+                  Puedes actualizar la evaluación para recalcular puntajes y promedio general.
+                </p>
+                <Button
+                  type="button"
+                  className={cn(limbiPrimaryButtonClass, "mt-3")}
+                  disabled={generating}
+                  onClick={() => void onGenerate()}
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                      Actualizando…
+                    </>
+                  ) : (
+                    "Actualizar diagnóstico"
+                  )}
+                </Button>
+              </section>
+            ) : null}
+
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
                 Por sección
@@ -231,7 +279,13 @@ export function BrandDiagnosisClient({
               <ul className="space-y-4">
                 {sectionScores.map((row) => (
                   <li key={row.section_key}>
-                    <BrandDiagnosisSectionCard row={row} />
+                    <BrandDiagnosisSectionCard
+                      brandId={brandId}
+                      row={row}
+                      hasApprovedImprovementAfterDiagnosis={improvedAfterDiagnosisSet.has(
+                        row.section_key,
+                      )}
+                    />
                   </li>
                 ))}
               </ul>
@@ -303,9 +357,11 @@ export function BrandDiagnosisClient({
               <Button variant="outline" className={limbiOutlineButtonClass} asChild>
                 <Link href={`/brands/${brandId}`}>Volver a la marca</Link>
               </Button>
-              <Button type="button" disabled className={limbiOutlineButtonClass} variant="outline">
-                Mejorar secciones — Disponible en el siguiente paso
-              </Button>
+              <p className="self-center text-xs text-limbi-muted sm:max-w-md">
+                Para trabajar una sección con el experto Limbi, usá{" "}
+                <span className="font-medium text-limbi-text">Mejorar esta sección</span> en cada
+                tarjeta de arriba.
+              </p>
             </div>
           </div>
         )}

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   BrandOfferNature,
   BrandRow,
+  BrandSectionImprovementRow,
   BrandSourceFactRow,
   BrandResponseRow,
   QuestionDefinitionRow,
@@ -10,7 +11,7 @@ import type {
 import { fetchAllowedBrandQuestionDefinitions } from "@/lib/questions/fetch-allowed-brand-questions";
 import { groupBrandQuestionDefinitionsBySection } from "@/lib/questions/get-brand-question-definitions";
 
-export const BRAND_DIAGNOSIS_CONTEXT_VERSION = "brand-diagnosis-context-v1";
+export const BRAND_DIAGNOSIS_CONTEXT_VERSION = "brand-diagnosis-context-v1.1";
 
 /** Secciones operativas que no entran al diagnóstico estratégico. */
 const EXCLUDED_DIAGNOSIS_SECTIONS = new Set(["material_context"]);
@@ -53,6 +54,27 @@ export type BrandDiagnosisApprovedFactEntry = {
   ai_interpretation: string | null;
 };
 
+export type BrandDiagnosisApprovedImprovementChangeEntry = {
+  question_key: string;
+  question_text: string;
+  current_summary: string;
+  proposed_improved_text: string;
+  rationale: string;
+  confidence: string;
+};
+
+/** Mejora por sección aprobada y activa (Ticket 5), para el próximo diagnóstico. */
+export type BrandDiagnosisApprovedSectionImprovementEntry = {
+  improvement_id: string;
+  section_key: string;
+  session_id: string | null;
+  approved_at: string;
+  improved_summary: string;
+  improved_fields: BrandDiagnosisApprovedImprovementChangeEntry[];
+  proposed_changes: BrandDiagnosisApprovedImprovementChangeEntry[];
+  remaining_gaps: { gap: string; why_it_matters: string }[];
+};
+
 export type BrandDiagnosisSectionCoverageEntry = {
   section_key: string;
   required_questions: number;
@@ -71,6 +93,8 @@ export type BrandDiagnosisEvaluationContext = {
   question_definitions: BrandDiagnosisDefinitionEntry[];
   brand_responses: BrandDiagnosisResponseEntry[];
   approved_source_facts: BrandDiagnosisApprovedFactEntry[];
+  /** Solo `approved` + `is_active`; no borradores ni superseded. */
+  approved_section_improvements: BrandDiagnosisApprovedSectionImprovementEntry[];
   section_coverage_summary: BrandDiagnosisSectionCoverageEntry[];
 };
 
@@ -167,6 +191,7 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
   definitionsCount: number;
   responses: BrandResponseRow[];
   approvedFactsCount: number;
+  approvedSectionImprovements: BrandDiagnosisApprovedSectionImprovementEntry[];
 }): Record<string, unknown> {
   const sanitizedResponses = args.responses.map((r) => ({
     section_key: r.section_key,
@@ -186,6 +211,13 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
         definitions_count: args.definitionsCount,
         responses_meta: sanitizedResponses,
         approved_facts_count: args.approvedFactsCount,
+        approved_section_improvements_meta: args.approvedSectionImprovements.map((i) => ({
+          improvement_id: i.improvement_id,
+          section_key: i.section_key,
+          approved_at: i.approved_at,
+          proposed_changes_count: i.proposed_changes.length,
+          remaining_gaps_count: i.remaining_gaps.length,
+        })),
       }),
     )
     .digest("hex");
@@ -199,6 +231,7 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
     response_count: args.responses.length,
     sensitive_response_count: args.responses.filter((r) => r.is_sensitive).length,
     approved_facts_count: args.approvedFactsCount,
+    approved_section_improvements_count: args.approvedSectionImprovements.length,
     responses_meta_hash: inputHash,
   };
 }
@@ -212,6 +245,7 @@ export type BuildBrandDiagnosisContextResult =
       sourceSnapshot: Record<string, unknown>;
       responses: BrandResponseRow[];
       approvedFacts: BrandSourceFactRow[];
+      approvedSectionImprovements: BrandSectionImprovementRow[];
     }
   | { ok: false; code: string; message: string };
 
@@ -328,6 +362,25 @@ export async function buildBrandDiagnosisEvaluationContext(
 
   const coverage = buildCoverage(definitions, responses, approvedFacts, strategicSectionKeys);
 
+  const { data: improvementRows, error: impErr } = await supabase
+    .from("brand_section_improvements")
+    .select(
+      "id, brand_id, section_key, session_id, status, is_active, payload, approved_at, superseded_at, created_at, updated_at",
+    )
+    .eq("brand_id", brandId)
+    .eq("status", "approved")
+    .eq("is_active", true);
+
+  if (impErr) {
+    return { ok: false, code: "improvements_error", message: impErr.message };
+  }
+  const approvedSectionImprovementRows = (improvementRows ?? []) as BrandSectionImprovementRow[];
+
+  const approvedSectionImprovementEntries = buildApprovedSectionImprovementEntries(
+    approvedSectionImprovementRows,
+    definitions,
+  );
+
   const context: BrandDiagnosisEvaluationContext = {
     context_version: BRAND_DIAGNOSIS_CONTEXT_VERSION,
     brand,
@@ -335,6 +388,7 @@ export async function buildBrandDiagnosisEvaluationContext(
     question_definitions: defEntries,
     brand_responses: respEntries,
     approved_source_facts: factEntries,
+    approved_section_improvements: approvedSectionImprovementEntries,
     section_coverage_summary: coverage,
   };
 
@@ -345,6 +399,7 @@ export async function buildBrandDiagnosisEvaluationContext(
     definitionsCount: defEntries.length,
     responses,
     approvedFactsCount: factEntries.length,
+    approvedSectionImprovements: approvedSectionImprovementEntries,
   });
 
   return {
@@ -355,15 +410,79 @@ export async function buildBrandDiagnosisEvaluationContext(
     sourceSnapshot,
     responses,
     approvedFacts,
+    approvedSectionImprovements: approvedSectionImprovementRows,
   };
 }
 
-/** Mínimo: al menos una respuesta con contenido en sección estratégica o un fact aprobado. */
+function buildApprovedSectionImprovementEntries(
+  rows: BrandSectionImprovementRow[],
+  definitions: QuestionDefinitionRow[],
+): BrandDiagnosisApprovedSectionImprovementEntry[] {
+  const qTextByKey = new Map(
+    definitions.map((d) => [d.question_key, d.question_text.trim()]),
+  );
+  const out: BrandDiagnosisApprovedSectionImprovementEntry[] = [];
+  for (const row of rows) {
+    if (EXCLUDED_DIAGNOSIS_SECTIONS.has(row.section_key)) continue;
+    const approvedAt = row.approved_at;
+    if (!approvedAt) continue;
+    const payload = row.payload as Record<string, unknown> | null;
+    const raw = payload?.proposed_changes;
+    if (!Array.isArray(raw)) continue;
+    const proposed_changes: BrandDiagnosisApprovedImprovementChangeEntry[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      const qk = typeof o.question_key === "string" ? o.question_key : "";
+      if (!qk) continue;
+      proposed_changes.push({
+        question_key: qk,
+        question_text: qTextByKey.get(qk) ?? "",
+        current_summary: String(o.current_summary ?? ""),
+        proposed_improved_text: String(o.proposed_improved_text ?? ""),
+        rationale: String(o.rationale ?? ""),
+        confidence: String(o.confidence ?? ""),
+      });
+    }
+    if (proposed_changes.length === 0) continue;
+    const remainingGapsRaw = payload?.remaining_gaps;
+    const remaining_gaps = Array.isArray(remainingGapsRaw)
+      ? remainingGapsRaw
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const o = item as Record<string, unknown>;
+            return {
+              gap: String(o.gap ?? ""),
+              why_it_matters: String(o.why_it_matters ?? ""),
+            };
+          })
+          .filter(
+            (g): g is { gap: string; why_it_matters: string } =>
+              Boolean(g && (g.gap.trim() || g.why_it_matters.trim())),
+          )
+      : [];
+    out.push({
+      improvement_id: row.id,
+      section_key: row.section_key,
+      session_id: row.session_id,
+      approved_at: approvedAt,
+      improved_summary: String(payload?.assistant_message ?? ""),
+      improved_fields: proposed_changes,
+      proposed_changes,
+      remaining_gaps,
+    });
+  }
+  return out;
+}
+
+/** Mínimo: respuesta con contenido, fact aprobado, o al menos una mejora de sección aprobada con cambios. */
 export function hasMinimumInputForDiagnosis(
   responses: BrandResponseRow[],
   approvedFactsCount: number,
+  approvedSectionImprovementsWithChanges = 0,
 ): boolean {
   if (approvedFactsCount > 0) return true;
+  if (approvedSectionImprovementsWithChanges > 0) return true;
   return responses.some(
     (r) => !EXCLUDED_DIAGNOSIS_SECTIONS.has(r.section_key) && responseHasContent(r),
   );

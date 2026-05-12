@@ -2,7 +2,7 @@
 
 Documento de estado para alinear equipo y agentes. **Actualizar al cierre de sesiones** que cambien arquitectura, flujos o riesgos.
 
-**Última revisión:** 2026-05-20 — **Ticket 4:** diagnóstico de marca (`brand_evaluations`), `GET`/`POST /api/brands/[brandId]/diagnosis`, UI `/brands/[brandId]/diagnosis`. Fuentes: `brands`, `brand_offer_profiles`, `question_definitions` aplicables, `brand_responses`, **solo** `brand_source_facts.status = approved`; sin `extracted_text`, sin runs/extracciones como contenido, sin proyectos. `pending_review` **bloquea** POST (409 `pending_review_blocking`). Salida IA con **Structured Outputs** (`json_schema` strict) + Zod + recalculo servidor de `quality_level` desde scores. Una fila activa por marca (`is_active` + `superseded_at`). **No:** `brand_knowledge_bases`, `brand_limbic_bases`, chat de mejora, regenerar/historial en v1.
+**Última revisión:** 2026-05-21 — **Ticket 5:** mejora por sección con experto Limbi (`brand_improvement_sessions`, `brand_improvement_messages`, `brand_section_improvements`); APIs `POST/GET` sesiones y mensajes, `POST` approve/abandon, `GET` resumen por sección; UI `/brands/[brandId]/improve/[sectionKey]`; CTA **Mejorar esta sección** desde cada tarjeta del diagnóstico (excepto `material_context`). Contexto acotado (diagnóstico activo obligatorio, solo `approved` en fuentes, sin `extracted_text` ni otras secciones). **No** se modifica `brand_responses`; **no** bases activas ni generación de contenidos. `pending_review` bloquea sesión/mensajes/aprobación (409 `pending_review_blocking`). Structured Outputs (`json_schema` strict) + Zod; máximo **8** turnos de usuario por sesión.
 
 ## Qué funciona (alto nivel)
 
@@ -12,6 +12,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Cuestionario de marca — persistencia y UI (Tickets 3 + 3A):** tabla `brand_responses`; APIs de respuestas; `/brands/[brandId]/questionnaire` con intro orientadora, avance automático al guardar sección, cierre al terminar la última, redirección post–crear marca al cuestionario; `single_choice` / `multi_choice` con opciones como tarjetas (metadatos opcionales en `options`: `description`, `emoji`, `visual_hint`, `image_url`). Migración `20260514120000_question_definitions_answer_type_expand.sql` alinea CHECK del catálogo con tipos extensibles.
 - **Documentos de marca (Tickets 3B.1–3B.3):** tabla `brand_documents`, bucket **`brand-documents`**, extracción (`brand_document_extractions`, `pdf-parse`), análisis consolidado `POST /api/brands/[brandId]/documents/analyze` (síncrono, `maxDuration` 120s, runtime Node), tablas `brand_document_analysis_batches`, `brand_document_analysis_runs`, **`brand_source_facts`** con revisión (`GET`/`PATCH /api/brands/[brandId]/source-facts`), UI “Analizar documentos” + bandeja `/brands/[brandId]/source-facts` agrupada por `section_key`. Si hay `pending_review`, no se lanza un nuevo análisis (409 / CTA a revisar). **No** se modifica `brand_responses`; **no** se muestra `extracted_text` completo en UI. **Aún no:** consolidación en `brand_knowledge_bases` / `brand_limbic_bases`, `force` / reanálisis explícito, cola async de análisis.
 - **Diagnóstico de marca (Ticket 4):** tabla **`brand_evaluations`** (migración `20260520120000_brand_evaluations.sql`); contexto `evaluation_context` vía `lib/brands/build-brand-diagnosis-context.ts` (sin `material_context` en secciones evaluadas); `source_snapshot` solo metadatos/conteos/hash, sin duplicar respuestas sensibles. UI y API arriba.
+- **Mejora por sección (Ticket 5):** migración `20260521120000_brand_section_improvements.sql`; sesiones y mensajes con IA (OpenAI strict + Zod); mejora aprobada en `brand_section_improvements` (una activa por sección; anteriores `superseded`). **No** escribe en `brand_responses`.
 - **Proyectos:** CRUD básico vía API (`projects`, `project_responses`).
 - **Intake conversacional:** `intake-turn` con extracción OpenAI y persistencia en `project_responses`.
 - **Evaluación de cuestionario:** `evaluate-questionnaire` + almacenamiento (`questionnaire_evaluations`, campos en `project_responses`).
@@ -23,7 +24,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 
 ## Qué está en construcción / desalineado vs V2
 
-- **Journey de Marca completo:** parcial. Tickets 1–4 cubren marca, catálogo, `brand_responses`, documentos + `brand_source_facts` y **`brand_evaluations` (diagnóstico)**. Aún faltan, entre otras: `brand_improvement_sessions`, `brand_knowledge_bases`, `brand_limbic_bases`, **consolidación** en bases activas, mejora por sección con experto.
+- **Journey de Marca completo:** parcial. Tickets 1–5 cubren marca, catálogo, `brand_responses`, documentos + `brand_source_facts`, **`brand_evaluations` (diagnóstico)** y **mejora por sección** (`brand_improvement_sessions` / `brand_section_improvements`). Aún faltan, entre otras: `brand_knowledge_bases`, `brand_limbic_bases`, **consolidación** en bases activas.
 - **Proyecto anclado a marca:** `projects` sin `brand_id` ni referencias a bases de marca.
 - **Cuestionario puro como primera captura:** en **marca** ya hay cuestionario por secciones (`/brands/[brandId]/questionnaire`); el flujo principal de **proyecto** sigue siendo conversacional hasta alinear V2.
 - **Generación solo desde fuentes curadas V2:** hoy se usa maestro + marco aprobado, pero aún hay **fallback** a `project_responses` en el contexto de generación.
@@ -60,6 +61,8 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Ticket 3B.1:** migración `20260516120000_brand_documents_and_storage.sql`; políticas Storage por prefijo `auth.uid()` en la ruta del objeto.
 - **Ticket 3B.2:** migración `20260518120000_brand_document_extractions.sql`; `pdf-parse` (runtime Node en la ruta de extracción); `serverExternalPackages` para el bundler.
 - **Ticket 3B.3:** migración `20260519100000_brand_document_analysis_and_source_facts.sql`; `OPENAI_BRAND_DOCUMENT_ANALYSIS_MODEL` opcional; prompt `brand-document-analysis-v1.1` (incluye `analysis_result` / `no_useful_findings`).
+- **Ticket 4:** `brand_evaluations` + diagnóstico (`build-brand-diagnosis-context`, APIs, UI `/brands/[brandId]/diagnosis`).
+- **Ticket 5:** `brand_improvement_sessions`, `brand_improvement_messages`, `brand_section_improvements`; mejora asistida por `section_key` (`/improve/[sectionKey]`); aprobación sin tocar `brand_responses`.
 
 ## Ticket 3B planificado (documentos de marca / material de contexto)
 

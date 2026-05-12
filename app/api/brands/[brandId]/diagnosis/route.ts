@@ -10,6 +10,7 @@ import {
   brandDiagnosisRawOutputSchema,
   validateBrandDiagnosisAgainstCatalog,
 } from "@/lib/schemas/brand-diagnosis";
+import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import {
   buildBrandDiagnosisEvaluationContext,
   hasMinimumInputForDiagnosis,
@@ -101,9 +102,25 @@ export async function GET(_request: Request, { params }: Params) {
     return NextResponse.json({ error: evErr.message }, { status: 500 });
   }
 
+  const evaluation = (active ?? null) as BrandEvaluationRow | null;
+
+  const { data: improvementBadgeRows } = await supabase
+    .from("brand_section_improvements")
+    .select("section_key, approved_at")
+    .eq("brand_id", brandId)
+    .eq("status", "approved")
+    .eq("is_active", true);
+
+  const section_keys_with_improvement_after_diagnosis =
+    sectionKeysWithApprovedImprovementAfterEvaluation(
+      evaluation,
+      (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
+    );
+
   return NextResponse.json({
     pending_review_count,
-    evaluation: (active ?? null) as BrandEvaluationRow | null,
+    evaluation,
+    section_keys_with_improvement_after_diagnosis,
   });
 }
 
@@ -146,7 +163,8 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   const approvedFactsCount = built.approvedFacts.length;
-  if (!hasMinimumInputForDiagnosis(built.responses, approvedFactsCount)) {
+  const approvedImprovementsCount = built.context.approved_section_improvements.length;
+  if (!hasMinimumInputForDiagnosis(built.responses, approvedFactsCount, approvedImprovementsCount)) {
     return jsonBadRequest(
       "No hay información suficiente para generar un diagnóstico de marca. Completa primero el cuestionario o aprueba hallazgos de documentos.",
       { code: "insufficient_input", stage: "diagnosis" },
