@@ -17,19 +17,10 @@ import { BrandBasesLimbicReading } from "@/components/brands/bases/brand-bases-l
 type Props = {
   brandId: string;
   brandName: string;
-  hasActiveDiagnosis: boolean;
-  /** Si hay evaluación activa pero el diagnóstico quedó atrás de las fuentes, no conviene consolidar. */
-  diagnosisIsStale?: boolean;
   initialBases: BrandBasesDetailState;
 };
 
-export function BrandBasesClient({
-  brandId,
-  brandName,
-  hasActiveDiagnosis,
-  diagnosisIsStale = false,
-  initialBases,
-}: Props) {
+export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
   const router = useRouter();
   const [bases, setBases] = useState(initialBases);
   const [consolidating, setConsolidating] = useState(false);
@@ -49,6 +40,9 @@ export function BrandBasesClient({
       limbic_base: j.limbic_base ?? null,
       knowledge_base_is_stale: Boolean(j.knowledge_base_is_stale),
       limbic_base_is_stale: Boolean(j.limbic_base_is_stale),
+      has_active_diagnosis: Boolean(j.has_active_diagnosis),
+      diagnosis_is_stale: Boolean(j.diagnosis_is_stale),
+      knowledge_consolidated_at_bogota: j.knowledge_consolidated_at_bogota ?? null,
     });
     setError(null);
   }, [brandId]);
@@ -73,6 +67,8 @@ export function BrandBasesClient({
     }
   }, [brandId, refresh, router]);
 
+  const hasActiveDiagnosis = bases.has_active_diagnosis;
+  const diagnosisIsStale = bases.diagnosis_is_stale;
   const pending = bases.pending_review_count > 0;
   const running = bases.consolidation_running;
   const hasKnowledge = Boolean(bases.knowledge_base);
@@ -86,11 +82,17 @@ export function BrandBasesClient({
   const knowledgeUi = hasKnowledge ? buildBrandKnowledgeUiModel(knowledgePayload) : null;
 
   const canConsolidate =
-    hasActiveDiagnosis &&
-    !diagnosisIsStale &&
-    !pending &&
-    !running &&
-    !consolidating;
+    hasActiveDiagnosis && !diagnosisIsStale && !pending && !running && !consolidating;
+
+  const consolidateButtonLabel = (() => {
+    if (!hasActiveDiagnosis) return "Generar bases";
+    if (diagnosisIsStale) return "Actualiza primero el diagnóstico";
+    if (consolidating) return "Consolidando…";
+    if (running) return "Consolidación en curso…";
+    if (bothActive && anyStale) return "Actualizar Base de Marca";
+    if (bothActive) return "Regenerar bases";
+    return "Generar bases";
+  })();
 
   const closureStatusLine = (() => {
     if (pending) {
@@ -100,7 +102,7 @@ export function BrandBasesClient({
       return "Sin diagnóstico activo: generá la evaluación en la pantalla de diagnóstico antes de consolidar.";
     }
     if (diagnosisIsStale) {
-      return "Diagnóstico desactualizado: actualizá la evaluación para alinear bases con la lectura estratégica vigente.";
+      return "Actualiza primero el diagnóstico antes de consolidar o regenerar la Base de Marca.";
     }
     if (running) {
       return "Consolidación en curso: esperá el resultado o recargá el estado.";
@@ -109,7 +111,7 @@ export function BrandBasesClient({
       return "Listo para consolidar: diagnóstico al día y sin bloqueos de hallazgos.";
     }
     if (anyStale) {
-      return "Bases activas posiblemente desactualizadas: regenerá para reflejar cambios en fuentes aprobadas.";
+      return "La Base de Marca fue consolidada antes de los últimos cambios en la marca.";
     }
     return "Bases activas vigentes: conocimiento y límbica alineados con fuentes aprobadas y diagnóstico actual.";
   })();
@@ -130,6 +132,37 @@ export function BrandBasesClient({
         <p className="mt-1 text-sm text-limbi-muted">{brandName}</p>
       </div>
 
+      <div className="space-y-2">
+        {bases.knowledge_consolidated_at_bogota ? (
+          <>
+            <p className="text-xs text-limbi-muted">
+              Base de Marca consolidada el {bases.knowledge_consolidated_at_bogota}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {anyStale ? (
+                <span className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-limbi-text">
+                  Base desactualizada
+                </span>
+              ) : (
+                <span className="inline-flex w-fit rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-limbi-text">
+                  Base vigente
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-limbi-muted">
+            Aún no hay una Base de Marca consolidada para esta marca.
+          </p>
+        )}
+        {anyStale && !diagnosisIsStale ? (
+          <p className="text-xs text-limbi-muted">
+            Esta base no incluye cambios recientes del cuestionario, documentos, hallazgos, oferta,
+            territorios o mejoras.
+          </p>
+        ) : null}
+      </div>
+
       <p className="rounded-xl border border-limbi-border bg-limbi-surface/50 px-3 py-2 text-sm text-limbi-muted">
         {closureStatusLine}
       </p>
@@ -148,14 +181,13 @@ export function BrandBasesClient({
 
       {hasActiveDiagnosis && diagnosisIsStale ? (
         <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
-          El diagnóstico no refleja cambios recientes en la marca.{" "}
+          <span className="font-medium">Actualiza primero el diagnóstico.</span>{" "}
           <Link
             href={`/brands/${brandId}/diagnosis`}
-            className="font-medium text-limbi-green underline-offset-4 hover:underline"
+            className="text-limbi-green underline-offset-4 hover:underline"
           >
-            Actualizar diagnóstico
-          </Link>{" "}
-          antes de consolidar evita bases incoherentes con tus fuentes.
+            Ir a diagnóstico
+          </Link>
         </p>
       ) : null}
 
@@ -174,16 +206,10 @@ export function BrandBasesClient({
           {consolidating ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-              Consolidando…
+              {consolidateButtonLabel}
             </>
-          ) : running ? (
-            "Consolidación en curso…"
-          ) : bothActive && !anyStale ? (
-            "Regenerar bases"
-          ) : bothActive && anyStale ? (
-            "Actualizar bases"
           ) : (
-            "Generar bases"
+            consolidateButtonLabel
           )}
         </Button>
         <Button variant="outline" className={limbiOutlineButtonClass} asChild>
@@ -194,8 +220,7 @@ export function BrandBasesClient({
       {running ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-limbi-muted">
-            Estamos generando la Base de Conocimiento y la Base Límbica. Podés comprobar el estado
-            con recargar.
+            Limbi está consolidando la Base de Marca… Podés comprobar el estado con recargar.
           </p>
           <Button
             type="button"
@@ -232,11 +257,11 @@ export function BrandBasesClient({
       {bothActive && !running && !pending ? (
         <div className="space-y-2 rounded-xl border border-limbi-border bg-limbi-bg-soft/40 p-4 sm:p-5">
           <h2 className="text-sm font-semibold text-limbi-text">Siguiente paso</h2>
-          {anyStale ? (
+          {anyStale || diagnosisIsStale ? (
             <>
               <p className="text-xs text-limbi-muted">
-                Próximo paso: crear proyectos con esta marca. Actualizá las bases para alinearlas
-                con las fuentes antes de usarlas en proyectos.
+                Próximo paso: crear proyectos con esta marca. Actualizá el diagnóstico y la Base de
+                Marca para alinearlas con las fuentes antes de usarlas en proyectos.
               </p>
               <Button type="button" variant="outline" className={limbiOutlineButtonClass} disabled>
                 Ir al dashboard de proyectos

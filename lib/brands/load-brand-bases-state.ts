@@ -3,6 +3,8 @@ import {
   fetchBrandCuratedBaseStalenessFacts,
   isBrandCuratedBaseStaleFromFacts,
 } from "@/lib/brands/brand-bases-staleness";
+import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
+import { formatBogotaDateTime } from "@/lib/datetime/format-bogota-date-time";
 import type { BrandKnowledgeBaseRow, BrandLimbicBaseRow } from "@/types/database";
 
 export type BrandBasesDetailState = {
@@ -12,19 +14,30 @@ export type BrandBasesDetailState = {
   limbic_base: BrandLimbicBaseRow | null;
   knowledge_base_is_stale: boolean;
   limbic_base_is_stale: boolean;
+  has_active_diagnosis: boolean;
+  diagnosis_is_stale: boolean;
+  knowledge_consolidated_at_bogota: string | null;
 };
 
 export async function loadBrandBasesDetailState(
   supabase: SupabaseClient,
   brandId: string,
 ): Promise<BrandBasesDetailState> {
-  const { count: pending_review_count } = await supabase
-    .from("brand_source_facts")
-    .select("id", { count: "exact", head: true })
-    .eq("brand_id", brandId)
-    .eq("status", "pending_review");
+  const diagnosisDashPromise = fetchBrandDashboardDiagnosisState(supabase, brandId);
 
-  const [{ count: kRun }, { count: lRun }] = await Promise.all([
+  const [
+    pendingRes,
+    kRunRes,
+    lRunRes,
+    knowledgeRes,
+    limbicRes,
+    diagnosisDash,
+  ] = await Promise.all([
+    supabase
+      .from("brand_source_facts")
+      .select("id", { count: "exact", head: true })
+      .eq("brand_id", brandId)
+      .eq("status", "pending_review"),
     supabase
       .from("brand_knowledge_bases")
       .select("id", { count: "exact", head: true })
@@ -35,9 +48,6 @@ export async function loadBrandBasesDetailState(
       .select("id", { count: "exact", head: true })
       .eq("brand_id", brandId)
       .eq("status", "running"),
-  ]);
-
-  const [{ data: knowledge }, { data: limbic }] = await Promise.all([
     supabase
       .from("brand_knowledge_bases")
       .select("*")
@@ -52,26 +62,37 @@ export async function loadBrandBasesDetailState(
       .eq("is_active", true)
       .eq("status", "succeeded")
       .maybeSingle(),
+    diagnosisDashPromise,
   ]);
 
-  const kRow = (knowledge ?? null) as BrandKnowledgeBaseRow | null;
-  const lRow = (limbic ?? null) as BrandLimbicBaseRow | null;
+  const kRow = (knowledgeRes.data ?? null) as BrandKnowledgeBaseRow | null;
+  const lRow = (limbicRes.data ?? null) as BrandLimbicBaseRow | null;
+
+  const staleOpts = {
+    activeDiagnosisIsStale:
+      diagnosisDash.hasActiveDiagnosis && diagnosisDash.diagnosisIsStale,
+  };
 
   const [kFacts, lFacts] = await Promise.all([
     kRow?.created_at
-      ? fetchBrandCuratedBaseStalenessFacts(supabase, brandId, kRow.created_at)
+      ? fetchBrandCuratedBaseStalenessFacts(supabase, brandId, kRow.created_at, staleOpts)
       : null,
     lRow?.created_at
-      ? fetchBrandCuratedBaseStalenessFacts(supabase, brandId, lRow.created_at)
+      ? fetchBrandCuratedBaseStalenessFacts(supabase, brandId, lRow.created_at, staleOpts)
       : null,
   ]);
 
   return {
-    pending_review_count: pending_review_count ?? 0,
-    consolidation_running: (kRun ?? 0) > 0 || (lRun ?? 0) > 0,
+    pending_review_count: pendingRes.count ?? 0,
+    consolidation_running: (kRunRes.count ?? 0) > 0 || (lRunRes.count ?? 0) > 0,
     knowledge_base: kRow,
     limbic_base: lRow,
     knowledge_base_is_stale: kFacts ? isBrandCuratedBaseStaleFromFacts(kFacts) : false,
     limbic_base_is_stale: lFacts ? isBrandCuratedBaseStaleFromFacts(lFacts) : false,
+    has_active_diagnosis: diagnosisDash.hasActiveDiagnosis,
+    diagnosis_is_stale: diagnosisDash.diagnosisIsStale,
+    knowledge_consolidated_at_bogota: kRow?.created_at
+      ? formatBogotaDateTime(kRow.created_at)
+      : null,
   };
 }

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchStructuralQuestionnaireStaleness } from "@/lib/brands/brand-diagnosis-staleness";
+import {
+  fetchActiveBrandDiagnosisIsStale,
+  fetchStructuralQuestionnaireStaleness,
+} from "@/lib/brands/brand-diagnosis-staleness";
 
 export function isAfterConsolidationCreatedAt(
   baseCreatedAt: string | null | undefined,
@@ -10,6 +13,8 @@ export function isAfterConsolidationCreatedAt(
 
 export type BrandCuratedBaseStalenessFacts = {
   baseCreatedAt: string;
+  /** Diagnóstico activo obsoleto frente a la marca: la base consolidada queda desalineada (cascada). */
+  activeDiagnosisIsStale: boolean;
   diagnosisRenewedAfterBase: boolean;
   hasResponsesUpdatedAfterBase: boolean;
   hasSourceFactsUpdatedAfterBase: boolean;
@@ -22,6 +27,7 @@ export type BrandCuratedBaseStalenessFacts = {
 
 export function isBrandCuratedBaseStaleFromFacts(facts: BrandCuratedBaseStalenessFacts): boolean {
   const t = facts.baseCreatedAt;
+  if (facts.activeDiagnosisIsStale) return true;
   if (facts.diagnosisRenewedAfterBase) return true;
   if (facts.hasStaleOfferItems || facts.hasStaleAudienceTerritories) return true;
   if (facts.hasSourceFactsUpdatedAfterBase) return true;
@@ -36,6 +42,7 @@ export async function fetchBrandCuratedBaseStalenessFacts(
   supabase: SupabaseClient,
   brandId: string,
   baseCreatedAt: string,
+  options?: { activeDiagnosisIsStale?: boolean },
 ): Promise<BrandCuratedBaseStalenessFacts> {
   const [
     responsesRes,
@@ -76,8 +83,18 @@ export async function fetchBrandCuratedBaseStalenessFacts(
     evalCreated && isAfterConsolidationCreatedAt(baseCreatedAt, evalCreated),
   );
 
+  const activeDiagnosisIsStale =
+    options?.activeDiagnosisIsStale !== undefined
+      ? options.activeDiagnosisIsStale
+      : await fetchActiveBrandDiagnosisIsStale(
+          supabase,
+          brandId,
+          evalCreated ? { created_at: evalCreated } : null,
+        );
+
   return {
     baseCreatedAt,
+    activeDiagnosisIsStale,
     diagnosisRenewedAfterBase,
     hasResponsesUpdatedAfterBase: (responsesRes.count ?? 0) > 0,
     hasSourceFactsUpdatedAfterBase: (factsRes.count ?? 0) > 0,

@@ -26,10 +26,28 @@ describe("isAfterConsolidationCreatedAt", () => {
 describe("isBrandCuratedBaseStaleFromFacts", () => {
   const base = "2026-05-01T00:00:00Z";
 
+  it("is stale when active diagnosis is stale (cascade)", () => {
+    expect(
+      isBrandCuratedBaseStaleFromFacts({
+        baseCreatedAt: base,
+        activeDiagnosisIsStale: true,
+        diagnosisRenewedAfterBase: false,
+        hasResponsesUpdatedAfterBase: false,
+        hasSourceFactsUpdatedAfterBase: false,
+        hasImprovementsApprovedAfterBase: false,
+        offerProfileUpdatedAt: null,
+        brandRowUpdatedAt: null,
+        hasStaleOfferItems: false,
+        hasStaleAudienceTerritories: false,
+      }),
+    ).toBe(true);
+  });
+
   it("is stale when diagnosis was renewed after consolidation", () => {
     expect(
       isBrandCuratedBaseStaleFromFacts({
         baseCreatedAt: base,
+        activeDiagnosisIsStale: false,
         diagnosisRenewedAfterBase: true,
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
@@ -46,6 +64,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
     expect(
       isBrandCuratedBaseStaleFromFacts({
         baseCreatedAt: base,
+        activeDiagnosisIsStale: false,
         diagnosisRenewedAfterBase: false,
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
@@ -62,6 +81,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
     expect(
       isBrandCuratedBaseStaleFromFacts({
         baseCreatedAt: base,
+        activeDiagnosisIsStale: false,
         diagnosisRenewedAfterBase: false,
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
@@ -78,6 +98,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
     expect(
       isBrandCuratedBaseStaleFromFacts({
         baseCreatedAt: base,
+        activeDiagnosisIsStale: false,
         diagnosisRenewedAfterBase: false,
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
@@ -92,13 +113,39 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
 });
 
 describe("brandBaseConsolidationRawOutputSchema", () => {
-  it("accepts a minimal valid payload", () => {
+  it("accepts a valid v1.1 payload", () => {
+    const section = (section_key: string) => ({
+      section_key,
+      headline: `Lectura ${section_key}`,
+      interpretation:
+        "Párrafo interpretativo con densidad suficiente para la sección. Desarrollamos qué implica para la marca, qué ofrece y qué tensiones aparecen sin inventar hechos.",
+    });
     const parsed = brandBaseConsolidationRawOutputSchema.safeParse({
       knowledge_base: {
-        curator_reading: "Lectura.",
-        strategic_pillars: [{ title: "Pilar", body: "Cuerpo." }],
+        curator_reading: "Lectura curadora global.",
+        strategic_pillars: [{ title: "Pilar", body: "Cuerpo del pilar con detalle estratégico." }],
         restrictions_and_alerts: "Nada que alertar de ejemplo.",
         evidence_narrative: "Evidencia resumida.",
+        executive_reading: "Lectura ejecutiva en varios párrafos con foco en decisiones.",
+        section_interpretations: [
+          section("identity"),
+          section("offer"),
+          section("audiences"),
+          section("value_proposition"),
+          section("differentiators"),
+          section("evidence"),
+          section("voice_tone"),
+          section("restrictions"),
+        ],
+        final_highlights: {
+          key_strengths: ["Fortaleza 1", "Fortaleza 2"],
+          strategic_tensions: ["Tensión 1"],
+          communication_opportunities: ["Oportunidad 1", "Oportunidad 2"],
+          key_limbic_signals: ["Señal 1", "Señal 2"],
+          narrative_care_and_avoids: ["Cuidado 1", "Cuidado 2"],
+        },
+        internal_base_notice: "La base completa queda guardada para uso interno.",
+        project_readiness_message: "La marca está razonablemente lista para iniciar proyectos.",
       },
       limbic_base: {
         symbolic_reading: "Lectura simbólica.",

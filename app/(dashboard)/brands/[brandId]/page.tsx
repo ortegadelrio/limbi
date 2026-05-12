@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   limbiDocumentCardClass,
   limbiOutlineButtonClass,
+  limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
@@ -14,6 +15,8 @@ import { BrandPostDiagnosisNextStepCard } from "@/components/brands/diagnosis/br
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
+import { buildBrandDashboardCascadeBanner } from "@/lib/brands/brand-dashboard-cascade-status";
+import { formatBogotaDateTime } from "@/lib/datetime/format-bogota-date-time";
 
 type Props = { params: Promise<{ brandId: string }> };
 
@@ -88,6 +91,22 @@ export default async function BrandDetailPage({ params }: Props) {
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
   const questionnaireHref = `/brands/${brandId}/questionnaire`;
+
+  const hasActiveBases =
+    basesState.hasActiveKnowledgeBase && basesState.hasActiveLimbicBase;
+  const basesStale =
+    basesState.knowledgeBaseIsStale || basesState.limbicBaseIsStale;
+
+  const cascade = buildBrandDashboardCascadeBanner({
+    pendingFactsCount: pendingFacts,
+    consolidationRunning: basesState.consolidationRunning,
+    hasActiveDiagnosis,
+    diagnosisIsStale,
+    hasActiveBases,
+    basesStale,
+    diagnosisHref,
+    basesHref,
+  });
 
   const journeyNextStep = resolveBrandPostDiagnosisNextStep({
     brandId,
@@ -179,6 +198,37 @@ export default async function BrandDetailPage({ params }: Props) {
 
         <BrandPostDiagnosisNextStepCard resolved={journeyNextStep} />
 
+        {cascade ? (
+          <div
+            className={cn(
+              limbiDocumentCardClass,
+              "space-y-3 border p-4 sm:p-5",
+              cascade.variant === "success"
+                ? "border-emerald-500/35 bg-emerald-500/10"
+                : "border-amber-500/35 bg-amber-500/10",
+            )}
+          >
+            <p className="text-sm font-medium text-limbi-text">{cascade.headline}</p>
+            {cascade.body ? (
+              <p className="text-sm leading-relaxed text-limbi-muted">{cascade.body}</p>
+            ) : null}
+            {cascade.actions.length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {cascade.actions.map((a) => (
+                  <Button
+                    key={a.label}
+                    className={a.variant === "primary" ? limbiPrimaryButtonClass : limbiOutlineButtonClass}
+                    variant={a.variant === "primary" ? "default" : "outline"}
+                    asChild
+                  >
+                    <Link href={a.href}>{a.label}</Link>
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div
           className={cn(
             limbiDocumentCardClass,
@@ -255,20 +305,22 @@ export default async function BrandDetailPage({ params }: Props) {
             </p>
           ) : null}
 
-          {hasActiveDiagnosis && pendingFacts === 0 && diagnosisIsStale ? (
-            <>
-              <p className="text-sm text-limbi-muted">
-                Hallazgos de documentos revisados.
-              </p>
-              <p className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-limbi-text">
-                El diagnóstico puede estar desactualizado
-              </p>
-            </>
+          {hasActiveDiagnosis && diagnosisState.activeDiagnosis ? (
+            <p className="text-xs text-limbi-muted">
+              Diagnóstico generado el{" "}
+              {formatBogotaDateTime(diagnosisState.activeDiagnosis.created_at)}
+            </p>
           ) : null}
 
-          {hasActiveDiagnosis && pendingFacts === 0 && !diagnosisIsStale ? (
+          {hasActiveDiagnosis && pendingFacts === 0 && !cascade && diagnosisIsStale ? (
             <p className="text-sm text-limbi-muted">
-              Tu evaluación activa refleja la información aprobada hasta ahora.
+              Hay información nueva después del último diagnóstico.
+            </p>
+          ) : null}
+
+          {hasActiveDiagnosis && pendingFacts === 0 && !cascade && !diagnosisIsStale ? (
+            <p className="text-sm text-limbi-muted">
+              Diagnóstico vigente respecto a las fuentes revisadas.
             </p>
           ) : null}
 
@@ -298,12 +350,6 @@ export default async function BrandDetailPage({ params }: Props) {
             </p>
           ) : null}
 
-          {diagnosisIsStale && hasActiveDiagnosis && basesState.pendingFactsCount === 0 ? (
-            <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
-              El diagnóstico está desactualizado: conviene actualizarlo antes de regenerar bases.
-            </p>
-          ) : null}
-
           {basesState.consolidationRunning ? (
             <p className="text-sm text-limbi-muted">Consolidación en curso…</p>
           ) : !basesState.hasActiveKnowledgeBase || !basesState.hasActiveLimbicBase ? (
@@ -311,20 +357,26 @@ export default async function BrandDetailPage({ params }: Props) {
               Generá la Base de Conocimiento y la Base Límbica curadas a partir del diagnóstico y
               las fuentes aprobadas.
             </p>
-          ) : basesState.knowledgeBaseIsStale || basesState.limbicBaseIsStale ? (
-            <>
-              <p className="text-sm text-limbi-muted">
-                Las bases activas pueden no reflejar cambios recientes en la marca.
-              </p>
-              <p className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-limbi-text">
-                Revisar actualización de bases
-              </p>
-            </>
           ) : (
-            <p className="text-sm text-limbi-muted">
-              Tenés bases curadas activas (conocimiento y límbica) alineadas con las fuentes
-              aprobadas.
-            </p>
+            <>
+              {basesState.activeKnowledgeCreatedAt ? (
+                <p className="text-xs text-limbi-muted">
+                  Base de Marca consolidada el{" "}
+                  {formatBogotaDateTime(basesState.activeKnowledgeCreatedAt)}
+                </p>
+              ) : null}
+              {!cascade && basesStale ? (
+                <p className="text-sm text-limbi-muted">
+                  La Base de Marca fue consolidada antes de los últimos cambios.
+                </p>
+              ) : null}
+              {!cascade && !basesStale ? (
+                <p className="text-sm text-limbi-muted">
+                  Tenés bases curadas activas (conocimiento y límbica) alineadas con las fuentes
+                  aprobadas.
+                </p>
+              ) : null}
+            </>
           )}
 
           <div className="flex flex-wrap gap-2">

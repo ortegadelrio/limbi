@@ -27,6 +27,8 @@ type Props = {
   initialEvaluation: BrandEvaluationRow | null;
   initialSectionKeysWithImprovementAfterDiagnosis: string[];
   initialDiagnosisIsStale: boolean;
+  /** `formatBogotaDateTime(created_at)` o null si aún no hay diagnóstico. */
+  initialDiagnosisGeneratedAtBogota: string | null;
   initialBasesState: BrandDashboardBasesState;
 };
 
@@ -86,6 +88,7 @@ export function BrandDiagnosisClient({
   initialEvaluation,
   initialSectionKeysWithImprovementAfterDiagnosis,
   initialDiagnosisIsStale,
+  initialDiagnosisGeneratedAtBogota,
   initialBasesState,
 }: Props) {
   const router = useRouter();
@@ -96,6 +99,9 @@ export function BrandDiagnosisClient({
     setSectionKeysWithImprovementAfterDiagnosis,
   ] = useState(initialSectionKeysWithImprovementAfterDiagnosis);
   const [diagnosisIsStale, setDiagnosisIsStale] = useState(initialDiagnosisIsStale);
+  const [diagnosisGeneratedAtBogota, setDiagnosisGeneratedAtBogota] = useState(
+    initialDiagnosisGeneratedAtBogota,
+  );
   const [basesState, setBasesState] = useState<BrandDashboardBasesState>(initialBasesState);
   const [generating, setGenerating] = useState(false);
   const [consolidatingBases, setConsolidatingBases] = useState(false);
@@ -109,6 +115,7 @@ export function BrandDiagnosisClient({
       evaluation?: BrandEvaluationRow | null;
       section_keys_with_improvement_after_diagnosis?: string[];
       diagnosis_is_stale?: boolean;
+      diagnosis_generated_at_bogota?: string | null;
       bases_state?: BrandDashboardBasesState;
     };
     if (res.ok) {
@@ -118,6 +125,9 @@ export function BrandDiagnosisClient({
         j.section_keys_with_improvement_after_diagnosis ?? [],
       );
       setDiagnosisIsStale(Boolean(j.diagnosis_is_stale));
+      if (j.diagnosis_generated_at_bogota !== undefined) {
+        setDiagnosisGeneratedAtBogota(j.diagnosis_generated_at_bogota ?? null);
+      }
       if (j.bases_state) {
         setBasesState(j.bases_state);
       }
@@ -255,6 +265,34 @@ export function BrandDiagnosisClient({
             Evaluación estratégica de la calidad de la información disponible (cuestionario y
             hallazgos aprobados). No genera la Base de Marca ni contenidos.
           </p>
+          {diagnosisGeneratedAtBogota ? (
+            <div className="flex flex-col gap-2 pt-1">
+              <p className="text-xs text-limbi-muted">
+                Diagnóstico generado el {diagnosisGeneratedAtBogota}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "inline-flex w-fit rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                    diagnosisIsStale
+                      ? "border-amber-500/45 bg-amber-500/10 text-limbi-text"
+                      : "border-emerald-500/40 bg-emerald-500/10 text-limbi-text",
+                  )}
+                >
+                  {diagnosisIsStale ? "Desactualizado" : "Diagnóstico vigente"}
+                </span>
+                {diagnosisIsStale ? (
+                  <p className="text-xs text-limbi-muted">
+                    Este diagnóstico no incluye cambios recientes de la marca.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-limbi-muted pt-1">
+              Aún no hay un diagnóstico generado para esta marca.
+            </p>
+          )}
         </header>
 
         {diagnosisJourneyResolved ? (

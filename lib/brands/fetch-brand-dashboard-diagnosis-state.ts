@@ -1,8 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  fetchStructuralQuestionnaireStaleness,
-  isBrandDiagnosisStale,
-} from "@/lib/brands/brand-diagnosis-staleness";
+import { fetchActiveBrandDiagnosisIsStale } from "@/lib/brands/brand-diagnosis-staleness";
 import type { BrandDiagnosisNextRecommendedAction, BrandEvaluationRow } from "@/types/database";
 
 export type BrandDashboardDiagnosisState = {
@@ -58,46 +55,11 @@ export async function fetchBrandDashboardDiagnosisState(
   const nextRecommendedAction =
     (activeRow?.next_recommended_action as BrandDiagnosisNextRecommendedAction | null) ?? null;
 
-  const [
-    responseStaleness,
-    sourceFactStaleness,
-    improvementStaleness,
-    structuralStaleness,
-  ] = await Promise.all([
-    supabase
-      .from("brand_responses")
-      .select("updated_at")
-      .eq("brand_id", brandId)
-      .gt("updated_at", activeDiagnosis.created_at),
-    supabase
-      .from("brand_source_facts")
-      .select("id", { count: "exact", head: true })
-      .eq("brand_id", brandId)
-      .gt("updated_at", activeDiagnosis.created_at),
-    supabase
-      .from("brand_section_improvements")
-      .select("approved_at")
-      .eq("brand_id", brandId)
-      .eq("status", "approved")
-      .eq("is_active", true)
-      .gt("approved_at", activeDiagnosis.created_at),
-    fetchStructuralQuestionnaireStaleness(
-      supabase,
-      brandId,
-      activeDiagnosis.created_at,
-    ),
-  ]);
-
-  const diagnosisIsStale = isBrandDiagnosisStale({
-    evaluation: activeDiagnosis,
-    responseRows: responseStaleness.data ?? [],
-    hasSourceFactsUpdatedAfterEvaluation: (sourceFactStaleness.count ?? 0) > 0,
-    improvementRows: improvementStaleness.data ?? [],
-    offerProfileUpdatedAt: structuralStaleness.offerProfileUpdatedAt ?? null,
-    hasStaleOfferItems: structuralStaleness.hasStaleOfferItems,
-    hasStaleAudienceTerritories: structuralStaleness.hasStaleAudienceTerritories,
-    brandRowUpdatedAt: structuralStaleness.brandRowUpdatedAt ?? null,
-  });
+  const diagnosisIsStale = await fetchActiveBrandDiagnosisIsStale(
+    supabase,
+    brandId,
+    activeDiagnosis,
+  );
 
   return {
     pendingFactsCount: pendingFacts,
