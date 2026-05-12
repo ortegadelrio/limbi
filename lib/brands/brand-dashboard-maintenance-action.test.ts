@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  brandOverviewExecutiveStatusLabel,
   buildBrandDashboardMaintenanceSecondaryLinks,
   brandInformationQualityBandFromScore,
   brandInformationQualityBandHintEs,
@@ -58,10 +59,28 @@ describe("resolveBrandDashboardMaintenance", () => {
     expect(r.baseStaleNotice?.title).toContain("Base de Marca");
   });
 
-  it("todo vigente → Marca lista", () => {
+  it("todo vigente → Marca lista (dashboard interno)", () => {
     const r = resolveBrandDashboardMaintenance(baseInput);
     expect(r.primaryRole).toBe("none_up_to_date");
     expect(r.upToDateHeadline).toContain("Marca lista");
+  });
+
+  it("forBrandsList + todo vigente → Ver marca (enlace al dashboard interno)", () => {
+    const r = resolveBrandDashboardMaintenance({ ...baseInput, forBrandsList: true });
+    expect(r.primaryRole).toBe("view_brand");
+    expect(r.primaryLabel).toBe("Ver marca");
+    expect(r.primaryHref).toBe("/brands/b1");
+    expect(r.upToDateHeadline).toBeNull();
+  });
+
+  it("forBrandsList + sin bases → Consolidar Base de Marca", () => {
+    const r = resolveBrandDashboardMaintenance({
+      ...baseInput,
+      hasActiveBases: false,
+      forBrandsList: true,
+    });
+    expect(r.primaryRole).toBe("create_base");
+    expect(r.primaryLabel).toBe("Consolidar Base de Marca");
   });
 
   it("muestra aviso de base stale con cuerpo esperado", () => {
@@ -95,6 +114,62 @@ describe("resolveBrandDashboardMaintenance", () => {
     expect(links.some((l) => l.label === "Editar información de marca")).toBe(true);
     expect(links.find((l) => l.label === "Editar información de marca")?.href).toBe(
       "/brands/x/questionnaire",
+    );
+  });
+
+  it("forBrandsList + base stale → Actualizar Base de Marca (misma prioridad que interno)", () => {
+    const r = resolveBrandDashboardMaintenance({
+      ...baseInput,
+      basesStale: true,
+      forBrandsList: true,
+    });
+    expect(r.primaryRole).toBe("update_base_only");
+    expect(r.primaryLabel).toBe("Actualizar Base de Marca");
+  });
+});
+
+describe("brandOverviewExecutiveStatusLabel", () => {
+  it("prioriza hallazgos pendientes", () => {
+    const m = resolveBrandDashboardMaintenance({
+      ...baseInput,
+      pendingFactsCount: 1,
+      diagnosisIsStale: true,
+      basesStale: true,
+    });
+    expect(brandOverviewExecutiveStatusLabel(m, { hasActiveDiagnosis: true, hasActiveBases: true })).toBe(
+      "Hallazgos pendientes",
+    );
+  });
+
+  it("sin diagnóstico", () => {
+    const m = resolveBrandDashboardMaintenance({ ...baseInput, hasActiveDiagnosis: false });
+    expect(brandOverviewExecutiveStatusLabel(m, { hasActiveDiagnosis: false, hasActiveBases: false })).toBe(
+      "Sin diagnóstico",
+    );
+  });
+
+  it("base desactualizada", () => {
+    const m = resolveBrandDashboardMaintenance({ ...baseInput, basesStale: true });
+    expect(brandOverviewExecutiveStatusLabel(m, { hasActiveDiagnosis: true, hasActiveBases: true })).toBe(
+      "Base de Marca desactualizada",
+    );
+  });
+
+  it("diagnóstico desactualizado (sin base stale simultáneo)", () => {
+    const m = resolveBrandDashboardMaintenance({
+      ...baseInput,
+      diagnosisIsStale: true,
+      basesStale: false,
+    });
+    expect(brandOverviewExecutiveStatusLabel(m, { hasActiveDiagnosis: true, hasActiveBases: true })).toBe(
+      "Diagnóstico desactualizado",
+    );
+  });
+
+  it("Marca lista cuando view_brand y hay diagnóstico + bases", () => {
+    const m = resolveBrandDashboardMaintenance({ ...baseInput, forBrandsList: true });
+    expect(brandOverviewExecutiveStatusLabel(m, { hasActiveDiagnosis: true, hasActiveBases: true })).toBe(
+      "Marca lista",
     );
   });
 });

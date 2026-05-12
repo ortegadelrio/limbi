@@ -4,10 +4,10 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { BrandList, type BrandListItem } from "@/components/brands/brand-list";
-import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
+import { fetchBrandsOverviewMaintenanceRows } from "@/lib/brands/fetch-brands-overview-maintenance";
 import { limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
-import type { BrandOfferNature, BrandStatus } from "@/types/database";
+import type { BrandOfferNature } from "@/types/database";
 
 export default async function BrandsPage() {
   const supabase = await createServerSupabaseClient();
@@ -41,34 +41,11 @@ export default async function BrandsPage() {
       throw new Error(profilesError.message);
     }
 
-    const natureByBrand = new Map(
-      (profiles ?? []).map((p) => [p.brand_id, p.offer_nature] as const),
+    const natureByBrand = new Map<string, BrandOfferNature | null>(
+      (profiles ?? []).map((p) => [p.brand_id, p.offer_nature as BrandOfferNature | null]),
     );
 
-    const diagnosisEntries = await Promise.all(
-      list.map(async (b) => {
-        const d = await fetchBrandDashboardDiagnosisState(supabase, b.id);
-        return [b.id, d] as const;
-      }),
-    );
-    const diagnosisById = new Map(diagnosisEntries);
-
-    brands = list.map((b) => {
-      const d = diagnosisById.get(b.id);
-      return {
-        id: b.id,
-        name: b.name,
-        description: b.description,
-        brand_status: b.brand_status as BrandStatus,
-        website_url: b.website_url,
-        country_or_market: b.country_or_market,
-        updated_at: b.updated_at,
-        offer_nature: (natureByBrand.get(b.id) as BrandOfferNature | undefined) ?? null,
-        pendingFactsCount: d?.pendingFactsCount ?? 0,
-        hasActiveDiagnosis: d?.hasActiveDiagnosis ?? false,
-        diagnosisIsStale: d?.diagnosisIsStale ?? false,
-      };
-    });
+    brands = await fetchBrandsOverviewMaintenanceRows(supabase, list, natureByBrand);
   }
 
   return (
@@ -80,11 +57,11 @@ export default async function BrandsPage() {
               Journey de Marca
             </p>
             <h1 className="font-heading text-3xl font-semibold tracking-tight text-limbi-text sm:text-4xl">
-              Marcas
+              Tus marcas
             </h1>
             <p className="max-w-2xl text-sm leading-relaxed text-limbi-muted sm:text-base">
-              La marca es memoria estable: identidad y oferta separadas del
-              proyecto.
+              Revisa la calidad de información y mantén actualizadas las bases que Limbi usará para
+              futuros proyectos.
             </p>
           </div>
           <Button

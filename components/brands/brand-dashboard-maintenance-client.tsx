@@ -15,6 +15,10 @@ import {
   brandInformationQualityBandFromScore,
   brandInformationQualityBandHintEs,
 } from "@/lib/brands/brand-dashboard-maintenance-action";
+import {
+  postBrandConsolidate,
+  postBrandDiagnosis,
+} from "@/lib/brands/brand-maintenance-api-actions";
 
 type SecondaryLink = { label: string; href: string };
 
@@ -55,38 +59,18 @@ export function BrandDashboardMaintenanceClient({
       : null;
 
   const runConsolidate = useCallback(async (): Promise<boolean> => {
-    const res = await fetch(`/api/brands/${brandId}/bases/consolidate`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-    if (!res.ok) {
-      setErrorMessage(
-        typeof j.error === "string"
-          ? j.error
-          : "No pudimos consolidar la Base de Marca. Intenta de nuevo.",
-      );
+    const r = await postBrandConsolidate(brandId);
+    if (!r.ok) {
+      setErrorMessage(r.error);
       return false;
     }
     return true;
   }, [brandId]);
 
   const runDiagnosis = useCallback(async (): Promise<boolean> => {
-    const res = await fetch(`/api/brands/${brandId}/diagnosis`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-    if (res.status === 409 && j.code === "pending_review_blocking") {
-      setErrorMessage("Primero revisa los hallazgos pendientes.");
-      return false;
-    }
-    if (!res.ok) {
-      setErrorMessage(
-        typeof j.error === "string"
-          ? j.error
-          : "No pudimos actualizar el diagnóstico. Intenta de nuevo.",
-      );
+    const r = await postBrandDiagnosis(brandId);
+    if (!r.ok) {
+      setErrorMessage(r.error);
       return false;
     }
     return true;

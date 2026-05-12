@@ -13,7 +13,9 @@ export type BrandDashboardPrimaryMaintenanceRole =
   | "generate_diagnosis"
   | "create_base"
   | "none_up_to_date"
-  | "blocked_busy";
+  | "blocked_busy"
+  /** Listado general: marca al día, enlace al dashboard interno. */
+  | "view_brand";
 
 export type BrandDashboardMaintenanceBlockingReason =
   | "pending_facts"
@@ -37,6 +39,37 @@ export type BrandDashboardMaintenanceResolved = {
   /** Estado cuando no hay acción de actualización (todo vigente). */
   upToDateHeadline: string | null;
 };
+
+/** Microcopy compartido (dashboard interno + listado de marcas). */
+export const BRAND_INFORMATION_QUALITY_MICROCOPY_ES =
+  "Este porcentaje mide qué tan completa y útil es la información disponible para construir una Base de Marca confiable.";
+
+/**
+ * Etiqueta ejecutiva de una línea para el listado `/brands` (reutiliza `warningState` del resolver).
+ */
+export function brandOverviewExecutiveStatusLabel(
+  maintenance: BrandDashboardMaintenanceResolved,
+  ctx: { hasActiveDiagnosis: boolean; hasActiveBases: boolean },
+): string {
+  if (maintenance.warningState === "pending_facts") return "Hallazgos pendientes";
+  if (maintenance.warningState === "consolidation_running") return "Consolidación en curso";
+  if (!ctx.hasActiveDiagnosis) return "Sin diagnóstico";
+  if (maintenance.warningState === "both_stale") {
+    return "Diagnóstico y Base de Marca desactualizados";
+  }
+  if (maintenance.warningState === "diagnosis_stale_only") return "Diagnóstico desactualizado";
+  if (maintenance.warningState === "base_stale_only") return "Base de Marca desactualizada";
+  if (
+    ctx.hasActiveDiagnosis &&
+    ctx.hasActiveBases &&
+    (maintenance.primaryRole === "none_up_to_date" ||
+      maintenance.primaryRole === "view_brand")
+  ) {
+    return "Marca lista";
+  }
+  if (ctx.hasActiveDiagnosis && !ctx.hasActiveBases) return "Sin Base de Marca";
+  return "En progreso";
+}
 
 export function buildBrandDashboardMaintenanceSecondaryLinks(brandId: string): {
   label: string;
@@ -62,6 +95,8 @@ export function resolveBrandDashboardMaintenance(input: {
   diagnosisIsStale: boolean;
   hasActiveBases: boolean;
   basesStale: boolean;
+  /** Ajustes de copy/CTA para el listado general `/brands`. */
+  forBrandsList?: boolean;
 }): BrandDashboardMaintenanceResolved {
   const {
     brandId,
@@ -71,6 +106,7 @@ export function resolveBrandDashboardMaintenance(input: {
     diagnosisIsStale,
     hasActiveBases,
     basesStale,
+    forBrandsList = false,
   } = input;
 
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
@@ -106,7 +142,7 @@ export function resolveBrandDashboardMaintenance(input: {
       combinedStaleNotice,
       diagnosisStaleNotice,
       primaryRole: "review_pending_facts",
-      primaryLabel: "Revisar hallazgos pendientes",
+      primaryLabel: forBrandsList ? "Revisar hallazgos" : "Revisar hallazgos pendientes",
       primaryHref: sourceFactsHref,
       canRunUpdateAll: false,
       blockingReason: "pending_facts",
@@ -182,8 +218,23 @@ export function resolveBrandDashboardMaintenance(input: {
       combinedStaleNotice: null,
       diagnosisStaleNotice: null,
       primaryRole: "create_base",
-      primaryLabel: "Generar Base de Marca",
+      primaryLabel: forBrandsList ? "Consolidar Base de Marca" : "Generar Base de Marca",
       primaryHref: null,
+      canRunUpdateAll: false,
+      blockingReason: null,
+      upToDateHeadline: null,
+    };
+  }
+
+  if (forBrandsList) {
+    return {
+      warningState: "none",
+      baseStaleNotice: null,
+      combinedStaleNotice: null,
+      diagnosisStaleNotice: null,
+      primaryRole: "view_brand",
+      primaryLabel: "Ver marca",
+      primaryHref: `/brands/${brandId}`,
       canRunUpdateAll: false,
       blockingReason: null,
       upToDateHeadline: null,

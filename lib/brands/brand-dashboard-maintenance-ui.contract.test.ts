@@ -21,6 +21,7 @@ describe("Dashboard marca — contrato UI mantenimiento (sin RTL)", () => {
       "../../components/brands/brand-dashboard-maintenance-client.tsx",
     );
     const src = readFileSync(p, "utf8");
+    expect(src).toContain("brand-maintenance-api-actions");
     const idxDiag = src.indexOf("runDiagnosis()");
     const idxCons = src.indexOf("runConsolidate()");
     expect(idxDiag).toBeGreaterThan(-1);
