@@ -305,6 +305,48 @@ export type BrandSourceFactRow = {
   reviewed_at: string | null;
 };
 
+/** Estados de `brand_evaluations` (Ticket 4 — diagnóstico de marca). */
+export type BrandEvaluationStatus = "running" | "succeeded" | "failed";
+
+/** Nivel de calidad derivado del score (0–39 critical … 90–100 excellent). */
+export type BrandDiagnosisQualityLevel =
+  | "critical"
+  | "weak"
+  | "acceptable"
+  | "strong"
+  | "excellent";
+
+/** Siguiente paso recomendado por el diagnóstico. */
+export type BrandDiagnosisNextRecommendedAction =
+  | "improve_required"
+  | "improve_recommended"
+  | "ready_for_consolidation";
+
+/** Fila en `brand_evaluations` (Ticket 4). */
+export type BrandEvaluationRow = {
+  id: string;
+  brand_id: string;
+  evaluation_version: number;
+  status: BrandEvaluationStatus;
+  overall_score: number | null;
+  quality_level: BrandDiagnosisQualityLevel | null;
+  strategic_reading: string | null;
+  diagnosis_payload: Record<string, unknown>;
+  section_scores: unknown[];
+  critical_gaps: unknown[];
+  contradictions: unknown[];
+  improvement_plan: unknown[];
+  next_recommended_action: BrandDiagnosisNextRecommendedAction | null;
+  source_snapshot: Record<string, unknown>;
+  model_used: string | null;
+  prompt_version: string;
+  error_message: string | null;
+  is_active: boolean;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProjectNameStatus = "definitive" | "provisional" | "unnamed";
 
 export type ProjectStatus =

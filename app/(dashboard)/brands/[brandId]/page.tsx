@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import {
   limbiDocumentCardClass,
+  limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ export default async function BrandDetailPage({ params }: Props) {
       "id, name, description, brand_status, website_url, country_or_market, updated_at",
     )
     .eq("id", brandId)
+    .eq("user_id", user.id)
     .maybeSingle();
 
   if (brandError) {
@@ -72,7 +74,24 @@ export default async function BrandDetailPage({ params }: Props) {
   }
   const pendingForReading = docStats.uploaded + docStats.pending;
 
+  const { count: pendingFactsCount } = await supabase
+    .from("brand_source_facts")
+    .select("id", { count: "exact", head: true })
+    .eq("brand_id", brandId)
+    .eq("status", "pending_review");
+
+  const { data: activeDiagnosis } = await supabase
+    .from("brand_evaluations")
+    .select("id")
+    .eq("brand_id", brandId)
+    .eq("is_active", true)
+    .eq("status", "succeeded")
+    .maybeSingle();
+
   const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
+  const diagnosisHref = `/brands/${brandId}/diagnosis`;
+  const pendingFacts = pendingFactsCount ?? 0;
+  const hasActiveDiagnosis = Boolean(activeDiagnosis);
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
@@ -185,6 +204,32 @@ export default async function BrandDetailPage({ params }: Props) {
           </Button>
         </div>
 
+        <div
+          className={cn(
+            limbiDocumentCardClass,
+            "space-y-3 border border-limbi-border p-4 sm:p-5",
+          )}
+        >
+          <h2 className="text-sm font-semibold text-limbi-text">Diagnóstico de marca</h2>
+          {pendingFacts > 0 ? (
+            <>
+              <p className="text-sm text-limbi-muted">
+                Hay hallazgos pendientes de revisión. Debes resolverlos antes de generar el
+                diagnóstico.
+              </p>
+              <Button className={limbiOutlineButtonClass} variant="outline" asChild>
+                <Link href={`/brands/${brandId}/source-facts`}>Revisar hallazgos pendientes</Link>
+              </Button>
+            </>
+          ) : (
+            <Button className={limbiPrimaryButtonClass} asChild>
+              <Link href={diagnosisHref}>
+                {hasActiveDiagnosis ? "Ver diagnóstico de marca" : "Generar diagnóstico de marca"}
+              </Link>
+            </Button>
+          )}
+        </div>
+
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Button className={limbiPrimaryButtonClass} asChild>
             <Link href={`/brands/${brandId}/questionnaire`}>
@@ -199,8 +244,7 @@ export default async function BrandDetailPage({ params }: Props) {
           </Button>
         </div>
         <p className="text-xs text-limbi-muted">
-          El diagnóstico de marca y las bases activas llegarán en tickets
-          posteriores.
+          Las bases activas de marca y la generación desde ellas llegarán en tickets posteriores.
         </p>
       </div>
     </div>
