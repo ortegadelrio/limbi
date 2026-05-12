@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { BrandDiagnosisClient } from "@/components/brands/diagnosis/brand-diagnosis-client";
+import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import type { BrandEvaluationRow } from "@/types/database";
 
@@ -63,6 +64,31 @@ export default async function BrandDiagnosisPage({ params }: Props) {
       (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
     );
 
+  const [responseStaleness, sourceFactStaleness] = activeEvaluation
+    ? await Promise.all([
+        supabase
+          .from("brand_responses")
+          .select("updated_at")
+          .eq("brand_id", brandId)
+          .gt("updated_at", activeEvaluation.created_at),
+        supabase
+          .from("brand_source_facts")
+          .select("reviewed_at, updated_at")
+          .eq("brand_id", brandId)
+          .eq("status", "approved")
+          .or(
+            `reviewed_at.gt.${activeEvaluation.created_at},updated_at.gt.${activeEvaluation.created_at}`,
+          ),
+      ])
+    : [null, null];
+
+  const diagnosisIsStale = isBrandDiagnosisStale({
+    evaluation: activeEvaluation,
+    responseRows: responseStaleness?.data ?? [],
+    sourceFactRows: sourceFactStaleness?.data ?? [],
+    improvementRows: improvementBadgeRows ?? [],
+  });
+
   return (
     <BrandDiagnosisClient
       brandId={brandId}
@@ -72,6 +98,7 @@ export default async function BrandDiagnosisPage({ params }: Props) {
       initialSectionKeysWithImprovementAfterDiagnosis={
         sectionKeysWithImprovementAfterDiagnosis
       }
+      initialDiagnosisIsStale={diagnosisIsStale}
     />
   );
 }

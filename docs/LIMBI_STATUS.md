@@ -2,7 +2,7 @@
 
 Documento de estado para alinear equipo y agentes. **Actualizar al cierre de sesiones** que cambien arquitectura, flujos o riesgos.
 
-**Última revisión:** 2026-05-21 — **Ticket 5:** mejora por sección con experto Limbi (`brand_improvement_sessions`, `brand_improvement_messages`, `brand_section_improvements`); APIs `POST/GET` sesiones y mensajes, `POST` approve/abandon, `GET` resumen por sección; UI `/brands/[brandId]/improve/[sectionKey]`; CTA **Mejorar esta sección** desde cada tarjeta del diagnóstico (excepto `material_context`). Contexto acotado (diagnóstico activo obligatorio, solo `approved` en fuentes, sin `extracted_text` ni otras secciones). **No** se modifica `brand_responses`; **no** bases activas ni generación de contenidos. `pending_review` bloquea sesión/mensajes/aprobación (409 `pending_review_blocking`). Structured Outputs (`json_schema` strict) + Zod; máximo **8** turnos de usuario por sesión.
+**Última revisión:** 2026-05-22 — **Ticket A (rediseño Journey de Marca):** migración estructural para `brand_offer_items` y `brand_audience_territories` + script seguro `scripts/reset-brand-captured-data.mjs` (no se ejecuta automáticamente). No hay migración semántica de respuestas viejas. Se conserva la inteligencia del producto: prompts, guardrails, reglas editoriales, diagnóstico, análisis documental, mejora por sección y reglas de Base Límbica no literal. **No** se toca todavía `question_definitions`, UI, análisis documental, diagnóstico, mejora por sección, website crawling, bases activas, proyectos ni generación.
 
 ## Qué funciona (alto nivel)
 
@@ -13,6 +13,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Documentos de marca (Tickets 3B.1–3B.3):** tabla `brand_documents`, bucket **`brand-documents`**, extracción (`brand_document_extractions`, `pdf-parse`), análisis consolidado `POST /api/brands/[brandId]/documents/analyze` (síncrono, `maxDuration` 120s, runtime Node), tablas `brand_document_analysis_batches`, `brand_document_analysis_runs`, **`brand_source_facts`** con revisión (`GET`/`PATCH /api/brands/[brandId]/source-facts`), UI “Analizar documentos” + bandeja `/brands/[brandId]/source-facts` agrupada por `section_key`. Si hay `pending_review`, no se lanza un nuevo análisis (409 / CTA a revisar). **No** se modifica `brand_responses`; **no** se muestra `extracted_text` completo en UI. **Aún no:** consolidación en `brand_knowledge_bases` / `brand_limbic_bases`, `force` / reanálisis explícito, cola async de análisis.
 - **Diagnóstico de marca (Ticket 4):** tabla **`brand_evaluations`** (migración `20260520120000_brand_evaluations.sql`); contexto `evaluation_context` vía `lib/brands/build-brand-diagnosis-context.ts` (sin `material_context` en secciones evaluadas); `source_snapshot` solo metadatos/conteos/hash, sin duplicar respuestas sensibles. UI y API arriba.
 - **Mejora por sección (Ticket 5):** migración `20260521120000_brand_section_improvements.sql`; sesiones y mensajes con IA (OpenAI strict + Zod); mejora aprobada en `brand_section_improvements` (una activa por sección; anteriores `superseded`). **No** escribe en `brand_responses`.
+- **Rediseño Journey de Marca — Ticket A:** migración `20260522120000_brand_structured_offer_and_territories.sql` agrega `brand_offer_items` (inventario repetible de oferta) y `brand_audience_territories` (territorios repetibles), con RLS por ownership de `brands`. Script `scripts/reset-brand-captured-data.mjs` permite reset controlado de datos capturados de prueba con `CONFIRM_RESET_BRAND_CAPTURED_DATA=true` + `RESET_BRAND_IDS` o `RESET_BRAND_USER_EMAIL`; por defecto conserva `brands` y `brand_offer_profiles`, y solo borra marcas si `DELETE_BRANDS=true`.
 - **Proyectos:** CRUD básico vía API (`projects`, `project_responses`).
 - **Intake conversacional:** `intake-turn` con extracción OpenAI y persistencia en `project_responses`.
 - **Evaluación de cuestionario:** `evaluate-questionnaire` + almacenamiento (`questionnaire_evaluations`, campos en `project_responses`).
@@ -24,7 +25,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 
 ## Qué está en construcción / desalineado vs V2
 
-- **Journey de Marca completo:** parcial. Tickets 1–5 cubren marca, catálogo, `brand_responses`, documentos + `brand_source_facts`, **`brand_evaluations` (diagnóstico)** y **mejora por sección** (`brand_improvement_sessions` / `brand_section_improvements`). Aún faltan, entre otras: `brand_knowledge_bases`, `brand_limbic_bases`, **consolidación** en bases activas.
+- **Journey de Marca completo:** parcial. Tickets 1–5 cubren marca, catálogo actual, `brand_responses`, documentos + `brand_source_facts`, **`brand_evaluations` (diagnóstico)** y **mejora por sección** (`brand_improvement_sessions` / `brand_section_improvements`). Ticket A del rediseño agrega estructura para oferta y territorios, pero aún faltan el nuevo seed de `question_definitions`, UI nueva, APIs específicas de guardado, actualización de IA, `brand_knowledge_bases`, `brand_limbic_bases` y **consolidación** en bases activas.
 - **Proyecto anclado a marca:** `projects` sin `brand_id` ni referencias a bases de marca.
 - **Cuestionario puro como primera captura:** en **marca** ya hay cuestionario por secciones (`/brands/[brandId]/questionnaire`); el flujo principal de **proyecto** sigue siendo conversacional hasta alinear V2.
 - **Generación solo desde fuentes curadas V2:** hoy se usa maestro + marco aprobado, pero aún hay **fallback** a `project_responses` en el contexto de generación.
@@ -32,7 +33,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 
 ## Obsoleto o deuda explícita (respecto a V2)
 
-- Modelo **todo-en-proyecto** con capa de marca **incompleta**: hay `brands`, `brand_offer_profiles` y `brand_responses`, pero sin evaluación/diagnóstico de marca ni bases activas (`brand_knowledge_bases`, `brand_limbic_bases`) en DB.
+- Modelo **todo-en-proyecto** con capa de marca aún **incompleta**: hay `brands`, `brand_offer_profiles`, `brand_responses`, diagnóstico, mejora por sección y estructura inicial para oferta/territorios, pero todavía no existen bases activas (`brand_knowledge_bases`, `brand_limbic_bases`) en DB.
 - Evaluación/aclaraciones acopladas al mismo agregado `project_responses` (JSON grande) además de tablas dedicadas.
 - Archivos duplicados con sufijo ` 2` en rutas/páginas (limpieza pendiente).
 - Intake conversacional como **sustituto** del cuestionario puro V2 (a redefinir o relegar a fase posterior).
@@ -63,6 +64,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Ticket 3B.3:** migración `20260519100000_brand_document_analysis_and_source_facts.sql`; `OPENAI_BRAND_DOCUMENT_ANALYSIS_MODEL` opcional; prompt `brand-document-analysis-v1.1` (incluye `analysis_result` / `no_useful_findings`).
 - **Ticket 4:** `brand_evaluations` + diagnóstico (`build-brand-diagnosis-context`, APIs, UI `/brands/[brandId]/diagnosis`).
 - **Ticket 5:** `brand_improvement_sessions`, `brand_improvement_messages`, `brand_section_improvements`; mejora asistida por `section_key` (`/improve/[sectionKey]`); aprobación sin tocar `brand_responses`.
+- **Ticket A rediseño Journey de Marca:** `brand_offer_items` y `brand_audience_territories` para datos repetibles; reset seguro de datos capturados de prueba. `offer_nature` sigue viviendo en `brand_offer_profiles`, no en `brand_responses`. No se desactiva ni reemplaza el seed viejo todavía.
 
 ## Ticket 3B planificado (documentos de marca / material de contexto)
 

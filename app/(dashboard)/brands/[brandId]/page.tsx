@@ -8,6 +8,7 @@ import {
   limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
+import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -82,16 +83,48 @@ export default async function BrandDetailPage({ params }: Props) {
 
   const { data: activeDiagnosis } = await supabase
     .from("brand_evaluations")
-    .select("id")
+    .select("id, created_at")
     .eq("brand_id", brandId)
     .eq("is_active", true)
     .eq("status", "succeeded")
     .maybeSingle();
 
+  const [responseStaleness, sourceFactStaleness, improvementStaleness] =
+    activeDiagnosis
+      ? await Promise.all([
+          supabase
+            .from("brand_responses")
+            .select("updated_at")
+            .eq("brand_id", brandId)
+            .gt("updated_at", activeDiagnosis.created_at),
+          supabase
+            .from("brand_source_facts")
+            .select("reviewed_at, updated_at")
+            .eq("brand_id", brandId)
+            .eq("status", "approved")
+            .or(
+              `reviewed_at.gt.${activeDiagnosis.created_at},updated_at.gt.${activeDiagnosis.created_at}`,
+            ),
+          supabase
+            .from("brand_section_improvements")
+            .select("approved_at")
+            .eq("brand_id", brandId)
+            .eq("status", "approved")
+            .eq("is_active", true)
+            .gt("approved_at", activeDiagnosis.created_at),
+        ])
+      : [null, null, null];
+
   const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
   const pendingFacts = pendingFactsCount ?? 0;
   const hasActiveDiagnosis = Boolean(activeDiagnosis);
+  const diagnosisIsStale = isBrandDiagnosisStale({
+    evaluation: activeDiagnosis,
+    responseRows: responseStaleness?.data ?? [],
+    sourceFactRows: sourceFactStaleness?.data ?? [],
+    improvementRows: improvementStaleness?.data ?? [],
+  });
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
@@ -222,11 +255,22 @@ export default async function BrandDetailPage({ params }: Props) {
               </Button>
             </>
           ) : (
-            <Button className={limbiPrimaryButtonClass} asChild>
-              <Link href={diagnosisHref}>
-                {hasActiveDiagnosis ? "Ver diagnóstico de marca" : "Generar diagnóstico de marca"}
-              </Link>
-            </Button>
+            <>
+              {diagnosisIsStale ? (
+                <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-limbi-text">
+                  El diagnóstico puede estar desactualizado.
+                </p>
+              ) : null}
+              <Button className={limbiPrimaryButtonClass} asChild>
+                <Link href={diagnosisHref}>
+                  {diagnosisIsStale
+                    ? "Actualizar diagnóstico"
+                    : hasActiveDiagnosis
+                      ? "Ver diagnóstico de marca"
+                      : "Generar diagnóstico de marca"}
+                </Link>
+              </Button>
+            </>
           )}
         </div>
 

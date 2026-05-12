@@ -11,6 +11,7 @@ import {
   validateBrandDiagnosisAgainstCatalog,
 } from "@/lib/schemas/brand-diagnosis";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
+import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
 import {
   buildBrandDiagnosisEvaluationContext,
   hasMinimumInputForDiagnosis,
@@ -117,10 +118,34 @@ export async function GET(_request: Request, { params }: Params) {
       (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
     );
 
+  const [responseStaleness, sourceFactStaleness] = evaluation
+    ? await Promise.all([
+        supabase
+          .from("brand_responses")
+          .select("updated_at")
+          .eq("brand_id", brandId)
+          .gt("updated_at", evaluation.created_at),
+        supabase
+          .from("brand_source_facts")
+          .select("reviewed_at, updated_at")
+          .eq("brand_id", brandId)
+          .eq("status", "approved")
+          .or(`reviewed_at.gt.${evaluation.created_at},updated_at.gt.${evaluation.created_at}`),
+      ])
+    : [null, null];
+
+  const diagnosis_is_stale = isBrandDiagnosisStale({
+    evaluation,
+    responseRows: responseStaleness?.data ?? [],
+    sourceFactRows: sourceFactStaleness?.data ?? [],
+    improvementRows: improvementBadgeRows ?? [],
+  });
+
   return NextResponse.json({
     pending_review_count,
     evaluation,
     section_keys_with_improvement_after_diagnosis,
+    diagnosis_is_stale,
   });
 }
 

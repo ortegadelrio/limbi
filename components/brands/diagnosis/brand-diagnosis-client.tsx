@@ -23,6 +23,7 @@ type Props = {
   initialPendingReviewCount: number;
   initialEvaluation: BrandEvaluationRow | null;
   initialSectionKeysWithImprovementAfterDiagnosis: string[];
+  initialDiagnosisIsStale: boolean;
 };
 
 function qualityLevelLabelEs(
@@ -80,6 +81,7 @@ export function BrandDiagnosisClient({
   initialPendingReviewCount,
   initialEvaluation,
   initialSectionKeysWithImprovementAfterDiagnosis,
+  initialDiagnosisIsStale,
 }: Props) {
   const router = useRouter();
   const [pendingReviewCount, setPendingReviewCount] = useState(initialPendingReviewCount);
@@ -88,6 +90,7 @@ export function BrandDiagnosisClient({
     sectionKeysWithImprovementAfterDiagnosis,
     setSectionKeysWithImprovementAfterDiagnosis,
   ] = useState(initialSectionKeysWithImprovementAfterDiagnosis);
+  const [diagnosisIsStale, setDiagnosisIsStale] = useState(initialDiagnosisIsStale);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +100,7 @@ export function BrandDiagnosisClient({
       pending_review_count?: number;
       evaluation?: BrandEvaluationRow | null;
       section_keys_with_improvement_after_diagnosis?: string[];
+      diagnosis_is_stale?: boolean;
     };
     if (res.ok) {
       setPendingReviewCount(j.pending_review_count ?? 0);
@@ -104,6 +108,7 @@ export function BrandDiagnosisClient({
       setSectionKeysWithImprovementAfterDiagnosis(
         j.section_keys_with_improvement_after_diagnosis ?? [],
       );
+      setDiagnosisIsStale(Boolean(j.diagnosis_is_stale));
     }
   }, [brandId]);
 
@@ -159,7 +164,6 @@ export function BrandDiagnosisClient({
     recommended_focus: string;
   }[];
   const improvedAfterDiagnosisSet = new Set(sectionKeysWithImprovementAfterDiagnosis);
-  const hasImprovementsAfterDiagnosis = sectionKeysWithImprovementAfterDiagnosis.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
@@ -246,13 +250,13 @@ export function BrandDiagnosisClient({
               </div>
             </section>
 
-            {hasImprovementsAfterDiagnosis ? (
+            {diagnosisIsStale ? (
               <section className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm">
                 <p className="font-medium text-limbi-text">
-                  Hay mejoras aprobadas después de este diagnóstico.
+                  Hay cambios aprobados o respuestas nuevas después de este diagnóstico.
                 </p>
                 <p className="mt-1 text-limbi-muted">
-                  Puedes actualizar la evaluación para recalcular puntajes y promedio general.
+                  Actualiza la evaluación para reflejar la información más reciente.
                 </p>
                 <Button
                   type="button"

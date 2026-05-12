@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v1.3";
+export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v1.4";
 
 export const brandDiagnosisQualityLevelSchema = z.enum([
   "critical",
@@ -94,7 +94,7 @@ export function applyServerDiagnosisQualityLevels(
     nextAction = "ready_for_consolidation";
   } else if (parsed.overall_score >= 70 && nextAction === "improve_required") {
     nextAction = "improve_recommended";
-  } else if (parsed.overall_score >= 60 && nextAction === "improve_required" && !hasCriticalGap) {
+  } else if (parsed.overall_score >= 60 && nextAction === "improve_required" && !hasBlockingContradiction) {
     nextAction = "improve_recommended";
   }
   const strategicReading =
@@ -110,6 +110,14 @@ export function applyServerDiagnosisQualityLevels(
     section_scores: parsed.section_scores.map((row) => ({
       ...row,
       quality_level: brandDiagnosisQualityLevelFromScore(row.score),
+      diagnosis:
+        row.score >= 70 ? softenBlockingLanguageInText(row.diagnosis) : row.diagnosis,
+      gaps: row.score >= 70 ? row.gaps.map(softenBlockingLanguageInText) : row.gaps,
+      risks: row.score >= 70 ? row.risks.map(softenBlockingLanguageInText) : row.risks,
+      recommendations:
+        row.score >= 70
+          ? row.recommendations.map(softenBlockingLanguageInText)
+          : row.recommendations,
       can_generate_base:
         row.score >= 70 && row.contradictions.length === 0 ? true : row.can_generate_base,
       should_improve_before_consolidation:
@@ -121,13 +129,7 @@ export function applyServerDiagnosisQualityLevels(
 }
 
 function softenBlockingStrategicReading(text: string): string {
-  const hasBlockingLanguage =
-    /impide(?:n)?\s+(?:una\s+)?consolidaci[oó]n/i.test(text) ||
-    /no\s+est[aá]\s+lista/i.test(text) ||
-    /base\s+m[ií]nima/i.test(text) ||
-    /deficiencias\s+que\s+impiden/i.test(text) ||
-    /informaci[oó]n\s+insuficiente/i.test(text) ||
-    /no\s+hay\s+suficiente\s+informaci[oó]n/i.test(text);
+  const hasBlockingLanguage = hasBlockingDiagnosisLanguage(text);
 
   if (!hasBlockingLanguage) return text;
 
@@ -136,6 +138,40 @@ function softenBlockingStrategicReading(text: string): string {
     "La información disponible permite construir una primera lectura estratégica, aunque conviene fortalecer algunos puntos para ganar precisión, evidencia y mayor capacidad de decisión.",
     "Las recomendaciones deben leerse como oportunidades de refinamiento y fortalecimiento, no como un bloqueo para seguir construyendo.",
   ].join(" ");
+}
+
+function hasBlockingDiagnosisLanguage(text: string): boolean {
+  return (
+    /impide(?:n)?\s+(?:una\s+)?consolidaci[oó]n/i.test(text) ||
+    /impide(?:n)?\s+consolidar/i.test(text) ||
+    /no\s+est[aá]\s+lista/i.test(text) ||
+    /base\s+m[ií]nima/i.test(text) ||
+    /presenta\s+varias\s+deficiencias/i.test(text) ||
+    /deficiencias\s+que\s+impiden/i.test(text) ||
+    /informaci[oó]n\s+insuficiente/i.test(text) ||
+    /no\s+hay\s+suficiente\s+informaci[oó]n/i.test(text)
+  );
+}
+
+function softenBlockingLanguageInText(text: string): string {
+  if (!hasBlockingDiagnosisLanguage(text)) return text;
+
+  return text
+    .replace(
+      /impide(?:n)?\s+(?:una\s+)?consolidaci[oó]n(?:\s+efectiva)?/gi,
+      "conviene fortalecer antes de una consolidación definitiva",
+    )
+    .replace(/impide(?:n)?\s+consolidar/gi, "conviene fortalecer antes de consolidar")
+    .replace(/no\s+est[aá]\s+lista/gi, "puede fortalecerse")
+    .replace(
+      /(?:falta|carece\s+de|construir)\s+(?:una\s+)?base\s+m[ií]nima/gi,
+      "conviene fortalecer la base existente",
+    )
+    .replace(/base\s+m[ií]nima/gi, "base suficiente")
+    .replace(/presenta\s+varias\s+deficiencias/gi, "presenta oportunidades de fortalecimiento")
+    .replace(/deficiencias\s+que\s+impiden/gi, "puntos por refinar que limitan")
+    .replace(/informaci[oó]n\s+insuficiente/gi, "información que puede precisarse")
+    .replace(/no\s+hay\s+suficiente\s+informaci[oó]n/gi, "hay información que puede precisarse");
 }
 
 /**
