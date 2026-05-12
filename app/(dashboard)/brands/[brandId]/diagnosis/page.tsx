@@ -5,6 +5,7 @@ import {
   fetchStructuralQuestionnaireStaleness,
   isBrandDiagnosisStale,
 } from "@/lib/brands/brand-diagnosis-staleness";
+import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import type { BrandEvaluationRow } from "@/types/database";
 
@@ -98,6 +99,8 @@ export default async function BrandDiagnosisPage({ params }: Props) {
     brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
   });
 
+  const initialBasesState = await fetchBrandDashboardBasesState(supabase, brandId);
+
   return (
     <BrandDiagnosisClient
       brandId={brandId}
@@ -108,6 +111,7 @@ export default async function BrandDiagnosisPage({ params }: Props) {
         sectionKeysWithImprovementAfterDiagnosis
       }
       initialDiagnosisIsStale={diagnosisIsStale}
+      initialBasesState={initialBasesState}
     />
   );
 }

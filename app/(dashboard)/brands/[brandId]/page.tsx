@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import {
   limbiDocumentCardClass,
   limbiOutlineButtonClass,
-  limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
+import { resolveBrandPostDiagnosisNextStep } from "@/lib/brands/brand-post-diagnosis-next-step";
+import { BrandPostDiagnosisNextStepCard } from "@/components/brands/diagnosis/brand-post-diagnosis-next-step-card";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -82,44 +83,36 @@ export default async function BrandDetailPage({ params }: Props) {
   const hasActiveDiagnosis = diagnosisState.hasActiveDiagnosis;
   const diagnosisIsStale = diagnosisState.diagnosisIsStale;
 
+  const basesHref = `/brands/${brandId}/bases`;
   const documentsHref = `/brands/${brandId}/documents`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
-  const basesHref = `/brands/${brandId}/bases`;
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
   const questionnaireHref = `/brands/${brandId}/questionnaire`;
 
-  const nextStepTitle = "Siguiente paso recomendado";
-  let nextStepBody = "";
-  let nextStepPrimaryHref = diagnosisHref;
-  let nextStepPrimaryLabel = "Ver diagnóstico";
-
-  if (pendingFacts > 0) {
-    nextStepBody =
-      "Hay información sugerida por documentos que debes aprobar, editar o descartar antes de generar el diagnóstico.";
-    nextStepPrimaryHref = sourceFactsHref;
-    nextStepPrimaryLabel = "Revisar hallazgos pendientes";
-  } else if (!hasActiveDiagnosis) {
-    nextStepBody =
-      "La marca ya tiene información suficiente para generar una primera evaluación estratégica.";
-    nextStepPrimaryHref = diagnosisHref;
-    nextStepPrimaryLabel = "Generar diagnóstico";
-  } else if (diagnosisIsStale) {
-    nextStepBody =
-      "Hay cambios recientes en la información de la marca. Actualiza la evaluación para reflejar la versión más nueva.";
-    nextStepPrimaryHref = diagnosisHref;
-    nextStepPrimaryLabel = "Actualizar diagnóstico";
-  } else {
-    nextStepBody = "Tu diagnóstico está actualizado con la información aprobada.";
-    nextStepPrimaryHref = diagnosisHref;
-    nextStepPrimaryLabel = "Ver diagnóstico";
-  }
+  const journeyNextStep = resolveBrandPostDiagnosisNextStep({
+    brandId,
+    pendingFactsCount: pendingFacts,
+    hasActiveSucceededDiagnosis: hasActiveDiagnosis,
+    diagnosisIsStale,
+    bases: basesState,
+    diagnosisHints: hasActiveDiagnosis
+      ? {
+          criticalGapsCount: diagnosisState.criticalGapsCount,
+          nextRecommendedAction: diagnosisState.nextRecommendedAction,
+        }
+      : undefined,
+    offerDiagnosisGenerationCta: true,
+    staleDiagnosisPrimaryIsRegenerate: false,
+  });
 
   const hallazgosLinkLabel =
     pendingFacts > 0 ? "Revisar hallazgos pendientes" : "Ver hallazgos de documentos";
 
-  /** Enlace discreto al diagnóstico: no duplicar cuando el CTA principal ya es “Ver diagnóstico”. */
+  /** Enlace discreto al diagnóstico: no duplicar cuando el CTA principal ya lleva al diagnóstico para generar. */
   const showDiagnosisDetailLink =
-    hasActiveDiagnosis && nextStepPrimaryLabel !== "Ver diagnóstico";
+    hasActiveDiagnosis &&
+    journeyNextStep.primary.kind === "link" &&
+    journeyNextStep.primary.label !== "Generar diagnóstico";
 
   const diagnosisDetailLinkLabel = diagnosisIsStale
     ? "Ver detalle del diagnóstico"
@@ -184,18 +177,7 @@ export default async function BrandDetailPage({ params }: Props) {
           </dl>
         )}
 
-        <div
-          className={cn(
-            limbiDocumentCardClass,
-            "space-y-3 border border-limbi-border bg-limbi-bg-soft/40 p-4 sm:p-5",
-          )}
-        >
-          <h2 className="text-sm font-semibold text-limbi-text">{nextStepTitle}</h2>
-          <p className="text-sm leading-relaxed text-limbi-muted">{nextStepBody}</p>
-          <Button className={limbiPrimaryButtonClass} asChild>
-            <Link href={nextStepPrimaryHref}>{nextStepPrimaryLabel}</Link>
-          </Button>
-        </div>
+        <BrandPostDiagnosisNextStepCard resolved={journeyNextStep} />
 
         <div
           className={cn(
@@ -263,7 +245,7 @@ export default async function BrandDetailPage({ params }: Props) {
           {pendingFacts > 0 ? (
             <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
               Hay hallazgos de documentos pendientes de revisión. Resuélvelos antes de
-              generar o actualizar el diagnóstico.
+              generar o actualizar el diagnóstico, o antes de consolidar bases.
             </p>
           ) : null}
 
@@ -309,6 +291,18 @@ export default async function BrandDetailPage({ params }: Props) {
           )}
         >
           <h2 className="text-sm font-semibold text-limbi-text">Bases de marca</h2>
+
+          {basesState.pendingFactsCount > 0 ? (
+            <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
+              Hay hallazgos pendientes: la consolidación de bases queda bloqueada hasta revisarlos.
+            </p>
+          ) : null}
+
+          {diagnosisIsStale && hasActiveDiagnosis && basesState.pendingFactsCount === 0 ? (
+            <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
+              El diagnóstico está desactualizado: conviene actualizarlo antes de regenerar bases.
+            </p>
+          ) : null}
 
           {basesState.consolidationRunning ? (
             <p className="text-sm text-limbi-muted">Consolidación en curso…</p>

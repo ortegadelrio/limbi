@@ -13,6 +13,7 @@ import {
 } from "@/lib/schemas/brand-diagnosis";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import { isBrandDiagnosisStale, fetchStructuralQuestionnaireStaleness } from "@/lib/brands/brand-diagnosis-staleness";
+import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
 import {
   buildBrandDiagnosisEvaluationContext,
   hasMinimumInputForDiagnosis,
@@ -150,11 +151,14 @@ export async function GET(_request: Request, { params }: Params) {
     brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
   });
 
+  const bases_state = await fetchBrandDashboardBasesState(supabase, brandId);
+
   return NextResponse.json({
     pending_review_count,
     evaluation,
     section_keys_with_improvement_after_diagnosis,
     diagnosis_is_stale,
+    bases_state,
   });
 }
 

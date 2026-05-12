@@ -3,13 +3,16 @@ import {
   fetchStructuralQuestionnaireStaleness,
   isBrandDiagnosisStale,
 } from "@/lib/brands/brand-diagnosis-staleness";
-import type { BrandEvaluationRow } from "@/types/database";
+import type { BrandDiagnosisNextRecommendedAction, BrandEvaluationRow } from "@/types/database";
 
 export type BrandDashboardDiagnosisState = {
   pendingFactsCount: number;
   hasActiveDiagnosis: boolean;
   activeDiagnosis: Pick<BrandEvaluationRow, "id" | "created_at"> | null;
   diagnosisIsStale: boolean;
+  /** Solo con diagnóstico activo succeeded; para copy del journey (consolidar). */
+  nextRecommendedAction: BrandDiagnosisNextRecommendedAction | null;
+  criticalGapsCount: number;
 };
 
 /**
@@ -28,7 +31,7 @@ export async function fetchBrandDashboardDiagnosisState(
 
   const { data: activeRow } = await supabase
     .from("brand_evaluations")
-    .select("id, created_at")
+    .select("id, created_at, next_recommended_action, critical_gaps")
     .eq("brand_id", brandId)
     .eq("is_active", true)
     .eq("status", "succeeded")
@@ -45,8 +48,15 @@ export async function fetchBrandDashboardDiagnosisState(
       hasActiveDiagnosis: false,
       activeDiagnosis: null,
       diagnosisIsStale: false,
+      nextRecommendedAction: null,
+      criticalGapsCount: 0,
     };
   }
+
+  const gaps = activeRow?.critical_gaps;
+  const criticalGapsCount = Array.isArray(gaps) ? gaps.length : 0;
+  const nextRecommendedAction =
+    (activeRow?.next_recommended_action as BrandDiagnosisNextRecommendedAction | null) ?? null;
 
   const [
     responseStaleness,
@@ -94,5 +104,7 @@ export async function fetchBrandDashboardDiagnosisState(
     hasActiveDiagnosis: true,
     activeDiagnosis,
     diagnosisIsStale,
+    nextRecommendedAction,
+    criticalGapsCount,
   };
 }

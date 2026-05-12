@@ -16,6 +16,9 @@ import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-sec
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
 import type { BrandDiagnosisNextRecommendedAction, BrandEvaluationRow } from "@/types/database";
 import { BrandDiagnosisSectionCard } from "@/components/brands/diagnosis/brand-diagnosis-section-card";
+import type { BrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
+import { resolveBrandPostDiagnosisNextStep } from "@/lib/brands/brand-post-diagnosis-next-step";
+import { BrandPostDiagnosisNextStepCard } from "@/components/brands/diagnosis/brand-post-diagnosis-next-step-card";
 
 type Props = {
   brandId: string;
@@ -24,6 +27,7 @@ type Props = {
   initialEvaluation: BrandEvaluationRow | null;
   initialSectionKeysWithImprovementAfterDiagnosis: string[];
   initialDiagnosisIsStale: boolean;
+  initialBasesState: BrandDashboardBasesState;
 };
 
 function qualityLevelLabelEs(
@@ -82,6 +86,7 @@ export function BrandDiagnosisClient({
   initialEvaluation,
   initialSectionKeysWithImprovementAfterDiagnosis,
   initialDiagnosisIsStale,
+  initialBasesState,
 }: Props) {
   const router = useRouter();
   const [pendingReviewCount, setPendingReviewCount] = useState(initialPendingReviewCount);
@@ -91,6 +96,7 @@ export function BrandDiagnosisClient({
     setSectionKeysWithImprovementAfterDiagnosis,
   ] = useState(initialSectionKeysWithImprovementAfterDiagnosis);
   const [diagnosisIsStale, setDiagnosisIsStale] = useState(initialDiagnosisIsStale);
+  const [basesState, setBasesState] = useState<BrandDashboardBasesState>(initialBasesState);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,6 +107,7 @@ export function BrandDiagnosisClient({
       evaluation?: BrandEvaluationRow | null;
       section_keys_with_improvement_after_diagnosis?: string[];
       diagnosis_is_stale?: boolean;
+      bases_state?: BrandDashboardBasesState;
     };
     if (res.ok) {
       setPendingReviewCount(j.pending_review_count ?? 0);
@@ -109,6 +116,9 @@ export function BrandDiagnosisClient({
         j.section_keys_with_improvement_after_diagnosis ?? [],
       );
       setDiagnosisIsStale(Boolean(j.diagnosis_is_stale));
+      if (j.bases_state) {
+        setBasesState(j.bases_state);
+      }
     }
   }, [brandId]);
 
@@ -195,14 +205,18 @@ export function BrandDiagnosisClient({
         ) : null}
 
         {pendingReviewCount > 0 ? (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-            <p className="font-medium text-limbi-text">
-              Revisa primero los hallazgos pendientes antes de generar el diagnóstico.
-            </p>
-            <Button className={cn(limbiPrimaryButtonClass, "mt-3")} asChild>
-              <Link href={`/brands/${brandId}/source-facts`}>Revisar hallazgos</Link>
-            </Button>
-          </div>
+          <BrandPostDiagnosisNextStepCard
+            className="border-amber-500/35 bg-amber-500/10"
+            resolved={resolveBrandPostDiagnosisNextStep({
+              brandId,
+              pendingFactsCount: pendingReviewCount,
+              hasActiveSucceededDiagnosis: Boolean(evaluation),
+              diagnosisIsStale,
+              bases: basesState,
+              offerDiagnosisGenerationCta: false,
+              staleDiagnosisPrimaryIsRegenerate: false,
+            })}
+          />
         ) : generating ? (
           <p className="flex items-center gap-2 text-sm text-limbi-muted">
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -225,6 +239,24 @@ export function BrandDiagnosisClient({
           </div>
         ) : (
           <div className="space-y-8">
+            <BrandPostDiagnosisNextStepCard
+              resolved={resolveBrandPostDiagnosisNextStep({
+                brandId,
+                pendingFactsCount: pendingReviewCount,
+                hasActiveSucceededDiagnosis: true,
+                diagnosisIsStale,
+                bases: basesState,
+                diagnosisHints: {
+                  criticalGapsCount: criticalGaps.length,
+                  nextRecommendedAction: evaluation.next_recommended_action,
+                },
+                offerDiagnosisGenerationCta: false,
+                staleDiagnosisPrimaryIsRegenerate: true,
+              })}
+              onRegenerateDiagnosis={() => void onGenerate()}
+              regenerateBusy={generating}
+            />
+
             <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
               <QualityScoreRing
                 score={evaluation.overall_score ?? 0}
@@ -249,33 +281,6 @@ export function BrandDiagnosisClient({
                 ) : null}
               </div>
             </section>
-
-            {diagnosisIsStale ? (
-              <section className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm">
-                <p className="font-medium text-limbi-text">
-                  Hay información más reciente después de este diagnóstico (respuestas, oferta,
-                  audiencias/territorios, hallazgos de documentos o mejoras aprobadas).
-                </p>
-                <p className="mt-1 text-limbi-muted">
-                  Actualiza la evaluación para reflejar la información más reciente.
-                </p>
-                <Button
-                  type="button"
-                  className={cn(limbiPrimaryButtonClass, "mt-3")}
-                  disabled={generating}
-                  onClick={() => void onGenerate()}
-                >
-                  {generating ? (
-                    <>
-                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-                      Actualizando…
-                    </>
-                  ) : (
-                    "Actualizar diagnóstico"
-                  )}
-                </Button>
-              </section>
-            ) : null}
 
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
@@ -363,9 +368,12 @@ export function BrandDiagnosisClient({
                 <Link href={`/brands/${brandId}`}>Volver a la marca</Link>
               </Button>
               <p className="self-center text-xs text-limbi-muted sm:max-w-md">
-                Para trabajar una sección con el experto Limbi, usá{" "}
-                <span className="font-medium text-limbi-text">Mejorar esta sección</span> en cada
-                tarjeta de arriba.
+                Para trabajar una sección con Limbi, usá{" "}
+                <span className="font-medium text-limbi-text">
+                  Mejorar esta sección con la IA de Limbi
+                </span>{" "}
+                en cada tarjeta de arriba. El bloque “Siguiente paso recomendado” arriba resume cómo
+                consolidar la Base de Marca cuando corresponda.
               </p>
             </div>
           </div>
