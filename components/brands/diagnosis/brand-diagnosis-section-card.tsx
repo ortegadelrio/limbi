@@ -58,6 +58,7 @@ export function BrandDiagnosisSectionCard({
   const title =
     row.section_label?.trim() || brandQuestionnaireSectionLabelEs(row.section_key);
   const canImproveSection = row.section_key !== "material_context";
+  const depthOpportunities = row.depth_opportunities ?? [];
 
   return (
     <div className={cn(limbiDocumentCardClass, "border border-limbi-border p-4 sm:p-5")}>
@@ -84,6 +85,19 @@ export function BrandDiagnosisSectionCard({
               diagnóstico y puede actualizarse al regenerar la evaluación.
             </p>
           ) : null}
+          {row.score >= 70 && row.score < 86 ? (
+            <p className="rounded-lg border border-limbi-border/80 bg-limbi-surface/40 px-3 py-2 text-xs leading-relaxed text-limbi-muted">
+              Hay base suficiente para avanzar. Puedes fortalecer esta sección si quieres mayor
+              precisión.
+            </p>
+          ) : null}
+
+          {row.score < 58 && row.gaps.length > 0 ? (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-limbi-muted">
+              Falta información esencial para evaluar esta sección con seguridad.
+            </p>
+          ) : null}
+
           <p className="text-sm leading-relaxed text-limbi-muted">{row.diagnosis}</p>
 
           {row.strengths.length > 0 ? (
@@ -99,9 +113,23 @@ export function BrandDiagnosisSectionCard({
 
           {row.gaps.length > 0 ? (
             <div className="space-y-1">
-              <p className="text-xs font-medium text-limbi-text">Vacíos</p>
+              <p className="text-xs font-medium text-limbi-text">Vacíos o fragilidades esenciales</p>
               <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
                 {row.gaps.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {depthOpportunities.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-limbi-text">Profundización opcional</p>
+              <p className="text-[11px] leading-relaxed text-limbi-muted">
+                Podrías profundizar esta sección, pero no bloquea el avance.
+              </p>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
+                {depthOpportunities.map((s, i) => (
                   <li key={i}>{s}</li>
                 ))}
               </ul>
@@ -121,7 +149,11 @@ export function BrandDiagnosisSectionCard({
 
           {row.risks.length > 0 ? (
             <div className="space-y-1">
-              <p className="text-xs font-medium text-limbi-text">Riesgos</p>
+              <p className="text-xs font-medium text-limbi-text">Riesgos y límites</p>
+              <p className="text-[11px] leading-relaxed text-limbi-muted">
+                Esto debe tratarse como restricción estratégica o alerta, no como mensaje visible
+                tal cual.
+              </p>
               <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
                 {row.risks.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -140,11 +172,6 @@ export function BrandDiagnosisSectionCard({
               </ul>
             </div>
           ) : null}
-
-          <p className="text-xs text-limbi-muted">
-            Puede apoyar base: {row.can_generate_base ? "sí" : "no"} · Mejorar antes de
-            consolidar: {row.should_improve_before_consolidation ? "sí" : "no"}
-          </p>
 
           {canImproveSection ? (
             <div className="pt-1">

@@ -10,6 +10,9 @@ type TimestampRow = {
 type DiagnosisStalenessInput = {
   evaluation: Pick<BrandEvaluationRow, "created_at"> | null;
   responseRows?: Pick<TimestampRow, "updated_at">[];
+  /** Cualquier cambio en `brand_source_facts` tras el diagnóstico (aprobación, rechazo, edición). */
+  hasSourceFactsUpdatedAfterEvaluation?: boolean;
+  /** @deprecated Preferir hasSourceFactsUpdatedAfterEvaluation; se mantiene por compatibilidad. */
   sourceFactRows?: Pick<TimestampRow, "reviewed_at" | "updated_at">[];
   improvementRows?: Pick<TimestampRow, "approved_at">[];
   /** `brand_offer_profiles.updated_at` (p. ej. cambio de `offer_nature`). */
@@ -35,6 +38,7 @@ export function isAfterEvaluationCreatedAt(
 export function isBrandDiagnosisStale({
   evaluation,
   responseRows = [],
+  hasSourceFactsUpdatedAfterEvaluation = false,
   sourceFactRows = [],
   improvementRows = [],
   offerProfileUpdatedAt,
@@ -45,6 +49,7 @@ export function isBrandDiagnosisStale({
   if (!evaluation) return false;
 
   if (hasStaleOfferItems || hasStaleAudienceTerritories) return true;
+  if (hasSourceFactsUpdatedAfterEvaluation) return true;
   if (isAfterEvaluationCreatedAt(evaluation, offerProfileUpdatedAt ?? undefined)) {
     return true;
   }

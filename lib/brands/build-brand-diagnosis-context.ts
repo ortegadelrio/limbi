@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  BrandAudienceTerritoryRow,
+  BrandAudienceTerritoryType,
+  BrandOfferItemRow,
+  BrandOfferItemType,
   BrandOfferNature,
   BrandRow,
   BrandSectionImprovementRow,
@@ -11,10 +15,39 @@ import type {
 import { fetchAllowedBrandQuestionDefinitions } from "@/lib/questions/fetch-allowed-brand-questions";
 import { groupBrandQuestionDefinitionsBySection } from "@/lib/questions/get-brand-question-definitions";
 
-export const BRAND_DIAGNOSIS_CONTEXT_VERSION = "brand-diagnosis-context-v1.1";
+export const BRAND_DIAGNOSIS_CONTEXT_VERSION = "brand-diagnosis-context-v2.0";
 
 /** Secciones operativas que no entran al diagnóstico estratégico. */
 const EXCLUDED_DIAGNOSIS_SECTIONS = new Set(["material_context"]);
+
+/** Secciones donde el inventario en `brand_offer_items` cuenta como evidencia estructural principal. */
+const SECTION_KEYS_WITH_STRUCTURAL_OFFER_SIGNAL = new Set<string>([
+  "offer",
+  "product",
+  "service",
+  "product_service",
+  "experience_event",
+  "digital_platform",
+  "organization",
+  "personal_brand",
+  "value_proposition",
+]);
+
+/** Sección donde `brand_audience_territories` es fuente canónica de audiencias/territorios. */
+const SECTION_KEYS_WITH_STRUCTURAL_TERRITORY_SIGNAL = new Set<string>(["audiences"]);
+
+export const BRAND_DIAGNOSIS_SCORING_POLICY_V2 = {
+  version: "brand-diagnosis-scoring-v2.0",
+  notes: [
+    "Ponderá principalmente preguntas obligatorias (is_required=true en question_definitions) y datos estructurados esenciales según brand_offer_profile.offer_nature.",
+    "Los arreglos structured_offer_items y structured_audience_territories son fuentes canónicas de inventario de oferta y de territorios/audiencias: no busques esa evidencia principalmente en brand_responses ni en preguntas inactivas.",
+    "brand_offer_profile.offer_nature define la naturaleza de la oferta; no la infieras desde brand_responses.",
+    "Las preguntas opcionales sin respuesta no deben castigar duramente el score ni generar sensación de fracaso: la profundización opcional suma contexto, no bloquea por sí sola.",
+    "Las tensiones, límites, tonos a evitar o formulaciones tipo «no quiero que piensen…» son restricciones o alertas estratégicas: no las conviertas en atributos positivos de posicionamiento.",
+    "En brand_limbic_base, las señales (limbic_emotional_temperature, limbic_energy_movement, limbic_visual_atmosphere, limbic_emotional_colors, limbic_expressive_codes) se interpretan en clave simbólica (atmósfera, ritmo, sensibilidad, energía, personalidad, códigos de expresión), no como claims literales ni copy final.",
+    "Si el score global o por sección ronda 70% o más, comunicá que hay base suficiente para avanzar y que las mejoras son refinamientos, salvo vacíos obligatorios claros o contradicciones fuertes.",
+  ],
+} as const;
 
 export type BrandDiagnosisBrandSnapshot = Pick<
   BrandRow,
@@ -75,6 +108,17 @@ export type BrandDiagnosisApprovedSectionImprovementEntry = {
   remaining_gaps: { gap: string; why_it_matters: string }[];
 };
 
+export type BrandDiagnosisStructuredOfferItemEntry = {
+  item_type: BrandOfferItemType;
+  title: string;
+  description: string | null;
+};
+
+export type BrandDiagnosisStructuredAudienceTerritoryEntry = {
+  territory_type: BrandAudienceTerritoryType;
+  name: string;
+};
+
 export type BrandDiagnosisSectionCoverageEntry = {
   section_key: string;
   required_questions: number;
@@ -92,6 +136,9 @@ export type BrandDiagnosisEvaluationContext = {
   brand_offer_profile: { offer_nature: BrandOfferNature };
   question_definitions: BrandDiagnosisDefinitionEntry[];
   brand_responses: BrandDiagnosisResponseEntry[];
+  structured_offer_items: BrandDiagnosisStructuredOfferItemEntry[];
+  structured_audience_territories: BrandDiagnosisStructuredAudienceTerritoryEntry[];
+  scoring_policy: typeof BRAND_DIAGNOSIS_SCORING_POLICY_V2;
   approved_source_facts: BrandDiagnosisApprovedFactEntry[];
   /** Solo `approved` + `is_active`; no borradores ni superseded. */
   approved_section_improvements: BrandDiagnosisApprovedSectionImprovementEntry[];
@@ -125,11 +172,22 @@ export function strategicSectionKeysFromDefinitions(
     .filter((sk) => !EXCLUDED_DIAGNOSIS_SECTIONS.has(sk));
 }
 
-function buildCoverage(
+/** Solo respuestas ligadas a definiciones activas del catálogo actual (excluye filas huérfanas de catálogos viejos). */
+export function filterBrandResponsesForActiveDefinitions(
+  responses: BrandResponseRow[],
+  definitions: QuestionDefinitionRow[],
+): BrandResponseRow[] {
+  const defIds = new Set(definitions.map((d) => d.id));
+  return responses.filter((r) => defIds.has(r.question_definition_id));
+}
+
+export function buildCoverage(
   definitions: QuestionDefinitionRow[],
   responses: BrandResponseRow[],
   facts: BrandSourceFactRow[],
   strategicSectionKeys: string[],
+  structuredOfferItemCount: number,
+  structuredTerritoryCount: number,
 ): BrandDiagnosisSectionCoverageEntry[] {
   const bySection = new Map<string, QuestionDefinitionRow[]>();
   for (const d of definitions) {
@@ -169,7 +227,16 @@ function buildCoverage(
     const optionalAnswered = countAnswered(optional);
     const approvedFactsCount = factsCountBySection.get(section_key) ?? 0;
     const hasResponseContent = sectionResponses.some((r) => responseHasContent(r));
-    const appears_empty = !hasResponseContent && approvedFactsCount === 0;
+    const hasStructuralOffer =
+      structuredOfferItemCount > 0 && SECTION_KEYS_WITH_STRUCTURAL_OFFER_SIGNAL.has(section_key);
+    const hasStructuralTerritories =
+      structuredTerritoryCount > 0 &&
+      SECTION_KEYS_WITH_STRUCTURAL_TERRITORY_SIGNAL.has(section_key);
+    const appears_empty =
+      !hasResponseContent &&
+      approvedFactsCount === 0 &&
+      !hasStructuralOffer &&
+      !hasStructuralTerritories;
 
     return {
       section_key,
@@ -192,6 +259,8 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
   responses: BrandResponseRow[];
   approvedFactsCount: number;
   approvedSectionImprovements: BrandDiagnosisApprovedSectionImprovementEntry[];
+  structuredOfferItemCount: number;
+  structuredAudienceTerritoryCount: number;
 }): Record<string, unknown> {
   const sanitizedResponses = args.responses.map((r) => ({
     section_key: r.section_key,
@@ -211,6 +280,8 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
         definitions_count: args.definitionsCount,
         responses_meta: sanitizedResponses,
         approved_facts_count: args.approvedFactsCount,
+        structured_offer_item_count: args.structuredOfferItemCount,
+        structured_audience_territory_count: args.structuredAudienceTerritoryCount,
         approved_section_improvements_meta: args.approvedSectionImprovements.map((i) => ({
           improvement_id: i.improvement_id,
           section_key: i.section_key,
@@ -231,6 +302,8 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
     response_count: args.responses.length,
     sensitive_response_count: args.responses.filter((r) => r.is_sensitive).length,
     approved_facts_count: args.approvedFactsCount,
+    structured_offer_item_count: args.structuredOfferItemCount,
+    structured_audience_territory_count: args.structuredAudienceTerritoryCount,
     approved_section_improvements_count: args.approvedSectionImprovements.length,
     responses_meta_hash: inputHash,
   };
@@ -306,20 +379,57 @@ export async function buildBrandDiagnosisEvaluationContext(
   if (respErr) {
     return { ok: false, code: "responses_error", message: respErr.message };
   }
-  const responses = (responseRows ?? []) as BrandResponseRow[];
+  const allResponses = (responseRows ?? []) as BrandResponseRow[];
+  const responses = filterBrandResponsesForActiveDefinitions(allResponses, definitions);
 
-  const { data: factRows, error: factErr } = await supabase
-    .from("brand_source_facts")
-    .select(
-      "id, brand_id, source_type, brand_document_id, brand_document_extraction_id, analysis_batch_id, analysis_run_id, section_key, module_key, question_key, relationship_type, fact_type, source_excerpt, source_reference, source_document_name, supporting_documents, extracted_fact, ai_interpretation, existing_response_summary, proposed_inclusion, user_edited_text, status, rejection_reason, confidence_score, dedupe_fingerprint, sort_order, created_at, updated_at, reviewed_at",
-    )
-    .eq("brand_id", brandId)
-    .eq("status", "approved");
+  const [{ data: factRows, error: factErr }, { data: offerItemRows, error: offerErr }, { data: territoryRows, error: terrErr }] =
+    await Promise.all([
+      supabase
+        .from("brand_source_facts")
+        .select(
+          "id, brand_id, source_type, brand_document_id, brand_document_extraction_id, analysis_batch_id, analysis_run_id, section_key, module_key, question_key, relationship_type, fact_type, source_excerpt, source_reference, source_document_name, supporting_documents, extracted_fact, ai_interpretation, existing_response_summary, proposed_inclusion, user_edited_text, status, rejection_reason, confidence_score, dedupe_fingerprint, sort_order, created_at, updated_at, reviewed_at",
+        )
+        .eq("brand_id", brandId)
+        .eq("status", "approved"),
+      supabase
+        .from("brand_offer_items")
+        .select("item_type, title, description, display_order")
+        .eq("brand_id", brandId)
+        .order("display_order", { ascending: true }),
+      supabase
+        .from("brand_audience_territories")
+        .select("territory_type, name, display_order")
+        .eq("brand_id", brandId)
+        .order("display_order", { ascending: true }),
+    ]);
 
   if (factErr) {
     return { ok: false, code: "facts_error", message: factErr.message };
   }
+  if (offerErr) {
+    return { ok: false, code: "offer_items_error", message: offerErr.message };
+  }
+  if (terrErr) {
+    return { ok: false, code: "territories_error", message: terrErr.message };
+  }
   const approvedFacts = (factRows ?? []) as BrandSourceFactRow[];
+
+  const structuredOfferItems: BrandDiagnosisStructuredOfferItemEntry[] = (offerItemRows ?? []).map(
+    (row) => ({
+      item_type: (row as BrandOfferItemRow).item_type,
+      title: String((row as BrandOfferItemRow).title ?? "").trim(),
+      description: (row as BrandOfferItemRow).description,
+    }),
+  );
+  const structuredTerritories: BrandDiagnosisStructuredAudienceTerritoryEntry[] = (
+    territoryRows ?? []
+  ).map((row) => ({
+    territory_type: (row as BrandAudienceTerritoryRow).territory_type,
+    name: String((row as BrandAudienceTerritoryRow).name ?? "").trim(),
+  }));
+
+  const structuredOfferItemCount = structuredOfferItems.filter((i) => i.title.length > 0).length;
+  const structuredTerritoryCount = structuredTerritories.filter((t) => t.name.length > 0).length;
 
   const defEntries: BrandDiagnosisDefinitionEntry[] = definitions
     .filter((d) => !EXCLUDED_DIAGNOSIS_SECTIONS.has(d.section_key))
@@ -360,7 +470,14 @@ export async function buildBrandDiagnosisEvaluationContext(
       ai_interpretation: f.ai_interpretation,
     }));
 
-  const coverage = buildCoverage(definitions, responses, approvedFacts, strategicSectionKeys);
+  const coverage = buildCoverage(
+    definitions,
+    responses,
+    approvedFacts,
+    strategicSectionKeys,
+    structuredOfferItemCount,
+    structuredTerritoryCount,
+  );
 
   const { data: improvementRows, error: impErr } = await supabase
     .from("brand_section_improvements")
@@ -387,6 +504,9 @@ export async function buildBrandDiagnosisEvaluationContext(
     brand_offer_profile: { offer_nature: offerNature },
     question_definitions: defEntries,
     brand_responses: respEntries,
+    structured_offer_items: structuredOfferItems,
+    structured_audience_territories: structuredTerritories,
+    scoring_policy: BRAND_DIAGNOSIS_SCORING_POLICY_V2,
     approved_source_facts: factEntries,
     approved_section_improvements: approvedSectionImprovementEntries,
     section_coverage_summary: coverage,
@@ -400,6 +520,8 @@ export async function buildBrandDiagnosisEvaluationContext(
     responses,
     approvedFactsCount: factEntries.length,
     approvedSectionImprovements: approvedSectionImprovementEntries,
+    structuredOfferItemCount,
+    structuredAudienceTerritoryCount: structuredTerritoryCount,
   });
 
   return {
@@ -475,14 +597,18 @@ function buildApprovedSectionImprovementEntries(
   return out;
 }
 
-/** Mínimo: respuesta con contenido, fact aprobado, o al menos una mejora de sección aprobada con cambios. */
+/** Mínimo: respuesta con contenido, fact aprobado, mejora aprobada con cambios, o datos estructurados de oferta/territorio con título/nombre. */
 export function hasMinimumInputForDiagnosis(
   responses: BrandResponseRow[],
   approvedFactsCount: number,
   approvedSectionImprovementsWithChanges = 0,
+  opts?: { structuredOfferItemCount?: number; structuredTerritoryCount?: number },
 ): boolean {
+  const offerN = opts?.structuredOfferItemCount ?? 0;
+  const terrN = opts?.structuredTerritoryCount ?? 0;
   if (approvedFactsCount > 0) return true;
   if (approvedSectionImprovementsWithChanges > 0) return true;
+  if (offerN > 0 || terrN > 0) return true;
   return responses.some(
     (r) => !EXCLUDED_DIAGNOSIS_SECTIONS.has(r.section_key) && responseHasContent(r),
   );

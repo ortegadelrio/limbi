@@ -61,12 +61,9 @@ export async function fetchBrandDashboardDiagnosisState(
       .gt("updated_at", activeDiagnosis.created_at),
     supabase
       .from("brand_source_facts")
-      .select("reviewed_at, updated_at")
+      .select("id", { count: "exact", head: true })
       .eq("brand_id", brandId)
-      .eq("status", "approved")
-      .or(
-        `reviewed_at.gt.${activeDiagnosis.created_at},updated_at.gt.${activeDiagnosis.created_at}`,
-      ),
+      .gt("updated_at", activeDiagnosis.created_at),
     supabase
       .from("brand_section_improvements")
       .select("approved_at")
@@ -84,7 +81,7 @@ export async function fetchBrandDashboardDiagnosisState(
   const diagnosisIsStale = isBrandDiagnosisStale({
     evaluation: activeDiagnosis,
     responseRows: responseStaleness.data ?? [],
-    sourceFactRows: sourceFactStaleness.data ?? [],
+    hasSourceFactsUpdatedAfterEvaluation: (sourceFactStaleness.count ?? 0) > 0,
     improvementRows: improvementStaleness.data ?? [],
     offerProfileUpdatedAt: structuralStaleness.offerProfileUpdatedAt ?? null,
     hasStaleOfferItems: structuralStaleness.hasStaleOfferItems,

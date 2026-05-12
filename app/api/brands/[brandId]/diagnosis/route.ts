@@ -6,6 +6,7 @@ import {
 } from "@/lib/api/route-auth";
 import {
   applyServerDiagnosisQualityLevels,
+  applyOptionalEmptinessSectionScoreFloors,
   BRAND_DIAGNOSIS_PROMPT_VERSION,
   brandDiagnosisRawOutputSchema,
   validateBrandDiagnosisAgainstCatalog,
@@ -127,10 +128,9 @@ export async function GET(_request: Request, { params }: Params) {
           .gt("updated_at", evaluation.created_at),
         supabase
           .from("brand_source_facts")
-          .select("reviewed_at, updated_at")
+          .select("id", { count: "exact", head: true })
           .eq("brand_id", brandId)
-          .eq("status", "approved")
-          .or(`reviewed_at.gt.${evaluation.created_at},updated_at.gt.${evaluation.created_at}`),
+          .gt("updated_at", evaluation.created_at),
         fetchStructuralQuestionnaireStaleness(
           supabase,
           brandId,
@@ -142,7 +142,7 @@ export async function GET(_request: Request, { params }: Params) {
   const diagnosis_is_stale = isBrandDiagnosisStale({
     evaluation,
     responseRows: responseStaleness?.data ?? [],
-    sourceFactRows: sourceFactStaleness?.data ?? [],
+    hasSourceFactsUpdatedAfterEvaluation: (sourceFactStaleness?.count ?? 0) > 0,
     improvementRows: improvementBadgeRows ?? [],
     offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
     hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
@@ -198,7 +198,16 @@ export async function POST(_request: Request, { params }: Params) {
 
   const approvedFactsCount = built.approvedFacts.length;
   const approvedImprovementsCount = built.context.approved_section_improvements.length;
-  if (!hasMinimumInputForDiagnosis(built.responses, approvedFactsCount, approvedImprovementsCount)) {
+  if (
+    !hasMinimumInputForDiagnosis(built.responses, approvedFactsCount, approvedImprovementsCount, {
+      structuredOfferItemCount: built.context.structured_offer_items.filter((i) =>
+        i.title.trim(),
+      ).length,
+      structuredTerritoryCount: built.context.structured_audience_territories.filter((t) =>
+        t.name.trim(),
+      ).length,
+    })
+  ) {
     return jsonBadRequest(
       "No hay información suficiente para generar un diagnóstico de marca. Completa primero el cuestionario o aprueba hallazgos de documentos.",
       { code: "insufficient_input", stage: "diagnosis" },
@@ -256,7 +265,11 @@ export async function POST(_request: Request, { params }: Params) {
       throw new Error(`Diagnóstico inválido: ${z.error.message}`);
     }
 
-    const normalized = applyServerDiagnosisQualityLevels(z.data);
+    const coverageBySection = new Map(
+      built.context.section_coverage_summary.map((row) => [row.section_key, row]),
+    );
+    const floored = applyOptionalEmptinessSectionScoreFloors(z.data, coverageBySection);
+    const normalized = applyServerDiagnosisQualityLevels(floored);
     const reordered = reorderSectionScores(
       normalized.section_scores,
       built.strategicSectionKeys,

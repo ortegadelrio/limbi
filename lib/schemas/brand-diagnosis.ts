@@ -1,6 +1,7 @@
 import { z } from "zod";
+import type { BrandDiagnosisSectionCoverageEntry } from "@/lib/brands/build-brand-diagnosis-context";
 
-export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v1.4";
+export const BRAND_DIAGNOSIS_PROMPT_VERSION = "brand-diagnosis-v2.0";
 
 export const brandDiagnosisQualityLevelSchema = z.enum([
   "critical",
@@ -28,6 +29,8 @@ export const brandDiagnosisSectionScoreSchema = z.object({
   diagnosis: z.string().min(1).max(6000),
   strengths: shortStringList,
   gaps: shortStringList,
+  /** Opcionales sin responder o mayor profundidad; no castigan por sí solos el score. */
+  depth_opportunities: z.array(z.string().max(800)).max(12).optional().default([]),
   contradictions: shortStringList,
   risks: shortStringList,
   recommendations: shortStringList,
@@ -113,6 +116,10 @@ export function applyServerDiagnosisQualityLevels(
       diagnosis:
         row.score >= 70 ? softenBlockingLanguageInText(row.diagnosis) : row.diagnosis,
       gaps: row.score >= 70 ? row.gaps.map(softenBlockingLanguageInText) : row.gaps,
+      depth_opportunities:
+        row.score >= 70
+          ? row.depth_opportunities.map(softenBlockingLanguageInText)
+          : row.depth_opportunities,
       risks: row.score >= 70 ? row.risks.map(softenBlockingLanguageInText) : row.risks,
       recommendations:
         row.score >= 70
@@ -248,4 +255,27 @@ export function validateBrandDiagnosisAgainstCatalog(
   }
 
   return { ok: true };
+}
+
+/**
+ * Evita que el score por sección quede artificialmente bajo solo por opcionales vacíos
+ * cuando todas las obligatorias tienen contenido y no hay contradicciones en la sección.
+ */
+export function applyOptionalEmptinessSectionScoreFloors(
+  parsed: BrandDiagnosisRawOutputParsed,
+  coverageBySection: Map<string, BrandDiagnosisSectionCoverageEntry>,
+): BrandDiagnosisRawOutputParsed {
+  const section_scores = parsed.section_scores.map((row) => {
+    const c = coverageBySection.get(row.section_key);
+    if (!c || c.required_questions === 0) return row;
+    if (c.required_answered < c.required_questions) return row;
+    if (row.contradictions.length > 0) return row;
+    const hasUnansweredOptional =
+      c.optional_questions > 0 && c.optional_answered < c.optional_questions;
+    if (!hasUnansweredOptional) return row;
+    const floor = 56;
+    if (row.score >= floor) return row;
+    return { ...row, score: floor };
+  });
+  return { ...parsed, section_scores };
 }

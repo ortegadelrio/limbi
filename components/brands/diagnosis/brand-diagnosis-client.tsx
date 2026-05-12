@@ -253,7 +253,8 @@ export function BrandDiagnosisClient({
             {diagnosisIsStale ? (
               <section className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm">
                 <p className="font-medium text-limbi-text">
-                  Hay cambios aprobados o respuestas nuevas después de este diagnóstico.
+                  Hay información más reciente después de este diagnóstico (respuestas, oferta,
+                  audiencias/territorios, hallazgos de documentos o mejoras aprobadas).
                 </p>
                 <p className="mt-1 text-limbi-muted">
                   Actualiza la evaluación para reflejar la información más reciente.

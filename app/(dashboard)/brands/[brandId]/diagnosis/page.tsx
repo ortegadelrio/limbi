@@ -76,12 +76,9 @@ export default async function BrandDiagnosisPage({ params }: Props) {
           .gt("updated_at", activeEvaluation.created_at),
         supabase
           .from("brand_source_facts")
-          .select("reviewed_at, updated_at")
+          .select("id", { count: "exact", head: true })
           .eq("brand_id", brandId)
-          .eq("status", "approved")
-          .or(
-            `reviewed_at.gt.${activeEvaluation.created_at},updated_at.gt.${activeEvaluation.created_at}`,
-          ),
+          .gt("updated_at", activeEvaluation.created_at),
         fetchStructuralQuestionnaireStaleness(
           supabase,
           brandId,
@@ -93,7 +90,7 @@ export default async function BrandDiagnosisPage({ params }: Props) {
   const diagnosisIsStale = isBrandDiagnosisStale({
     evaluation: activeEvaluation,
     responseRows: responseStaleness?.data ?? [],
-    sourceFactRows: sourceFactStaleness?.data ?? [],
+    hasSourceFactsUpdatedAfterEvaluation: (sourceFactStaleness?.count ?? 0) > 0,
     improvementRows: improvementBadgeRows ?? [],
     offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
     hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
