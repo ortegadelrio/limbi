@@ -24,5 +24,16 @@ export default async function BrandSourceFactsPage({ params }: Props) {
   }
   if (!brand) notFound();
 
-  return <BrandSourceFactsClient brandId={brandId} brandName={brand.name} />;
+  const { count: anySourceFactsCount } = await supabase
+    .from("brand_source_facts")
+    .select("id", { count: "exact", head: true })
+    .eq("brand_id", brandId);
+
+  return (
+    <BrandSourceFactsClient
+      brandId={brandId}
+      brandName={brand.name}
+      hasAnySourceFacts={(anySourceFactsCount ?? 0) > 0}
+    />
+  );
 }

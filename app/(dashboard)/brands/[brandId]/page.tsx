@@ -8,10 +8,7 @@ import {
   limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
-import {
-  fetchStructuralQuestionnaireStaleness,
-  isBrandDiagnosisStale,
-} from "@/lib/brands/brand-diagnosis-staleness";
+import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -78,65 +75,41 @@ export default async function BrandDetailPage({ params }: Props) {
   }
   const pendingForReading = docStats.uploaded + docStats.pending;
 
-  const { count: pendingFactsCount } = await supabase
-    .from("brand_source_facts")
-    .select("id", { count: "exact", head: true })
-    .eq("brand_id", brandId)
-    .eq("status", "pending_review");
-
-  const { data: activeDiagnosis } = await supabase
-    .from("brand_evaluations")
-    .select("id, created_at")
-    .eq("brand_id", brandId)
-    .eq("is_active", true)
-    .eq("status", "succeeded")
-    .maybeSingle();
-
-  const [responseStaleness, sourceFactStaleness, improvementStaleness, structuralStaleness] =
-    activeDiagnosis
-      ? await Promise.all([
-          supabase
-            .from("brand_responses")
-            .select("updated_at")
-            .eq("brand_id", brandId)
-            .gt("updated_at", activeDiagnosis.created_at),
-          supabase
-            .from("brand_source_facts")
-            .select("reviewed_at, updated_at")
-            .eq("brand_id", brandId)
-            .eq("status", "approved")
-            .or(
-              `reviewed_at.gt.${activeDiagnosis.created_at},updated_at.gt.${activeDiagnosis.created_at}`,
-            ),
-          supabase
-            .from("brand_section_improvements")
-            .select("approved_at")
-            .eq("brand_id", brandId)
-            .eq("status", "approved")
-            .eq("is_active", true)
-            .gt("approved_at", activeDiagnosis.created_at),
-          fetchStructuralQuestionnaireStaleness(
-            supabase,
-            brandId,
-            activeDiagnosis.created_at,
-          ),
-        ])
-      : [null, null, null, null];
+  const diagnosisState = await fetchBrandDashboardDiagnosisState(supabase, brandId);
+  const pendingFacts = diagnosisState.pendingFactsCount;
+  const hasActiveDiagnosis = diagnosisState.hasActiveDiagnosis;
+  const diagnosisIsStale = diagnosisState.diagnosisIsStale;
 
   const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
+  const documentsHref = `/brands/${brandId}/documents`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
-  const pendingFacts = pendingFactsCount ?? 0;
-  const hasActiveDiagnosis = Boolean(activeDiagnosis);
-  const diagnosisIsStale = isBrandDiagnosisStale({
-    evaluation: activeDiagnosis,
-    responseRows: responseStaleness?.data ?? [],
-    sourceFactRows: sourceFactStaleness?.data ?? [],
-    improvementRows: improvementStaleness?.data ?? [],
-    offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
-    hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
-    hasStaleAudienceTerritories: structuralStaleness?.hasStaleAudienceTerritories ?? false,
-    brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
-  });
+  const sourceFactsHref = `/brands/${brandId}/source-facts`;
+
+  const nextStepTitle = "Siguiente paso recomendado";
+  let nextStepBody = "";
+  let nextStepPrimaryHref = diagnosisHref;
+  let nextStepPrimaryLabel = "Ver diagnóstico";
+
+  if (pendingFacts > 0) {
+    nextStepBody =
+      "Hay información sugerida por documentos que debes aprobar, editar o descartar antes de generar el diagnóstico.";
+    nextStepPrimaryHref = sourceFactsHref;
+    nextStepPrimaryLabel = "Revisar hallazgos pendientes";
+  } else if (!hasActiveDiagnosis) {
+    nextStepBody =
+      "La marca ya tiene información suficiente para generar una primera evaluación estratégica.";
+    nextStepPrimaryHref = diagnosisHref;
+    nextStepPrimaryLabel = "Generar diagnóstico";
+  } else if (diagnosisIsStale) {
+    nextStepBody =
+      "Hay cambios recientes en la información de la marca. Actualiza la evaluación para reflejar la versión más nueva.";
+    nextStepPrimaryHref = diagnosisHref;
+    nextStepPrimaryLabel = "Actualizar diagnóstico";
+  } else {
+    nextStepBody = "Tu diagnóstico está actualizado con la información aprobada.";
+    nextStepPrimaryHref = diagnosisHref;
+    nextStepPrimaryLabel = "Ver diagnóstico";
+  }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
@@ -147,7 +120,7 @@ export default async function BrandDetailPage({ params }: Props) {
         </Link>
       </Button>
 
-      <div className={cn(limbiDocumentCardClass, "space-y-4 p-6 sm:p-8")}>
+      <div className={cn(limbiDocumentCardClass, "space-y-6 p-6 sm:p-8")}>
         <header className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-limbi-muted">
             Marca
@@ -200,12 +173,23 @@ export default async function BrandDetailPage({ params }: Props) {
         <div
           className={cn(
             limbiDocumentCardClass,
+            "space-y-3 border border-limbi-border bg-limbi-bg-soft/40 p-4 sm:p-5",
+          )}
+        >
+          <h2 className="text-sm font-semibold text-limbi-text">{nextStepTitle}</h2>
+          <p className="text-sm leading-relaxed text-limbi-muted">{nextStepBody}</p>
+          <Button className={limbiPrimaryButtonClass} asChild>
+            <Link href={nextStepPrimaryHref}>{nextStepPrimaryLabel}</Link>
+          </Button>
+        </div>
+
+        <div
+          className={cn(
+            limbiDocumentCardClass,
             "space-y-3 border border-limbi-border p-4 sm:p-5",
           )}
         >
-          <h2 className="text-sm font-semibold text-limbi-text">
-            Material de contexto
-          </h2>
+          <h2 className="text-sm font-semibold text-limbi-text">Material de contexto</h2>
           {docStats.total === 0 ? (
             <p className="text-sm text-limbi-muted">
               Aún no has subido documentos de marca.
@@ -244,9 +228,14 @@ export default async function BrandDetailPage({ params }: Props) {
                 .join(" · ")}
             </p>
           )}
-          <Button className={limbiPrimaryButtonClass} asChild>
-            <Link href={materialQuestionnaireHref}>Subir material de contexto</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button className={limbiOutlineButtonClass} variant="outline" asChild>
+              <Link href={documentsHref}>Gestionar documentos</Link>
+            </Button>
+            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+              <Link href={materialQuestionnaireHref}>Material en cuestionario</Link>
+            </Button>
+          </div>
         </div>
 
         <div
@@ -257,48 +246,50 @@ export default async function BrandDetailPage({ params }: Props) {
         >
           <h2 className="text-sm font-semibold text-limbi-text">Diagnóstico de marca</h2>
           {pendingFacts > 0 ? (
-            <>
-              <p className="text-sm text-limbi-muted">
-                Hay hallazgos pendientes de revisión. Debes resolverlos antes de generar el
-                diagnóstico.
-              </p>
-              <Button className={limbiOutlineButtonClass} variant="outline" asChild>
-                <Link href={`/brands/${brandId}/source-facts`}>Revisar hallazgos pendientes</Link>
-              </Button>
-            </>
+            <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
+              Hay hallazgos de documentos pendientes de revisión. Resuélvelos antes de
+              generar o actualizar el diagnóstico.
+            </p>
           ) : (
-            <>
-              {diagnosisIsStale ? (
-                <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-limbi-text">
-                  El diagnóstico puede estar desactualizado.
-                </p>
-              ) : null}
-              <Button className={limbiPrimaryButtonClass} asChild>
-                <Link href={diagnosisHref}>
-                  {diagnosisIsStale
-                    ? "Actualizar diagnóstico"
-                    : hasActiveDiagnosis
-                      ? "Ver diagnóstico de marca"
-                      : "Generar diagnóstico de marca"}
-                </Link>
-              </Button>
-            </>
+            <p className="text-sm text-limbi-muted">Hallazgos de documentos revisados.</p>
           )}
+          {hasActiveDiagnosis && diagnosisIsStale ? (
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
+              El diagnóstico puede estar desactualizado.
+            </p>
+          ) : null}
+          {hasActiveDiagnosis && !diagnosisIsStale && pendingFacts === 0 ? (
+            <p className="text-sm text-limbi-muted">
+              Tu evaluación activa refleja la información aprobada hasta ahora.
+            </p>
+          ) : null}
+          {!hasActiveDiagnosis && pendingFacts === 0 ? (
+            <p className="text-sm text-limbi-muted">
+              Aún no hay un diagnóstico generado para esta marca.
+            </p>
+          ) : null}
+          <Button variant="outline" className={limbiOutlineButtonClass} asChild>
+            <Link href={diagnosisHref}>Ir a diagnóstico</Link>
+          </Button>
         </div>
 
-        <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <Button className={limbiPrimaryButtonClass} asChild>
-            <Link href={`/brands/${brandId}/questionnaire`}>
-              Completar cuestionario de marca
-            </Link>
-          </Button>
-          <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-            <Link href={`/brands/${brandId}/documents`}>Gestionar documentos</Link>
-          </Button>
-          <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-            <Link href={`/brands/${brandId}/source-facts`}>Hallazgos de documentos</Link>
-          </Button>
+        <div className="space-y-2 border-t border-limbi-border pt-4">
+          <p className="text-xs font-medium uppercase tracking-[0.12em] text-limbi-muted">
+            Más acciones
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+              <Link href={`/brands/${brandId}/questionnaire`}>Completar cuestionario</Link>
+            </Button>
+            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+              <Link href={documentsHref}>Gestionar documentos</Link>
+            </Button>
+            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
+              <Link href={sourceFactsHref}>Ver hallazgos de documentos</Link>
+            </Button>
+          </div>
         </div>
+
         <p className="text-xs text-limbi-muted">
           Las bases activas de marca y la generación desde ellas llegarán en tickets posteriores.
         </p>

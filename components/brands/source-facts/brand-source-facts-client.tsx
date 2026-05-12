@@ -20,15 +20,55 @@ import type { BrandSourceFactRow } from "@/types/database";
 type Props = {
   brandId: string;
   brandName: string;
+  /** True si existe al menos un hallazgo en BD (cualquier estado), para distinguir cierre de revisión vs. bandeja vacía inicial. */
+  hasAnySourceFacts: boolean;
 };
 
-export function BrandSourceFactsClient({ brandId, brandName }: Props) {
+type DiagnosisSummary = {
+  hasEvaluation: boolean;
+  diagnosisIsStale: boolean;
+};
+
+async function fetchDiagnosisSummary(brandId: string): Promise<DiagnosisSummary | null> {
+  const res = await fetch(`/api/brands/${brandId}/diagnosis`, { credentials: "include" });
+  const j = (await res.json().catch(() => ({}))) as {
+    evaluation?: unknown;
+    diagnosis_is_stale?: boolean;
+    pending_review_count?: number;
+    error?: string;
+  };
+  if (!res.ok) {
+    return null;
+  }
+  return {
+    hasEvaluation: Boolean(j.evaluation),
+    diagnosisIsStale: Boolean(j.diagnosis_is_stale),
+  };
+}
+
+export function BrandSourceFactsClient({
+  brandId,
+  brandName,
+  hasAnySourceFacts,
+}: Props) {
   const [facts, setFacts] = useState<BrandSourceFactRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [diagnosisSummary, setDiagnosisSummary] = useState<DiagnosisSummary | null>(null);
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
+
+  const refreshDiagnosisSummary = useCallback(async () => {
+    setDiagnosisLoading(true);
+    try {
+      const s = await fetchDiagnosisSummary(brandId);
+      setDiagnosisSummary(s);
+    } finally {
+      setDiagnosisLoading(false);
+    }
+  }, [brandId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,6 +96,12 @@ export function BrandSourceFactsClient({ brandId, brandName }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!loading && facts.length === 0 && hasAnySourceFacts) {
+      void refreshDiagnosisSummary();
+    }
+  }, [loading, facts.length, hasAnySourceFacts, refreshDiagnosisSummary]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, BrandSourceFactRow[]>();
@@ -98,6 +144,9 @@ export function BrandSourceFactsClient({ brandId, brandName }: Props) {
     }
   }
 
+  const diagnosisHref = `/brands/${brandId}/diagnosis`;
+  const brandHref = `/brands/${brandId}`;
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
       <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
@@ -130,16 +179,70 @@ export function BrandSourceFactsClient({ brandId, brandName }: Props) {
           </p>
         ) : null}
 
-        {!loading && facts.length === 0 ? (
+        {!loading && facts.length === 0 && !hasAnySourceFacts ? (
           <p className="text-sm text-limbi-muted">
             No hay hallazgos pendientes de revisión. Cuando analices documentos desde
             Material de contexto, aparecerán aquí.
           </p>
         ) : null}
 
-        <div className="space-y-10">
-          {grouped.map(({ section_key, items }) => (
-            <section key={section_key} className="space-y-4">
+        {!loading && facts.length === 0 && hasAnySourceFacts ? (
+          <div
+            className={cn(
+              limbiDocumentCardClass,
+              "space-y-4 border border-limbi-border bg-limbi-bg-soft/30 p-4 sm:p-5",
+            )}
+          >
+            <div className="space-y-1">
+              <p className="text-base font-semibold text-limbi-text">
+                Todos los hallazgos fueron revisados
+              </p>
+              <p className="text-sm leading-relaxed text-limbi-muted">
+                Ya resolviste la información sugerida por los documentos. Ahora puedes
+                generar o actualizar el diagnóstico de marca.
+              </p>
+            </div>
+            {diagnosisLoading ? (
+              <p className="flex items-center gap-2 text-sm text-limbi-muted">
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Cargando estado del diagnóstico…
+              </p>
+            ) : diagnosisSummary ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <Button className={limbiPrimaryButtonClass} asChild>
+                  <Link href={diagnosisHref}>
+                    {!diagnosisSummary.hasEvaluation
+                      ? "Generar diagnóstico"
+                      : diagnosisSummary.diagnosisIsStale
+                        ? "Actualizar diagnóstico"
+                        : "Ver diagnóstico"}
+                  </Link>
+                </Button>
+                <Button variant="outline" className={limbiOutlineButtonClass} asChild>
+                  <Link href={brandHref}>Volver a la marca</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-limbi-muted">
+                  No se pudo cargar el estado del diagnóstico. Puedes abrir la página de
+                  diagnóstico manualmente.
+                </p>
+                <Button className={limbiPrimaryButtonClass} asChild>
+                  <Link href={diagnosisHref}>Ir al diagnóstico</Link>
+                </Button>
+                <Button variant="outline" className={limbiOutlineButtonClass} asChild>
+                  <Link href={brandHref}>Volver a la marca</Link>
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {facts.length > 0 ? (
+          <div className="space-y-10">
+            {grouped.map(({ section_key, items }) => (
+              <section key={section_key} className="space-y-4">
               <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
                 {brandQuestionnaireSectionLabelEs(section_key)}
               </h2>
@@ -282,9 +385,10 @@ export function BrandSourceFactsClient({ brandId, brandName }: Props) {
                   </li>
                 ))}
               </ul>
-            </section>
-          ))}
-        </div>
+              </section>
+            ))}
+          </div>
+        ) : null}
 
         {!loading && facts.length > 0 ? (
           <p className="border-t border-limbi-border pt-4 text-xs text-limbi-muted">
