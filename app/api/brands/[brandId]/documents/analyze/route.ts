@@ -17,6 +17,7 @@ import {
   BRAND_DOCUMENT_ANALYSIS_MAX_FINDINGS_TOTAL,
 } from "@/lib/brands/brand-document-analysis-limits";
 import { getApprovedBrandSourceFacts } from "@/lib/brands/get-approved-brand-source-facts";
+import { findingDuplicatesStructuredBrandContext } from "@/lib/brands/brand-document-finding-dedupe-context";
 import { buildBrandSourceFactFingerprint } from "@/lib/brands/brand-source-facts-dedupe";
 import { buildBrandDocumentAnalysisSystemInstructions } from "@/lib/prompts/brand-document-analysis";
 import { generateBrandDocumentAnalysisJson } from "@/lib/openai/brand-document-analysis";
@@ -192,6 +193,36 @@ export async function POST(_request: Request, { params }: Params) {
   if (afErr) {
     return NextResponse.json({ error: afErr.message }, { status: 500 });
   }
+
+  const [{ data: offerItemsRows }, { data: territoryRows }] = await Promise.all([
+    supabase
+      .from("brand_offer_items")
+      .select("item_type, title, description")
+      .eq("brand_id", brandId)
+      .order("display_order", { ascending: true }),
+    supabase
+      .from("brand_audience_territories")
+      .select("territory_type, name")
+      .eq("brand_id", brandId)
+      .order("display_order", { ascending: true }),
+  ]);
+
+  const structuredOfferItems = (offerItemsRows ?? []).map((r) => {
+    const row = r as { item_type: string; title: string; description: string | null };
+    return {
+      item_type: row.item_type,
+      title: row.title,
+      description: row.description,
+    };
+  });
+
+  const structuredTerritories = (territoryRows ?? []).map((r) => {
+    const row = r as { territory_type: string; name: string };
+    return {
+      territory_type: row.territory_type,
+      name: row.name,
+    };
+  });
 
   const { data: fpRows, error: fpErr } = await supabase
     .from("brand_source_facts")
@@ -413,6 +444,8 @@ export async function POST(_request: Request, { params }: Params) {
       documentText: docText,
       definitions,
       responses: responseRows,
+      structuredOfferItems,
+      structuredTerritories,
       approvedFactSummaries: approvedFacts.map((f) => ({
         section_key: f.section_key,
         proposed_inclusion: f.proposed_inclusion,
@@ -555,7 +588,12 @@ export async function POST(_request: Request, { params }: Params) {
       const findingsFromModel = guardrailed;
 
       const findings = findingsFromModel.filter(
-        (f) => !findingDuplicatesBrandResponse(f, responseRows),
+        (f) =>
+          !findingDuplicatesBrandResponse(f, responseRows) &&
+          !findingDuplicatesStructuredBrandContext(f, {
+            offerItems: structuredOfferItems,
+            territories: structuredTerritories,
+          }),
       );
 
       const capped = filterAndCapFindings({

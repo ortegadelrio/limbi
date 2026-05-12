@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BRAND_DOCUMENT_ANALYSIS_PROMPT_VERSION = "brand-document-analysis-v1.4";
+export const BRAND_DOCUMENT_ANALYSIS_PROMPT_VERSION = "brand-document-analysis-v2.0";
 
 /** Código estable para fallos de parseo/validación de la salida IA (UI y logs). */
 export const BRAND_DOCUMENT_ANALYSIS_AI_OUTPUT_STRUCTURE_CODE =
