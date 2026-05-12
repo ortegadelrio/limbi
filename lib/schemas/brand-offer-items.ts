@@ -25,7 +25,10 @@ export const putBrandOfferItemsBodySchema = z
         .object({
           id: z.string().uuid().optional(),
           item_type: itemTypeSchema,
-          title: z.string().trim().min(1).max(200),
+          title: z
+            .string()
+            .max(200)
+            .transform((s) => s.trim()),
           description: z
             .string()
             .trim()

@@ -5,6 +5,7 @@ import {
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
 import { putBrandAudienceTerritoriesBodySchema } from "@/lib/schemas/brand-audience-territories";
+import { touchBrandRowUpdatedAtForQuestionnaireStructure } from "@/lib/brands/touch-brand-questionnaire-structure";
 import type { BrandAudienceTerritoryRow } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string }> };
@@ -93,6 +94,13 @@ export async function PUT(request: Request, { params }: Params) {
 
   const { territories } = parsed.data;
 
+  const persistedTerritories = territories
+    .filter((t) => t.name.length > 0)
+    .map((t, idx) => ({
+      ...t,
+      display_order: idx,
+    }));
+
   const { error: delError } = await supabase
     .from("brand_audience_territories")
     .delete()
@@ -102,14 +110,21 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json({ error: delError.message }, { status: 500 });
   }
 
-  if (territories.length === 0) {
+  if (persistedTerritories.length === 0) {
+    const touch = await touchBrandRowUpdatedAtForQuestionnaireStructure(
+      supabase,
+      brandId,
+    );
+    if (!touch.ok) {
+      return NextResponse.json({ error: touch.message }, { status: 500 });
+    }
     return NextResponse.json({
       ok: true,
       territories: [] as BrandAudienceTerritoryRow[],
     });
   }
 
-  const rows = territories.map((t) => ({
+  const rows = persistedTerritories.map((t) => ({
     brand_id: brandId,
     territory_type: t.territory_type,
     name: t.name.trim(),
@@ -125,6 +140,14 @@ export async function PUT(request: Request, { params }: Params) {
 
   if (insError) {
     return NextResponse.json({ error: insError.message }, { status: 500 });
+  }
+
+  const touch = await touchBrandRowUpdatedAtForQuestionnaireStructure(
+    supabase,
+    brandId,
+  );
+  if (!touch.ok) {
+    return NextResponse.json({ error: touch.message }, { status: 500 });
   }
 
   return NextResponse.json({

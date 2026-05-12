@@ -9,8 +9,9 @@ const multiChoiceSchema = z
     other_text: z.string().optional(),
   })
   .transform((o) => {
+    const hasOther = o.values.includes("other");
     const trimmed = o.other_text?.trim();
-    if (trimmed && trimmed.length > 0) {
+    if (hasOther && trimmed && trimmed.length > 0) {
       return { values: o.values, other_text: trimmed };
     }
     return { values: o.values };

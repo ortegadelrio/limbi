@@ -5,6 +5,7 @@ import {
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
 import { putBrandOfferItemsBodySchema } from "@/lib/schemas/brand-offer-items";
+import { touchBrandRowUpdatedAtForQuestionnaireStructure } from "@/lib/brands/touch-brand-questionnaire-structure";
 import type { BrandOfferItemRow, BrandOfferNature } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string }> };
@@ -108,6 +109,13 @@ export async function PUT(request: Request, { params }: Params) {
 
   const { items } = parsed.data;
 
+  const persistedItems = items
+    .filter((it) => it.title.length > 0)
+    .map((it, idx) => ({
+      ...it,
+      display_order: idx,
+    }));
+
   const { error: delError } = await supabase
     .from("brand_offer_items")
     .delete()
@@ -117,11 +125,18 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json({ error: delError.message }, { status: 500 });
   }
 
-  if (items.length === 0) {
+  if (persistedItems.length === 0) {
+    const touch = await touchBrandRowUpdatedAtForQuestionnaireStructure(
+      supabase,
+      brandId,
+    );
+    if (!touch.ok) {
+      return NextResponse.json({ error: touch.message }, { status: 500 });
+    }
     return NextResponse.json({ ok: true, items: [] as BrandOfferItemRow[] });
   }
 
-  const rows = items.map((it) => ({
+  const rows = persistedItems.map((it) => ({
     brand_id: brandId,
     offer_nature: offerNature,
     item_type: it.item_type,
@@ -139,6 +154,14 @@ export async function PUT(request: Request, { params }: Params) {
 
   if (insError) {
     return NextResponse.json({ error: insError.message }, { status: 500 });
+  }
+
+  const touch = await touchBrandRowUpdatedAtForQuestionnaireStructure(
+    supabase,
+    brandId,
+  );
+  if (!touch.ok) {
+    return NextResponse.json({ error: touch.message }, { status: 500 });
   }
 
   return NextResponse.json({

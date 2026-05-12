@@ -17,7 +17,10 @@ export const putBrandAudienceTerritoriesBodySchema = z
         .object({
           id: z.string().uuid().optional(),
           territory_type: territoryTypeSchema,
-          name: z.string().trim().min(1).max(200),
+          name: z
+            .string()
+            .max(200)
+            .transform((s) => s.trim()),
           display_order: z.number().int().min(0),
         })
         .strict(),

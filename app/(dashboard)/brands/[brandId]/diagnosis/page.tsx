@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { BrandDiagnosisClient } from "@/components/brands/diagnosis/brand-diagnosis-client";
-import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
+import {
+  fetchStructuralQuestionnaireStaleness,
+  isBrandDiagnosisStale,
+} from "@/lib/brands/brand-diagnosis-staleness";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import type { BrandEvaluationRow } from "@/types/database";
 
@@ -64,7 +67,7 @@ export default async function BrandDiagnosisPage({ params }: Props) {
       (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
     );
 
-  const [responseStaleness, sourceFactStaleness] = activeEvaluation
+  const [responseStaleness, sourceFactStaleness, structuralStaleness] = activeEvaluation
     ? await Promise.all([
         supabase
           .from("brand_responses")
@@ -79,14 +82,23 @@ export default async function BrandDiagnosisPage({ params }: Props) {
           .or(
             `reviewed_at.gt.${activeEvaluation.created_at},updated_at.gt.${activeEvaluation.created_at}`,
           ),
+        fetchStructuralQuestionnaireStaleness(
+          supabase,
+          brandId,
+          activeEvaluation.created_at,
+        ),
       ])
-    : [null, null];
+    : [null, null, null];
 
   const diagnosisIsStale = isBrandDiagnosisStale({
     evaluation: activeEvaluation,
     responseRows: responseStaleness?.data ?? [],
     sourceFactRows: sourceFactStaleness?.data ?? [],
     improvementRows: improvementBadgeRows ?? [],
+    offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
+    hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
+    hasStaleAudienceTerritories: structuralStaleness?.hasStaleAudienceTerritories ?? false,
+    brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
   });
 
   return (

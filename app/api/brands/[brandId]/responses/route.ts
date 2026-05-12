@@ -5,7 +5,12 @@ import {
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
 import { answerTextFromValidatedValue } from "@/lib/brand-answers/answer-text-from-value";
+import {
+  parseBrandAnswer,
+  serializeBrandAnswer,
+} from "@/lib/brand-answers/serialize-parse";
 import { validateAnswerValueForType } from "@/lib/brand-answers/validate-answer-value";
+import { validateExclusiveMultiChoiceAnswer } from "@/lib/brands/exclusive-multi-choice";
 import { fetchAllowedBrandQuestionDefinitions } from "@/lib/questions/fetch-allowed-brand-questions";
 import { patchBrandResponsesBodySchema } from "@/lib/schemas/brand-responses";
 import type {
@@ -181,7 +186,36 @@ export async function PATCH(request: Request, { params }: Params) {
       );
     }
 
-    const answer_text = answerTextFromValidatedValue(validated.value);
+    if (answerType === "multi_choice" && "values" in validated.value) {
+      const exclusiveCheck = validateExclusiveMultiChoiceAnswer(
+        def.options ?? [],
+        validated.value.values,
+      );
+      if (!exclusiveCheck.ok) {
+        return jsonBadRequest(`${def.question_key}: ${exclusiveCheck.message}`);
+      }
+    }
+
+    let answer_value: unknown = validated.value;
+    let answer_text: string | null;
+
+    if (
+      answerType === "multi_choice" ||
+      answerType === "single_choice" ||
+      answerType === "text" ||
+      answerType === "textarea" ||
+      answerType === "url"
+    ) {
+      const draft = parseBrandAnswer(answerType, validated.value);
+      const serialized = serializeBrandAnswer(answerType, draft, def.options);
+      if ("error" in serialized) {
+        return jsonBadRequest(`${def.question_key}: ${serialized.error}`);
+      }
+      answer_value = serialized.answer_value;
+      answer_text = serialized.answer_text;
+    } else {
+      answer_text = answerTextFromValidatedValue(validated.value);
+    }
 
     upsertRows.push({
       brand_id: brandId,
@@ -189,7 +223,7 @@ export async function PATCH(request: Request, { params }: Params) {
       section_key: def.section_key,
       module_key: def.module_key,
       question_key: def.question_key,
-      answer_value: validated.value,
+      answer_value,
       answer_text,
       answer_type: def.answer_type,
       is_required: def.is_required,

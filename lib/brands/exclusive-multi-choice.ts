@@ -29,3 +29,34 @@ export function applyExclusiveMultiChoiceRules(
   if (!next.includes(toggledValue)) next.push(toggledValue);
   return next;
 }
+
+/**
+ * Valida que no queden combinaciones imposibles (p. ej. “todas las edades” + un rango).
+ * El cliente aplica reglas `exclusive`; el servidor refuerza consistencia.
+ */
+export function validateExclusiveMultiChoiceAnswer(
+  options: QuestionOption[],
+  values: string[],
+): { ok: true } | { ok: false; message: string } {
+  if (values.length === 0) return { ok: true };
+
+  const exclusiveSelected = values.filter((v) =>
+    options.some((o) => o.value === v && o.exclusive),
+  );
+
+  if (exclusiveSelected.length > 1) {
+    return {
+      ok: false,
+      message: "No pueden combinarse varias opciones exclusivas.",
+    };
+  }
+
+  if (exclusiveSelected.length === 1 && values.length > 1) {
+    return {
+      ok: false,
+      message: "Esta opción no puede combinarse con otras seleccionadas.",
+    };
+  }
+
+  return { ok: true };
+}

@@ -117,7 +117,7 @@ export function serializeBrandAnswer(
 
     let answer_text = labelsForOptionValues(draft.values, options);
     if (includeOtherText) {
-      const suffix = ` · Otro: ${trimmedOther}`;
+      const suffix = `, Otro: ${trimmedOther}`;
       answer_text = answer_text ? `${answer_text}${suffix}` : `Otro: ${trimmedOther}`;
     }
     return {

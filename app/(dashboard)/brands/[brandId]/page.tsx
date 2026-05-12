@@ -8,7 +8,10 @@ import {
   limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
-import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
+import {
+  fetchStructuralQuestionnaireStaleness,
+  isBrandDiagnosisStale,
+} from "@/lib/brands/brand-diagnosis-staleness";
 import { cn } from "@/lib/utils";
 import { offerNatureLabelEs } from "@/lib/brands/offer-nature-labels";
 import { BRAND_STATUS_OPTIONS } from "@/lib/brands/brand-status-labels";
@@ -89,7 +92,7 @@ export default async function BrandDetailPage({ params }: Props) {
     .eq("status", "succeeded")
     .maybeSingle();
 
-  const [responseStaleness, sourceFactStaleness, improvementStaleness] =
+  const [responseStaleness, sourceFactStaleness, improvementStaleness, structuralStaleness] =
     activeDiagnosis
       ? await Promise.all([
           supabase
@@ -112,8 +115,13 @@ export default async function BrandDetailPage({ params }: Props) {
             .eq("status", "approved")
             .eq("is_active", true)
             .gt("approved_at", activeDiagnosis.created_at),
+          fetchStructuralQuestionnaireStaleness(
+            supabase,
+            brandId,
+            activeDiagnosis.created_at,
+          ),
         ])
-      : [null, null, null];
+      : [null, null, null, null];
 
   const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
@@ -124,6 +132,10 @@ export default async function BrandDetailPage({ params }: Props) {
     responseRows: responseStaleness?.data ?? [],
     sourceFactRows: sourceFactStaleness?.data ?? [],
     improvementRows: improvementStaleness?.data ?? [],
+    offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
+    hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
+    hasStaleAudienceTerritories: structuralStaleness?.hasStaleAudienceTerritories ?? false,
+    brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
   });
 
   return (

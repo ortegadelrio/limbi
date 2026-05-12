@@ -11,7 +11,7 @@ import {
   validateBrandDiagnosisAgainstCatalog,
 } from "@/lib/schemas/brand-diagnosis";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
-import { isBrandDiagnosisStale } from "@/lib/brands/brand-diagnosis-staleness";
+import { isBrandDiagnosisStale, fetchStructuralQuestionnaireStaleness } from "@/lib/brands/brand-diagnosis-staleness";
 import {
   buildBrandDiagnosisEvaluationContext,
   hasMinimumInputForDiagnosis,
@@ -118,7 +118,7 @@ export async function GET(_request: Request, { params }: Params) {
       (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
     );
 
-  const [responseStaleness, sourceFactStaleness] = evaluation
+  const [responseStaleness, sourceFactStaleness, structuralStaleness] = evaluation
     ? await Promise.all([
         supabase
           .from("brand_responses")
@@ -131,14 +131,23 @@ export async function GET(_request: Request, { params }: Params) {
           .eq("brand_id", brandId)
           .eq("status", "approved")
           .or(`reviewed_at.gt.${evaluation.created_at},updated_at.gt.${evaluation.created_at}`),
+        fetchStructuralQuestionnaireStaleness(
+          supabase,
+          brandId,
+          evaluation.created_at,
+        ),
       ])
-    : [null, null];
+    : [null, null, null];
 
   const diagnosis_is_stale = isBrandDiagnosisStale({
     evaluation,
     responseRows: responseStaleness?.data ?? [],
     sourceFactRows: sourceFactStaleness?.data ?? [],
     improvementRows: improvementBadgeRows ?? [],
+    offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
+    hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
+    hasStaleAudienceTerritories: structuralStaleness?.hasStaleAudienceTerritories ?? false,
+    brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
   });
 
   return NextResponse.json({
