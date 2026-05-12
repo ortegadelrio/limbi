@@ -5,8 +5,12 @@ import {
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
 import { attachExtractionSummaries } from "@/lib/brands/brand-document-extraction-summary";
-import { extractPdfTextFromBuffer } from "@/lib/brands/extract-pdf-text";
-import { BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS } from "@/lib/brands/validate-pdf-upload";
+import { extractBrandDocumentTextFromBuffer } from "@/lib/brands/extract-brand-document-text-from-buffer";
+import {
+  BRAND_CONTEXT_DOCX_UNREADABLE_ES,
+  BRAND_CONTEXT_EXTRACTION_GENERIC_FAILURE_ES,
+  BRAND_CONTEXT_TXT_NO_USEFUL_TEXT_ES,
+} from "@/lib/brands/validate-brand-context-upload";
 import type {
   BrandDocumentExtractionRow,
   BrandDocumentExtractionStatus,
@@ -20,8 +24,11 @@ type Params = { params: Promise<{ brandId: string; documentId: string }> };
 
 const BUCKET = "brand-documents";
 
-const EMPTY_TEXT_USER_MESSAGE =
-  "No se encontró texto seleccionable en este PDF. Puede ser un documento escaneado. El OCR quedará para una versión posterior.";
+function emptyExtractionUserMessage(fileName: string): string {
+  return fileName.toLowerCase().endsWith(".txt")
+    ? BRAND_CONTEXT_TXT_NO_USEFUL_TEXT_ES
+    : BRAND_CONTEXT_EXTRACTION_GENERIC_FAILURE_ES;
+}
 
 async function assertBrandOwned(
   supabase: Awaited<ReturnType<typeof getAuthenticatedSupabase>>["supabase"],
@@ -55,7 +62,7 @@ export async function POST(_request: Request, { params }: Params) {
   const { data: doc, error: docErr } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .eq("id", documentId)
     .eq("brand_id", brandId)
@@ -100,7 +107,7 @@ export async function POST(_request: Request, { params }: Params) {
         truncated: Boolean((ex.extraction_metadata as Record<string, unknown>)?.truncated),
         message:
           ex.extraction_status === "succeeded_empty"
-            ? EMPTY_TEXT_USER_MESSAGE
+            ? emptyExtractionUserMessage(doc.file_name)
             : "Texto extraído correctamente.",
       },
     });
@@ -137,7 +144,7 @@ export async function POST(_request: Request, { params }: Params) {
       extracted_text: null,
       page_count: null,
       character_count: null,
-      extraction_metadata: { engine: "pdf-parse", phase: "running" },
+      extraction_metadata: { phase: "running" },
       error_message: null,
     },
     { onConflict: "brand_document_id" },
@@ -159,13 +166,13 @@ export async function POST(_request: Request, { params }: Params) {
     .download(doc.storage_path);
 
   if (dlErr || !blob) {
-    const msg = dlErr?.message ?? "No se pudo descargar el PDF desde el almacenamiento.";
+    const msg = dlErr?.message ?? "No se pudo descargar el archivo desde el almacenamiento.";
     await supabase
       .from("brand_document_extractions")
       .update({
         extraction_status: "failed",
         error_message: msg,
-        extraction_metadata: { engine: "pdf-parse", phase: "download_failed" },
+        extraction_metadata: { phase: "download_failed" },
       })
       .eq("brand_document_id", documentId);
     await supabase
@@ -179,13 +186,13 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     buffer = Buffer.from(await blob.arrayBuffer());
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error al leer el PDF descargado.";
+    const msg = e instanceof Error ? e.message : "Error al leer el archivo descargado.";
     await supabase
       .from("brand_document_extractions")
       .update({
         extraction_status: "failed",
         error_message: msg,
-        extraction_metadata: { engine: "pdf-parse", phase: "buffer_failed" },
+        extraction_metadata: { phase: "buffer_failed" },
       })
       .eq("brand_document_id", documentId);
     await supabase
@@ -196,13 +203,14 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   try {
-    const parsed = await extractPdfTextFromBuffer(buffer);
+    const parsed = await extractBrandDocumentTextFromBuffer(buffer, doc.file_name);
     const trimmed = parsed.text.trim();
 
     if (trimmed.length === 0) {
+      const emptyMsg = emptyExtractionUserMessage(doc.file_name);
       const meta: Record<string, unknown> = {
-        engine: "pdf-parse",
-        truncated: false,
+        ...parsed.metadata,
+        extraction_outcome: "empty",
       };
       await supabase
         .from("brand_document_extractions")
@@ -212,7 +220,7 @@ export async function POST(_request: Request, { params }: Params) {
           page_count: parsed.pageCount,
           character_count: 0,
           extraction_metadata: meta,
-          error_message: EMPTY_TEXT_USER_MESSAGE,
+          error_message: emptyMsg,
         })
         .eq("brand_document_id", documentId);
       await supabase
@@ -222,11 +230,6 @@ export async function POST(_request: Request, { params }: Params) {
     } else {
       const meta: Record<string, unknown> = {
         ...parsed.metadata,
-        engine: "pdf-parse",
-        truncated: parsed.truncated,
-        ...(parsed.truncated
-          ? { truncated_at_chars: BRAND_DOCUMENT_MAX_EXTRACTED_TEXT_CHARS }
-          : {}),
       };
       await supabase
         .from("brand_document_extractions")
@@ -245,32 +248,33 @@ export async function POST(_request: Request, { params }: Params) {
         .eq("id", documentId);
     }
   } catch (e) {
+    const raw = e instanceof Error ? e.message : "";
     const msg =
-      e instanceof Error
-        ? e.message
-        : "Error desconocido al procesar el PDF.";
+      raw === BRAND_CONTEXT_DOCX_UNREADABLE_ES
+        ? BRAND_CONTEXT_DOCX_UNREADABLE_ES
+        : BRAND_CONTEXT_EXTRACTION_GENERIC_FAILURE_ES;
     await supabase
       .from("brand_document_extractions")
       .update({
         extraction_status: "failed",
         error_message: msg,
-        extraction_metadata: { engine: "pdf-parse", phase: "parse_failed" },
+        extraction_metadata: { phase: "parse_failed" },
       })
       .eq("brand_document_id", documentId);
     await supabase
       .from("brand_documents")
       .update({
         processing_status: "failed",
-        processing_error: `Error al extraer texto: ${msg}`,
+        processing_error: msg,
       })
       .eq("id", documentId);
-    return NextResponse.json({ error: `Error al extraer texto: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   const { data: finalDoc } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .eq("id", documentId)
     .single();
@@ -313,7 +317,7 @@ export async function POST(_request: Request, { params }: Params) {
       truncated,
       message:
         fx.extraction_status === "succeeded_empty"
-          ? EMPTY_TEXT_USER_MESSAGE
+          ? emptyExtractionUserMessage(finalDoc.file_name)
           : fx.extraction_status === "succeeded"
             ? truncated
               ? "Texto extraído y truncado para procesamiento."

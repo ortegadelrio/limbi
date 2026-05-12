@@ -6,9 +6,13 @@ import {
 } from "@/lib/api/route-auth";
 import { prepareBrandDocumentUploadSchema } from "@/lib/schemas/brand-document";
 import {
-  normalizeClientMimeType,
-  validatePdfUploadMetadata,
-} from "@/lib/brands/validate-pdf-upload";
+  BRAND_CONTEXT_UNSUPPORTED_FORMAT_ES,
+  defaultMimeForBrandContextKind,
+  inferBrandContextFileKind,
+  storageExtensionForKind,
+  validateBrandContextUploadMetadata,
+} from "@/lib/brands/validate-brand-context-upload";
+import { normalizeClientMimeType } from "@/lib/brands/validate-pdf-upload";
 import type { BrandDocumentListRow, BrandDocumentRow } from "@/types/database";
 
 type Params = { params: Promise<{ brandId: string }> };
@@ -63,7 +67,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const body = parsed.data;
-  const meta = validatePdfUploadMetadata({
+  const meta = validateBrandContextUploadMetadata({
     file_name: body.file_name,
     file_size_bytes: body.file_size_bytes,
     file_type: body.file_type,
@@ -77,8 +81,17 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const documentId = crypto.randomUUID();
-  const storagePath = `${user.id}/${brandId}/${documentId}.pdf`;
-  const storedMime = normalizeClientMimeType(body.file_type) || "application/pdf";
+  const kind = inferBrandContextFileKind(body.file_name);
+  if (!kind) {
+    return jsonBadRequest(BRAND_CONTEXT_UNSUPPORTED_FORMAT_ES, {
+      code: "validation_invalid_extension",
+      stage: "validation",
+    });
+  }
+  const ext = storageExtensionForKind(kind);
+  const storagePath = `${user.id}/${brandId}/${documentId}.${ext}`;
+  const storedMime =
+    normalizeClientMimeType(body.file_type) || defaultMimeForBrandContextKind(kind);
 
   const { data: docRow, error: insertError } = await supabase
     .from("brand_documents")
@@ -92,9 +105,11 @@ export async function POST(request: Request, { params }: Params) {
       storage_path: storagePath,
       file_size_bytes: body.file_size_bytes,
       processing_status: "pending",
+      source_kind: "file_upload",
+      web_entry_url: null,
     })
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .single();
 
