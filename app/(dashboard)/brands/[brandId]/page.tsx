@@ -80,10 +80,10 @@ export default async function BrandDetailPage({ params }: Props) {
   const hasActiveDiagnosis = diagnosisState.hasActiveDiagnosis;
   const diagnosisIsStale = diagnosisState.diagnosisIsStale;
 
-  const materialQuestionnaireHref = `/brands/${brandId}/questionnaire?step=material_context`;
   const documentsHref = `/brands/${brandId}/documents`;
   const diagnosisHref = `/brands/${brandId}/diagnosis`;
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
+  const questionnaireHref = `/brands/${brandId}/questionnaire`;
 
   const nextStepTitle = "Siguiente paso recomendado";
   let nextStepBody = "";
@@ -110,6 +110,17 @@ export default async function BrandDetailPage({ params }: Props) {
     nextStepPrimaryHref = diagnosisHref;
     nextStepPrimaryLabel = "Ver diagnóstico";
   }
+
+  const hallazgosLinkLabel =
+    pendingFacts > 0 ? "Revisar hallazgos pendientes" : "Ver hallazgos de documentos";
+
+  /** Enlace discreto al diagnóstico: no duplicar cuando el CTA principal ya es “Ver diagnóstico”. */
+  const showDiagnosisDetailLink =
+    hasActiveDiagnosis && nextStepPrimaryLabel !== "Ver diagnóstico";
+
+  const diagnosisDetailLinkLabel = diagnosisIsStale
+    ? "Ver detalle del diagnóstico"
+    : "Ver detalle";
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6">
@@ -233,7 +244,7 @@ export default async function BrandDetailPage({ params }: Props) {
               <Link href={documentsHref}>Gestionar documentos</Link>
             </Button>
             <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-              <Link href={materialQuestionnaireHref}>Material en cuestionario</Link>
+              <Link href={sourceFactsHref}>{hallazgosLinkLabel}</Link>
             </Button>
           </div>
         </div>
@@ -245,49 +256,56 @@ export default async function BrandDetailPage({ params }: Props) {
           )}
         >
           <h2 className="text-sm font-semibold text-limbi-text">Diagnóstico de marca</h2>
+
           {pendingFacts > 0 ? (
             <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
               Hay hallazgos de documentos pendientes de revisión. Resuélvelos antes de
               generar o actualizar el diagnóstico.
             </p>
-          ) : (
-            <p className="text-sm text-limbi-muted">Hallazgos de documentos revisados.</p>
-          )}
-          {hasActiveDiagnosis && diagnosisIsStale ? (
-            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
-              El diagnóstico puede estar desactualizado.
-            </p>
           ) : null}
-          {hasActiveDiagnosis && !diagnosisIsStale && pendingFacts === 0 ? (
-            <p className="text-sm text-limbi-muted">
-              Tu evaluación activa refleja la información aprobada hasta ahora.
-            </p>
-          ) : null}
+
           {!hasActiveDiagnosis && pendingFacts === 0 ? (
             <p className="text-sm text-limbi-muted">
               Aún no hay un diagnóstico generado para esta marca.
             </p>
           ) : null}
-          <Button variant="outline" className={limbiOutlineButtonClass} asChild>
-            <Link href={diagnosisHref}>Ir a diagnóstico</Link>
-          </Button>
+
+          {hasActiveDiagnosis && pendingFacts === 0 && diagnosisIsStale ? (
+            <>
+              <p className="text-sm text-limbi-muted">
+                Hallazgos de documentos revisados.
+              </p>
+              <p className="inline-flex w-fit rounded-full border border-amber-500/45 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-limbi-text">
+                El diagnóstico puede estar desactualizado
+              </p>
+            </>
+          ) : null}
+
+          {hasActiveDiagnosis && pendingFacts === 0 && !diagnosisIsStale ? (
+            <p className="text-sm text-limbi-muted">
+              Tu evaluación activa refleja la información aprobada hasta ahora.
+            </p>
+          ) : null}
+
+          {showDiagnosisDetailLink ? (
+            <p className="pt-1">
+              <Link
+                href={diagnosisHref}
+                className="text-sm font-medium text-limbi-green underline-offset-4 hover:underline"
+              >
+                {diagnosisDetailLinkLabel}
+              </Link>
+            </p>
+          ) : null}
         </div>
 
-        <div className="space-y-2 border-t border-limbi-border pt-4">
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-limbi-muted">
-            Más acciones
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-              <Link href={`/brands/${brandId}/questionnaire`}>Completar cuestionario</Link>
-            </Button>
-            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-              <Link href={documentsHref}>Gestionar documentos</Link>
-            </Button>
-            <Button variant="outline" className="rounded-xl border-limbi-border" asChild>
-              <Link href={sourceFactsHref}>Ver hallazgos de documentos</Link>
-            </Button>
-          </div>
+        <div className="border-t border-limbi-border/80 pt-4">
+          <Link
+            href={questionnaireHref}
+            className="text-sm text-limbi-muted underline-offset-4 hover:text-limbi-text hover:underline"
+          >
+            Editar cuestionario
+          </Link>
         </div>
 
         <p className="text-xs text-limbi-muted">
