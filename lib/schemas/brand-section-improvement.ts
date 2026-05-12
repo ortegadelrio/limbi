@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BRAND_SECTION_IMPROVE_PROMPT_VERSION = "brand-section-improve-v1.0";
+export const BRAND_SECTION_IMPROVE_PROMPT_VERSION = "brand-section-improvement-v2.0";
 
 export const brandSectionImproveConversationStateSchema = z.enum([
   "asking_questions",

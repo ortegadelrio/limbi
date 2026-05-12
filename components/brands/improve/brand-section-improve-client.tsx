@@ -29,6 +29,7 @@ import type {
 
 type SectionSummary = {
   section_key: string;
+  section_label?: string;
   pending_review_count: number;
   has_active_diagnosis: boolean;
   context_ok: boolean;
@@ -113,7 +114,9 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
   const messagesEndRef = useRef<HTMLLIElement | null>(null);
   const draftPanelRef = useRef<HTMLDivElement | null>(null);
 
-  const sectionTitle = brandQuestionnaireSectionLabelEs(sectionKey);
+  const sectionTitle =
+    summary?.section_label?.trim() ||
+    brandQuestionnaireSectionLabelEs(sectionKey);
 
   const loadSummary = useCallback(async (): Promise<SectionSummary | null> => {
     setLoadError(null);
@@ -452,14 +455,75 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
                   {priorityLabelEs(summary.diagnosis_section.priority)}
                 </p>
               </div>
+              {summary.diagnosis_section.score >= 70 ? (
+                <p className="rounded-lg border border-limbi-border/80 bg-limbi-surface/40 px-3 py-2 text-xs leading-relaxed text-limbi-muted">
+                  Esta sección ya tiene base suficiente. Podés refinarla para ganar precisión, pero
+                  no es un bloqueo.
+                </p>
+              ) : null}
+              {summary.diagnosis_section.score < 58 &&
+              (summary.diagnosis_section.gaps.length > 0 ||
+                summary.diagnosis_section.priority === "high") ? (
+                <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-limbi-muted">
+                  Aquí sí falta información clave para fortalecer la base de marca.
+                </p>
+              ) : null}
               <p className="text-sm leading-relaxed text-limbi-muted">
                 {summary.diagnosis_section.diagnosis}
               </p>
+              {summary.diagnosis_section.strengths.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-limbi-text">Señales positivas</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
+                    {summary.diagnosis_section.strengths.slice(0, 8).map((g, i) => (
+                      <li key={i}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {summary.diagnosis_section.gaps.length > 0 ? (
                 <div className="space-y-1">
-                  <p className="text-xs font-medium text-limbi-text">Principales vacíos</p>
+                  <p className="text-xs font-medium text-limbi-text">Vacíos o fragilidades esenciales</p>
                   <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
-                    {summary.diagnosis_section.gaps.slice(0, 6).map((g, i) => (
+                    {summary.diagnosis_section.gaps.slice(0, 8).map((g, i) => (
+                      <li key={i}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {(summary.diagnosis_section.depth_opportunities ?? []).length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-limbi-text">Profundización opcional</p>
+                  <p className="text-[11px] text-limbi-muted">
+                    Podés profundizar, pero no bloquea el avance si lo esencial está cubierto.
+                  </p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
+                    {(summary.diagnosis_section.depth_opportunities ?? [])
+                      .slice(0, 8)
+                      .map((g, i) => (
+                        <li key={i}>{g}</li>
+                      ))}
+                  </ul>
+                </div>
+              ) : null}
+              {summary.diagnosis_section.contradictions.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-limbi-text">Tensiones</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
+                    {summary.diagnosis_section.contradictions.slice(0, 6).map((g, i) => (
+                      <li key={i}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {summary.diagnosis_section.risks.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-limbi-text">Riesgos y restricciones</p>
+                  <p className="text-[11px] text-limbi-muted">
+                    Tratá esto como límite o alerta estratégica, no como mensaje visible tal cual.
+                  </p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-limbi-muted">
+                    {summary.diagnosis_section.risks.slice(0, 6).map((g, i) => (
                       <li key={i}>{g}</li>
                     ))}
                   </ul>
@@ -481,7 +545,7 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
       ) : null}
 
       {ctx && !ctxErr ? (
-        <div className="mb-8 grid gap-6 lg:grid-cols-2">
+        <div className="mb-8 grid gap-6 lg:grid-cols-3">
           <section className={cn(limbiDocumentCardClass, "border border-limbi-border p-4")}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
               Información actual
@@ -518,6 +582,47 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className={cn(limbiDocumentCardClass, "border border-limbi-border p-4")}>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
+              Inventario y territorios
+            </h2>
+            <div className="mt-3 max-h-64 space-y-3 overflow-y-auto text-xs text-limbi-muted">
+              <div>
+                <p className="font-medium text-limbi-text">Oferta estructurada</p>
+                {ctx.structured_offer_items.filter((i) => i.title.trim()).length === 0 ? (
+                  <p className="mt-1">Sin ítems cargados en inventario.</p>
+                ) : (
+                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                    {ctx.structured_offer_items
+                      .filter((i) => i.title.trim())
+                      .slice(0, 12)
+                      .map((i, idx) => (
+                        <li key={idx}>
+                          <span className="text-limbi-text">{i.title}</span>
+                          {i.description ? ` — ${i.description}` : ""}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="font-medium text-limbi-text">Audiencias / territorios</p>
+                {ctx.structured_audience_territories.filter((t) => t.name.trim()).length === 0 ? (
+                  <p className="mt-1">Sin territorios cargados.</p>
+                ) : (
+                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                    {ctx.structured_audience_territories
+                      .filter((t) => t.name.trim())
+                      .slice(0, 12)
+                      .map((t, idx) => (
+                        <li key={idx}>{t.name}</li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           </section>
         </div>
       ) : null}
@@ -683,7 +788,9 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
                 </ul>
                 {draftParsed.data.remaining_gaps.length > 0 ? (
                   <div className="mt-4 border-t border-limbi-border pt-3">
-                    <p className="text-xs font-medium text-limbi-text">Vacíos pendientes</p>
+                    <p className="text-xs font-medium text-limbi-text">
+                      Pendientes (esencial u operativo)
+                    </p>
                     <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-limbi-muted">
                       {draftParsed.data.remaining_gaps.map((g, i) => (
                         <li key={i}>

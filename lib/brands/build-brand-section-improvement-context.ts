@@ -6,11 +6,20 @@ import type {
   BrandSectionImprovementRow,
   QuestionDefinitionRow,
   BrandEvaluationRow,
+  BrandOfferItemRow,
+  BrandAudienceTerritoryRow,
 } from "@/types/database";
 import { fetchAllowedBrandQuestionDefinitions } from "@/lib/questions/fetch-allowed-brand-questions";
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
+import {
+  BRAND_DIAGNOSIS_SCORING_POLICY_V2,
+  filterBrandResponsesForActiveDefinitions,
+  type BrandDiagnosisStructuredAudienceTerritoryEntry,
+  type BrandDiagnosisStructuredOfferItemEntry,
+} from "@/lib/brands/build-brand-diagnosis-context";
+import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 
-export const BRAND_SECTION_IMPROVE_CONTEXT_VERSION = "brand-section-improve-context-v1";
+export const BRAND_SECTION_IMPROVE_CONTEXT_VERSION = "brand-section-improve-context-v2.0";
 
 const EXCLUDED_SECTIONS = new Set(["material_context"]);
 
@@ -20,6 +29,57 @@ const COHERENCE_SECTION_KEYS = [
   "value_proposition",
   "positioning",
 ] as const;
+
+/** Alineado con diagnóstico: secciones donde el inventario estructurado es fuente canónica de oferta. */
+const SECTION_KEYS_WITH_STRUCTURAL_OFFER_CONTEXT = new Set<string>([
+  "offer",
+  "product",
+  "service",
+  "product_service",
+  "experience_event",
+  "digital_platform",
+  "organization",
+  "personal_brand",
+  "value_proposition",
+]);
+
+const SECTION_KEYS_WITH_STRUCTURAL_TERRITORY_CONTEXT = new Set<string>(["audiences"]);
+
+export function structuredSourcesGuidanceForImproveSection(sectionKey: string): string {
+  const parts: string[] = [
+    "brand_responses son respuestas simples originales del cuestionario (solo catálogo activo); no reemplazan tablas estructuradas.",
+    "structured_offer_items es el inventario canónico de oferta; no pidas repetir inventario que ya conste ahí.",
+    "structured_audience_territories es la fuente canónica de audiencias/territorios; no pidas datos que ya estén allí.",
+    "offer_nature vive en brand_offer_profile; no la infieras desde brand_responses.",
+    "Las mejoras aprobadas previas son curaduría humana/IA: no sobrescriben brand_responses; proponé texto mejorado en proposed_changes.",
+  ];
+  if (SECTION_KEYS_WITH_STRUCTURAL_OFFER_CONTEXT.has(sectionKey)) {
+    parts.push(
+      "Esta sección se apoya en inventario de oferta: priorizá coherencia con structured_offer_items.",
+    );
+  }
+  if (SECTION_KEYS_WITH_STRUCTURAL_TERRITORY_CONTEXT.has(sectionKey)) {
+    parts.push(
+      "Esta sección se apoya en territorios/audiencias: priorizá structured_audience_territories.",
+    );
+  }
+  if (sectionKey === "brand_limbic_base") {
+    parts.push(
+      "Base Límbica: mejorá señales simbólicas (atmósfera, ritmo, sensibilidad, códigos expresivos); no escribas slogans ni copy literal para publicar.",
+    );
+  }
+  return parts.join(" ");
+}
+
+export function normalizeDiagnosisSectionForImprovement(
+  row: BrandDiagnosisSectionScoreParsed | null,
+): BrandDiagnosisSectionScoreParsed | null {
+  if (!row) return null;
+  return {
+    ...row,
+    depth_opportunities: row.depth_opportunities ?? [],
+  };
+}
 
 export type BrandSectionImprovementContextBrand = {
   id: string;
@@ -74,8 +134,15 @@ export type ImprovementContextCoherenceSnippet = {
 export type BrandSectionImprovementContextPayload = {
   context_version: string;
   section_key: string;
+  /** Etiqueta humana (no mostrar section_key al usuario como título principal). */
+  section_label: string;
   brand: BrandSectionImprovementContextBrand;
-  offer_nature: BrandOfferNature;
+  brand_offer_profile: { offer_nature: BrandOfferNature };
+  structured_offer_items: BrandDiagnosisStructuredOfferItemEntry[];
+  structured_audience_territories: BrandDiagnosisStructuredAudienceTerritoryEntry[];
+  /** Contexto estructurado relevante según la sección (evita pedir datos ya inventariados). */
+  structured_context_note: string;
+  scoring_policy: typeof BRAND_DIAGNOSIS_SCORING_POLICY_V2;
   diagnosis_section: BrandDiagnosisSectionScoreParsed | null;
   question_definitions: ImprovementContextQuestionDef[];
   brand_responses: ImprovementContextResponse[];
@@ -176,21 +243,56 @@ export async function buildBrandSectionImprovementContext(
 
   const ev = evaluation as BrandEvaluationRow;
   const sectionScores = (ev.section_scores ?? []) as BrandDiagnosisSectionScoreParsed[];
-  const diagnosisSection =
-    sectionScores.find((s) => s.section_key === sectionKey) ?? null;
+  const diagnosisSectionRaw = sectionScores.find((s) => s.section_key === sectionKey) ?? null;
+  const diagnosisSection = normalizeDiagnosisSectionForImprovement(diagnosisSectionRaw);
 
-  const { data: responses, error: rErr } = await supabase
-    .from("brand_responses")
-    .select(
-      "id, brand_id, question_definition_id, section_key, module_key, question_key, answer_value, answer_text, answer_type, is_required, is_sensitive, source_type, created_at, updated_at",
-    )
-    .eq("brand_id", brandId)
-    .eq("section_key", sectionKey);
+  const [{ data: responses, error: rErr }, { data: offerItemRows, error: offerErr }, { data: territoryRows, error: terrErr }] =
+    await Promise.all([
+      supabase
+        .from("brand_responses")
+        .select(
+          "id, brand_id, question_definition_id, section_key, module_key, question_key, answer_value, answer_text, answer_type, is_required, is_sensitive, source_type, created_at, updated_at",
+        )
+        .eq("brand_id", brandId)
+        .eq("section_key", sectionKey),
+      supabase
+        .from("brand_offer_items")
+        .select("item_type, title, description, display_order")
+        .eq("brand_id", brandId)
+        .order("display_order", { ascending: true }),
+      supabase
+        .from("brand_audience_territories")
+        .select("territory_type, name, display_order")
+        .eq("brand_id", brandId)
+        .order("display_order", { ascending: true }),
+    ]);
 
   if (rErr) {
     return { ok: false, code: "responses_error", message: rErr.message };
   }
-  const responseRows = (responses ?? []) as BrandResponseRow[];
+  if (offerErr) {
+    return { ok: false, code: "offer_items_error", message: offerErr.message };
+  }
+  if (terrErr) {
+    return { ok: false, code: "territories_error", message: terrErr.message };
+  }
+
+  const structuredOfferItems: BrandDiagnosisStructuredOfferItemEntry[] = (offerItemRows ?? []).map(
+    (row) => ({
+      item_type: (row as BrandOfferItemRow).item_type,
+      title: String((row as BrandOfferItemRow).title ?? "").trim(),
+      description: (row as BrandOfferItemRow).description,
+    }),
+  );
+  const structuredTerritories: BrandDiagnosisStructuredAudienceTerritoryEntry[] = (
+    territoryRows ?? []
+  ).map((row) => ({
+    territory_type: (row as BrandAudienceTerritoryRow).territory_type,
+    name: String((row as BrandAudienceTerritoryRow).name ?? "").trim(),
+  }));
+
+  const allSectionResponses = (responses ?? []) as BrandResponseRow[];
+  const responseRows = filterBrandResponsesForActiveDefinitions(allSectionResponses, definitions);
 
   const { data: facts, error: fErr } = await supabase
     .from("brand_source_facts")
@@ -235,7 +337,9 @@ export async function buildBrandSectionImprovementContext(
   if (coherenceKeys.length > 0) {
     const { data: cohResp, error: cErr } = await supabase
       .from("brand_responses")
-      .select("section_key, module_key, question_key, answer_text, answer_value, is_sensitive")
+      .select(
+        "section_key, module_key, question_key, question_definition_id, answer_text, answer_value, is_sensitive",
+      )
       .eq("brand_id", brandId)
       .in("section_key", [...coherenceKeys]);
 
@@ -243,7 +347,10 @@ export async function buildBrandSectionImprovementContext(
       const defByKey = new Map(
         (definitions as QuestionDefinitionRow[]).map((d) => [d.question_key, d]),
       );
-      for (const row of cohResp as BrandResponseRow[]) {
+      for (const row of filterBrandResponsesForActiveDefinitions(
+        cohResp as BrandResponseRow[],
+        definitions,
+      )) {
         const def = defByKey.get(row.question_key);
         if (!def) continue;
         const excerpt = responseExcerpt(row, 400);
@@ -262,11 +369,18 @@ export async function buildBrandSectionImprovementContext(
 
   const questionKeys = new Set(sectionDefs.map((d) => d.question_key));
 
+  const structured_context_note = structuredSourcesGuidanceForImproveSection(sectionKey);
+
   const context: BrandSectionImprovementContextPayload = {
     context_version: BRAND_SECTION_IMPROVE_CONTEXT_VERSION,
     section_key: sectionKey,
+    section_label: brandQuestionnaireSectionLabelEs(sectionKey),
     brand,
-    offer_nature: offerNature,
+    brand_offer_profile: { offer_nature: offerNature },
+    structured_offer_items: structuredOfferItems,
+    structured_audience_territories: structuredTerritories,
+    structured_context_note,
+    scoring_policy: BRAND_DIAGNOSIS_SCORING_POLICY_V2,
     diagnosis_section: diagnosisSection,
     question_definitions: sectionDefs.map((d) => ({
       section_key: d.section_key,

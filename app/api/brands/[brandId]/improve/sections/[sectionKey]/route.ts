@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedSupabase, jsonUnauthorized } from "@/lib/api/route-auth";
 import {
   buildBrandSectionImprovementContext,
+  normalizeDiagnosisSectionForImprovement,
   type BrandSectionImprovementContextBrand,
 } from "@/lib/brands/build-brand-section-improvement-context";
+import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
 import type { BrandEvaluationRow, BrandImprovementSessionRow, BrandSectionImprovementRow } from "@/types/database";
 
@@ -54,7 +56,9 @@ export async function GET(_request: Request, { params }: Params) {
   if (evaluation) {
     const ev = evaluation as BrandEvaluationRow;
     const scores = (ev.section_scores ?? []) as BrandDiagnosisSectionScoreParsed[];
-    diagnosis_section = scores.find((s) => s.section_key === sectionKey) ?? null;
+    diagnosis_section = normalizeDiagnosisSectionForImprovement(
+      scores.find((s) => s.section_key === sectionKey) ?? null,
+    );
   }
 
   const { data: openSession } = await supabase
@@ -78,6 +82,7 @@ export async function GET(_request: Request, { params }: Params) {
 
   return NextResponse.json({
     section_key: sectionKey,
+    section_label: brandQuestionnaireSectionLabelEs(sectionKey),
     pending_review_count: pendingReview ?? 0,
     has_active_diagnosis: Boolean(evaluation),
     context_ok: built.ok,
