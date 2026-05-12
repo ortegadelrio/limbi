@@ -1,5 +1,6 @@
 -- Ticket B — Nuevo catálogo question_definitions (Journey de Marca).
 -- Desactiva el seed anterior (is_active = false, sin borrar filas).
+-- UPSERT por (journey_type, question_key) por unique constraint; sin borrar filas.
 -- Inserta el catálogo aprobado: sin brand_type, sin offer ni territorios en catálogo,
 -- sin context_sources_note; Base Límbica con 5 señales; temperatura = single_choice;
 -- metadata exclusive en opciones indicadas; español neutro/latinoamericano.
@@ -650,6 +651,21 @@ INSERT INTO public.question_definitions (
   3,
   740,
   true
-);
+)
+ON CONFLICT (journey_type, question_key)
+DO UPDATE SET
+  section_key = EXCLUDED.section_key,
+  module_key = EXCLUDED.module_key,
+  question_text = EXCLUDED.question_text,
+  help_text = EXCLUDED.help_text,
+  answer_type = EXCLUDED.answer_type,
+  options = EXCLUDED.options,
+  applies_to = EXCLUDED.applies_to,
+  is_required = EXCLUDED.is_required,
+  is_sensitive = EXCLUDED.is_sensitive,
+  evaluation_weight = EXCLUDED.evaluation_weight,
+  display_order = EXCLUDED.display_order,
+  is_active = true,
+  updated_at = now();
 
 COMMIT;
