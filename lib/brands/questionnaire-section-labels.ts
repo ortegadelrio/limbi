@@ -6,8 +6,11 @@ const LABELS: Record<string, string> = {
   value_proposition: "Propuesta de valor",
   audiences: "Audiencias",
   differentiators: "Diferenciación",
+  differentiation: "Diferenciación",
   positioning: "Posicionamiento",
   voice_tone: "Voz y tono",
+  voice_tone_messages: "Voz, tono y mensajes",
+  offer: "Oferta",
   approved_messages: "Mensajes aprobados",
   restrictions: "Restricciones",
   proof: "Pruebas y credibilidad",
@@ -20,7 +23,7 @@ const LABELS: Record<string, string> = {
   digital_platform: "Plataforma o SaaS",
   organization: "Organización o causa",
   personal_brand: "Marca personal",
-  material_context: "Material de contexto",
+  material_context: "Material de contexto y fuentes de marca",
 };
 
 export function brandQuestionnaireSectionLabelEs(sectionKey: string): string {

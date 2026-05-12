@@ -31,7 +31,10 @@ export type QuestionOption = {
   description?: string | null;
   visual_hint?: string | null;
   image_url?: string | null;
+  image_key?: string | null;
   emoji?: string | null;
+  /** Si es true, la opción no debe combinarse con otras (UI / validación). */
+  exclusive?: boolean;
 };
 
 /** `null`: núcleo común para todas las ofertas. */
