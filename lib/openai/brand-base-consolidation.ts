@@ -12,17 +12,72 @@ export type BrandBaseConsolidationJsonResult = {
   raw_json_text: string;
 };
 
-export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, unknown> {
-  const pillar = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      title: { type: "string", minLength: 1, maxLength: 200 },
-      body: { type: "string", minLength: 1, maxLength: 6000 },
-    },
-    required: ["title", "body"],
-  } as const;
+const pillar = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string", minLength: 1, maxLength: 200 },
+    body: { type: "string", minLength: 1, maxLength: 6000 },
+  },
+  required: ["title", "body"],
+} as const;
 
+const sectionInterpretation = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    section_key: { type: "string", minLength: 1, maxLength: 80 },
+    headline: { type: "string", minLength: 1, maxLength: 220 },
+    interpretation: { type: "string", minLength: 1, maxLength: 6000 },
+  },
+  required: ["section_key", "headline", "interpretation"],
+} as const;
+
+const finalHighlights = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    key_strengths: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      items: { type: "string", minLength: 1, maxLength: 800 },
+    },
+    strategic_tensions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 6,
+      items: { type: "string", minLength: 1, maxLength: 800 },
+    },
+    communication_opportunities: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      items: { type: "string", minLength: 1, maxLength: 800 },
+    },
+    key_limbic_signals: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      items: { type: "string", minLength: 1, maxLength: 800 },
+    },
+    narrative_care_and_avoids: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      items: { type: "string", minLength: 1, maxLength: 800 },
+    },
+  },
+  required: [
+    "key_strengths",
+    "strategic_tensions",
+    "communication_opportunities",
+    "key_limbic_signals",
+    "narrative_care_and_avoids",
+  ],
+} as const;
+
+export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, unknown> {
   const knowledge = {
     type: "object",
     additionalProperties: false,
@@ -36,12 +91,27 @@ export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, un
       },
       restrictions_and_alerts: { type: "string", minLength: 1, maxLength: 12000 },
       evidence_narrative: { type: "string", minLength: 1, maxLength: 12000 },
+      executive_reading: { type: "string", minLength: 1, maxLength: 12000 },
+      section_interpretations: {
+        type: "array",
+        minItems: 8,
+        maxItems: 14,
+        items: sectionInterpretation,
+      },
+      final_highlights: finalHighlights,
+      internal_base_notice: { type: "string", minLength: 1, maxLength: 2500 },
+      project_readiness_message: { type: "string", minLength: 1, maxLength: 2500 },
     },
     required: [
       "curator_reading",
       "strategic_pillars",
       "restrictions_and_alerts",
       "evidence_narrative",
+      "executive_reading",
+      "section_interpretations",
+      "final_highlights",
+      "internal_base_notice",
+      "project_readiness_message",
     ],
   } as const;
 

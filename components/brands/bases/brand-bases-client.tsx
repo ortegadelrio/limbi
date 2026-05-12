@@ -6,29 +6,28 @@ import { useCallback, useState } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  limbiDocumentCardClass,
   limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
-import { cn } from "@/lib/utils";
 import type { BrandBasesDetailState } from "@/lib/brands/load-brand-bases-state";
+import { buildBrandKnowledgeUiModel } from "@/lib/brands/brand-bases-consolidated-ui";
+import { BrandBasesInterpretiveReading } from "@/components/brands/bases/brand-bases-interpretive-reading";
+import { BrandBasesLimbicReading } from "@/components/brands/bases/brand-bases-limbic-reading";
 
 type Props = {
   brandId: string;
   brandName: string;
   hasActiveDiagnosis: boolean;
+  /** Si hay evaluación activa pero el diagnóstico quedó atrás de las fuentes, no conviene consolidar. */
+  diagnosisIsStale?: boolean;
   initialBases: BrandBasesDetailState;
 };
-
-function readingFromPayload(payload: Record<string, unknown>, key: string): string {
-  const v = payload[key];
-  return typeof v === "string" ? v : "";
-}
 
 export function BrandBasesClient({
   brandId,
   brandName,
   hasActiveDiagnosis,
+  diagnosisIsStale = false,
   initialBases,
 }: Props) {
   const router = useRouter();
@@ -84,9 +83,36 @@ export function BrandBasesClient({
   const knowledgePayload =
     (bases.knowledge_base?.consolidated_payload ?? {}) as Record<string, unknown>;
   const limbicPayload = (bases.limbic_base?.consolidated_payload ?? {}) as Record<string, unknown>;
+  const knowledgeUi = hasKnowledge ? buildBrandKnowledgeUiModel(knowledgePayload) : null;
 
   const canConsolidate =
-    hasActiveDiagnosis && !pending && !running && !consolidating;
+    hasActiveDiagnosis &&
+    !diagnosisIsStale &&
+    !pending &&
+    !running &&
+    !consolidating;
+
+  const closureStatusLine = (() => {
+    if (pending) {
+      return "Hallazgos de documentos pendientes: la consolidación queda bloqueada hasta revisarlos.";
+    }
+    if (!hasActiveDiagnosis) {
+      return "Sin diagnóstico activo: generá la evaluación en la pantalla de diagnóstico antes de consolidar.";
+    }
+    if (diagnosisIsStale) {
+      return "Diagnóstico desactualizado: actualizá la evaluación para alinear bases con la lectura estratégica vigente.";
+    }
+    if (running) {
+      return "Consolidación en curso: esperá el resultado o recargá el estado.";
+    }
+    if (!bothActive) {
+      return "Listo para consolidar: diagnóstico al día y sin bloqueos de hallazgos.";
+    }
+    if (anyStale) {
+      return "Bases activas posiblemente desactualizadas: regenerá para reflejar cambios en fuentes aprobadas.";
+    }
+    return "Bases activas vigentes: conocimiento y límbica alineados con fuentes aprobadas y diagnóstico actual.";
+  })();
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
@@ -104,6 +130,10 @@ export function BrandBasesClient({
         <p className="mt-1 text-sm text-limbi-muted">{brandName}</p>
       </div>
 
+      <p className="rounded-xl border border-limbi-border bg-limbi-surface/50 px-3 py-2 text-sm text-limbi-muted">
+        {closureStatusLine}
+      </p>
+
       {pending ? (
         <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
           Hay hallazgos de documentos pendientes de revisión. Resolvelos antes de consolidar.
@@ -113,6 +143,19 @@ export function BrandBasesClient({
       {!hasActiveDiagnosis ? (
         <p className="rounded-xl border border-limbi-border bg-limbi-surface/40 px-3 py-2 text-sm text-limbi-muted">
           Necesitás un diagnóstico de marca activo antes de generar las bases curadas.
+        </p>
+      ) : null}
+
+      {hasActiveDiagnosis && diagnosisIsStale ? (
+        <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-limbi-text">
+          El diagnóstico no refleja cambios recientes en la marca.{" "}
+          <Link
+            href={`/brands/${brandId}/diagnosis`}
+            className="font-medium text-limbi-green underline-offset-4 hover:underline"
+          >
+            Actualizar diagnóstico
+          </Link>{" "}
+          antes de consolidar evita bases incoherentes con tus fuentes.
         </p>
       ) : null}
 
@@ -166,82 +209,46 @@ export function BrandBasesClient({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-1">
-        <div
-          className={cn(
-            limbiDocumentCardClass,
-            "space-y-3 border border-limbi-border p-4 sm:p-5",
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-limbi-text">Base de Conocimiento</h2>
-            {hasKnowledge ? (
-              <span className="rounded-full border border-limbi-border px-2 py-0.5 text-xs text-limbi-muted">
-                Activa
-              </span>
-            ) : (
-              <span className="rounded-full border border-limbi-border px-2 py-0.5 text-xs text-limbi-muted">
-                Sin base
-              </span>
-            )}
-            {bases.knowledge_base_is_stale ? (
-              <span className="rounded-full border border-amber-500/45 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-limbi-text">
-                Puede estar desactualizada
-              </span>
-            ) : null}
-          </div>
-          {hasKnowledge ? (
-            <div className="space-y-2 text-sm text-limbi-muted">
-              <p className="whitespace-pre-wrap text-limbi-text">
-                {readingFromPayload(knowledgePayload, "curator_reading")}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-limbi-muted">
-              La base curada de conocimiento aparecerá aquí cuando consolides.
-            </p>
-          )}
+      {hasKnowledge && knowledgeUi ? (
+        <div className="space-y-8">
+          <BrandBasesInterpretiveReading knowledgeUi={knowledgeUi} />
+          {hasLimbic ? <BrandBasesLimbicReading payload={limbicPayload} /> : null}
         </div>
+      ) : !hasKnowledge && !hasLimbic ? (
+        <p className="text-sm text-limbi-muted">
+          La lectura ejecutiva de la Base de Marca aparecerá aquí cuando consolidés desde el
+          diagnóstico o desde esta pantalla.
+        </p>
+      ) : !hasKnowledge && hasLimbic ? (
+        <div className="space-y-6">
+          <p className="text-sm text-limbi-muted">
+            Aún no hay Base de Conocimiento activa; la Base Límbica puede mostrarse cuando exista
+            consolidación previa.
+          </p>
+          <BrandBasesLimbicReading payload={limbicPayload} />
+        </div>
+      ) : null}
 
-        <div
-          className={cn(
-            limbiDocumentCardClass,
-            "space-y-3 border border-limbi-border p-4 sm:p-5",
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-limbi-text">Base Límbica</h2>
-            {hasLimbic ? (
-              <span className="rounded-full border border-limbi-border px-2 py-0.5 text-xs text-limbi-muted">
-                Activa
-              </span>
-            ) : (
-              <span className="rounded-full border border-limbi-border px-2 py-0.5 text-xs text-limbi-muted">
-                Sin base
-              </span>
-            )}
-            {bases.limbic_base_is_stale ? (
-              <span className="rounded-full border border-amber-500/45 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-limbi-text">
-                Puede estar desactualizada
-              </span>
-            ) : null}
-          </div>
-          {hasLimbic ? (
-            <div className="space-y-2 text-sm text-limbi-muted">
-              <p className="whitespace-pre-wrap text-limbi-text">
-                {readingFromPayload(limbicPayload, "symbolic_reading")}
+      {bothActive && !running && !pending ? (
+        <div className="space-y-2 rounded-xl border border-limbi-border bg-limbi-bg-soft/40 p-4 sm:p-5">
+          <h2 className="text-sm font-semibold text-limbi-text">Siguiente paso</h2>
+          {anyStale ? (
+            <>
+              <p className="text-xs text-limbi-muted">
+                Próximo paso: crear proyectos con esta marca. Actualizá las bases para alinearlas
+                con las fuentes antes de usarlas en proyectos.
               </p>
-              <p className="text-xs italic text-limbi-muted">
-                Lectura simbólica: no tomar como claims literales ni copy final.
-              </p>
-            </div>
+              <Button type="button" variant="outline" className={limbiOutlineButtonClass} disabled>
+                Ir al dashboard de proyectos
+              </Button>
+            </>
           ) : (
-            <p className="text-sm text-limbi-muted">
-              La lectura límbica curada aparecerá aquí cuando consolides.
-            </p>
+            <Button className={limbiOutlineButtonClass} variant="outline" asChild>
+              <Link href="/projects">Ir al dashboard de proyectos</Link>
+            </Button>
           )}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

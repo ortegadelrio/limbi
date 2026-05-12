@@ -20,7 +20,8 @@ export const BRAND_NEXT_STEP_BRAND_READY_PROJECTS_ES =
 
 export type BrandPostDiagnosisNextStepPrimary =
   | { kind: "link"; href: string; label: string }
-  | { kind: "regenerate_diagnosis"; label: string };
+  | { kind: "regenerate_diagnosis"; label: string }
+  | { kind: "consolidate_direct"; label: string };
 
 export type BrandPostDiagnosisNextStepResolved = {
   title: string;
@@ -52,6 +53,11 @@ export type BrandPostDiagnosisNextStepInput = {
    * no solo enlace al mismo URL.
    */
   staleDiagnosisPrimaryIsRegenerate: boolean;
+  /**
+   * En la página de diagnóstico, el CTA “Consolidar Base de Marca” dispara POST en cliente
+   * en lugar de navegar primero a `/bases`.
+   */
+  useDirectConsolidateCta?: boolean;
 };
 
 function basesHref(brandId: string) {
@@ -142,14 +148,17 @@ export function resolveBrandPostDiagnosisNextStep(
   }
 
   if (!bases.hasActiveKnowledgeBase || !bases.hasActiveLimbicBase) {
+    const useDirect = Boolean(input.useDirectConsolidateCta);
     return {
       title: BRAND_NEXT_STEP_CARD_TITLE_ES,
       body: BRAND_NEXT_STEP_CONSOLIDATE_BODY_ES,
-      primary: {
-        kind: "link",
-        href: basesHref(brandId),
-        label: "Consolidar Base de Marca",
-      },
+      primary: useDirect
+        ? { kind: "consolidate_direct", label: "Consolidar Base de Marca" }
+        : {
+            kind: "link",
+            href: basesHref(brandId),
+            label: "Consolidar Base de Marca",
+          },
       secondaryLines: consolidateSecondaryLines(input.diagnosisHints),
     };
   }

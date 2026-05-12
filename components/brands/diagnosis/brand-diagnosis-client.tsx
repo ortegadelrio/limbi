@@ -98,6 +98,8 @@ export function BrandDiagnosisClient({
   const [diagnosisIsStale, setDiagnosisIsStale] = useState(initialDiagnosisIsStale);
   const [basesState, setBasesState] = useState<BrandDashboardBasesState>(initialBasesState);
   const [generating, setGenerating] = useState(false);
+  const [consolidatingBases, setConsolidatingBases] = useState(false);
+  const [consolidateError, setConsolidateError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -157,6 +159,45 @@ export function BrandDiagnosisClient({
     }
   }
 
+  const onConsolidateBases = useCallback(async () => {
+    setConsolidateError(null);
+    setConsolidatingBases(true);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/bases/consolidate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      if (res.status === 409 && j.code === "pending_review_blocking") {
+        setPendingReviewCount(1);
+        throw new Error(
+          j.error ?? "Revisa primero los hallazgos pendientes antes de consolidar la base.",
+        );
+      }
+      if (res.status === 409 && j.code === "diagnosis_stale_blocking") {
+        setDiagnosisIsStale(true);
+        throw new Error(
+          j.error ?? "Actualizá el diagnóstico de marca antes de consolidar las bases.",
+        );
+      }
+      if (res.status === 409 && j.code === "consolidation_already_running") {
+        throw new Error(
+          j.error ?? "Ya hay una consolidación en curso. Podés ver el estado en Bases de marca.",
+        );
+      }
+      if (!res.ok) {
+        throw new Error(j.error ?? "No se pudo consolidar la Base de Marca.");
+      }
+      await refresh();
+      router.push(`/brands/${brandId}/bases`);
+      router.refresh();
+    } catch (e) {
+      setConsolidateError(e instanceof Error ? e.message : "Error al consolidar la Base de Marca.");
+    } finally {
+      setConsolidatingBases(false);
+    }
+  }, [brandId, refresh, router]);
+
   const sectionScores = (evaluation?.section_scores ?? []) as BrandDiagnosisSectionScoreParsed[];
   const criticalGaps = (evaluation?.critical_gaps ?? []) as {
     section_key: string;
@@ -174,6 +215,24 @@ export function BrandDiagnosisClient({
     recommended_focus: string;
   }[];
   const improvedAfterDiagnosisSet = new Set(sectionKeysWithImprovementAfterDiagnosis);
+
+  const diagnosisJourneyResolved =
+    evaluation && pendingReviewCount === 0
+      ? resolveBrandPostDiagnosisNextStep({
+          brandId,
+          pendingFactsCount: pendingReviewCount,
+          hasActiveSucceededDiagnosis: true,
+          diagnosisIsStale,
+          bases: basesState,
+          diagnosisHints: {
+            criticalGapsCount: criticalGaps.length,
+            nextRecommendedAction: evaluation.next_recommended_action,
+          },
+          offerDiagnosisGenerationCta: false,
+          staleDiagnosisPrimaryIsRegenerate: true,
+          useDirectConsolidateCta: true,
+        })
+      : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
@@ -197,6 +256,17 @@ export function BrandDiagnosisClient({
             hallazgos aprobados). No genera la Base de Marca ni contenidos.
           </p>
         </header>
+
+        {diagnosisJourneyResolved ? (
+          <BrandPostDiagnosisNextStepCard
+            resolved={diagnosisJourneyResolved}
+            onRegenerateDiagnosis={() => void onGenerate()}
+            regenerateBusy={generating}
+            onConsolidateDirect={() => void onConsolidateBases()}
+            consolidateBusy={consolidatingBases}
+            consolidateError={consolidateError}
+          />
+        ) : null}
 
         {error ? (
           <p className="text-sm text-red-600" role="alert">
@@ -239,24 +309,6 @@ export function BrandDiagnosisClient({
           </div>
         ) : (
           <div className="space-y-8">
-            <BrandPostDiagnosisNextStepCard
-              resolved={resolveBrandPostDiagnosisNextStep({
-                brandId,
-                pendingFactsCount: pendingReviewCount,
-                hasActiveSucceededDiagnosis: true,
-                diagnosisIsStale,
-                bases: basesState,
-                diagnosisHints: {
-                  criticalGapsCount: criticalGaps.length,
-                  nextRecommendedAction: evaluation.next_recommended_action,
-                },
-                offerDiagnosisGenerationCta: false,
-                staleDiagnosisPrimaryIsRegenerate: true,
-              })}
-              onRegenerateDiagnosis={() => void onGenerate()}
-              regenerateBusy={generating}
-            />
-
             <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-8">
               <QualityScoreRing
                 score={evaluation.overall_score ?? 0}
@@ -363,6 +415,16 @@ export function BrandDiagnosisClient({
               </section>
             ) : null}
 
+            {diagnosisJourneyResolved?.primary.kind === "consolidate_direct" ? (
+              <BrandPostDiagnosisNextStepCard
+                variant="footer"
+                resolved={diagnosisJourneyResolved}
+                onConsolidateDirect={() => void onConsolidateBases()}
+                consolidateBusy={consolidatingBases}
+                consolidateError={consolidateError}
+              />
+            ) : null}
+
             <div className="flex flex-col gap-3 border-t border-limbi-border pt-6 sm:flex-row sm:flex-wrap">
               <Button variant="outline" className={limbiOutlineButtonClass} asChild>
                 <Link href={`/brands/${brandId}`}>Volver a la marca</Link>
@@ -372,8 +434,8 @@ export function BrandDiagnosisClient({
                 <span className="font-medium text-limbi-text">
                   Mejorar esta sección con la IA de Limbi
                 </span>{" "}
-                en cada tarjeta de arriba. El bloque “Siguiente paso recomendado” arriba resume cómo
-                consolidar la Base de Marca cuando corresponda.
+                en cada tarjeta de arriba. Podés consolidar la Base de Marca desde el bloque superior
+                o desde el cierre al final de esta pantalla.
               </p>
             </div>
           </div>
