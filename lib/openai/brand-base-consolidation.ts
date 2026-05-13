@@ -107,6 +107,43 @@ const offerArchitecture = {
   required: ["offer_nature", "offer_summary", "service_catalog", "commercial_use_guidance"],
 } as const;
 
+const credibilityStringList = {
+  type: "array",
+  minItems: 0,
+  maxItems: 30,
+  items: { type: "string", minLength: 1, maxLength: 600 },
+} as const;
+
+const credibilityArchitecture = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    authority_signals: credibilityStringList,
+    institutional_roles: credibilityStringList,
+    industry_leadership_assets: credibilityStringList,
+    founder_credentials: credibilityStringList,
+    business_ecosystem: credibilityStringList,
+    reputation_proof_points: credibilityStringList,
+    communication_use_guidance: { type: "string", minLength: 1, maxLength: 4000 },
+    cautions: {
+      type: "array",
+      minItems: 0,
+      maxItems: 24,
+      items: { type: "string", minLength: 1, maxLength: 600 },
+    },
+  },
+  required: [
+    "authority_signals",
+    "institutional_roles",
+    "industry_leadership_assets",
+    "founder_credentials",
+    "business_ecosystem",
+    "reputation_proof_points",
+    "communication_use_guidance",
+    "cautions",
+  ],
+} as const;
+
 export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, unknown> {
   const knowledge = {
     type: "object",
@@ -132,6 +169,7 @@ export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, un
       internal_base_notice: { type: "string", minLength: 1, maxLength: 2500 },
       project_readiness_message: { type: "string", minLength: 1, maxLength: 2500 },
       offer_architecture: offerArchitecture,
+      credibility_architecture: credibilityArchitecture,
     },
     required: [
       "curator_reading",
@@ -144,6 +182,7 @@ export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, un
       "internal_base_notice",
       "project_readiness_message",
       "offer_architecture",
+      "credibility_architecture",
     ],
   } as const;
 

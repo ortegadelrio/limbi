@@ -16,6 +16,7 @@ export const BRAND_BASE_CONSOLIDATION_POLICY_V1 = {
     "Lo crudo permanece en tablas; esta consolidación solo produce texto curado en `knowledge_base` y `limbic_base`.",
     "La evaluación activa orienta prioridades y tono estratégico; las mejoras aprobadas y activas tienen prioridad sobre respuestas previas en la misma pregunta.",
     "Solo entran facts con status approved; tensiones y riesgos van a restricciones/alertas, no a claims positivos.",
+    "Las respuestas con question_key current_evidence o en section_key evidence suelen aportar credibilidad, roles gremiales y ecosistema: el modelo debe reflejarlas en `credibility_architecture` y en la narrativa de evidencia, sin duplicarlas como filas de `service_catalog` salvo que ya existan en `structured_offer_items`.",
     "La Base Límbica es lectura simbólica (atmósfera, ritmo, sensibilidad): no copy literal ni datos demográficos inventados.",
   ],
 } as const;

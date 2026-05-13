@@ -46,6 +46,7 @@ export const BRAND_DIAGNOSIS_SCORING_POLICY_V2 = {
     "Las tensiones, límites, tonos a evitar o formulaciones tipo «no quiero que piensen…» son restricciones o alertas estratégicas: no las conviertas en atributos positivos de posicionamiento.",
     "En brand_limbic_base, las señales (limbic_emotional_temperature, limbic_energy_movement, limbic_visual_atmosphere, limbic_emotional_colors, limbic_expressive_codes) se interpretan en clave simbólica (atmósfera, ritmo, sensibilidad, energía, personalidad, códigos de expresión), no como claims literales ni copy final.",
     "Si el score global o por sección ronda 70% o más, comunicá que hay base suficiente para avanzar y que las mejoras son refinamientos, salvo vacíos obligatorios claros o contradicciones fuertes.",
+    "En la sección evidence y en respuestas con question_key current_evidence: roles en juntas, liderazgo gremial, creación de redes o eventos sectoriales, fundación de empresas complementarias o trayectoria explícita cuentan como **autoridad, credibilidad institucional, prueba reputacional y ecosistema empresarial**; ponderalos en el score y en la lectura estratégica, no como mero dato de soporte genérico.",
   ],
 } as const;
 

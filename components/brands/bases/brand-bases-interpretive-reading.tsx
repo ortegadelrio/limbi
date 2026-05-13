@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 import {
   BRAND_BASES_EXECUTIVE_DISCLAIMER_ES,
+  brandKnowledgeUiHasCredibilityBlock,
   type BrandKnowledgeUiModel,
 } from "@/lib/brands/brand-bases-consolidated-ui";
 import type { BrandBasesOfferPreview } from "@/lib/brands/load-brand-bases-state";
 import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 import { BrandBasesOfferSection } from "@/components/brands/bases/brand-bases-offer-section";
+import { BrandBasesCredibilitySection } from "@/components/brands/bases/brand-bases-credibility-section";
 
 type Props = {
   brandId: string;
@@ -77,6 +79,10 @@ export function BrandBasesInterpretiveReading({ brandId, offerPreview, knowledge
         offerArchitecture={knowledgeUi.offerArchitecture}
         offerPreview={offerPreview}
       />
+
+      {brandKnowledgeUiHasCredibilityBlock(knowledgeUi.credibilityArchitecture) ? (
+        <BrandBasesCredibilitySection credibility={knowledgeUi.credibilityArchitecture} />
+      ) : null}
 
       {hasSections ? (
         <div className="space-y-4">

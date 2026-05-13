@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const BRAND_BASE_CONSOLIDATION_PROMPT_VERSION = "brand-base-consolidation-v1.1";
+/** v1.2: `credibility_architecture` (liderazgo, gremios, ecosistema, prueba reputacional desde evidencia). */
+export const BRAND_BASE_CONSOLIDATION_PROMPT_VERSION = "brand-base-consolidation-v1.2";
 
 const pillarSchema = z.object({
   title: z.string().min(1).max(200),
@@ -37,6 +38,18 @@ const offerArchitectureSchema = z.object({
   commercial_use_guidance: z.string().min(1).max(2500),
 });
 
+/** Activos de credibilidad y autoridad (p. ej. `current_evidence`, sección evidence); no inventar hechos. */
+export const credibilityArchitectureSchema = z.object({
+  authority_signals: z.array(z.string().min(1).max(600)).max(30).default([]),
+  institutional_roles: z.array(z.string().min(1).max(600)).max(30).default([]),
+  industry_leadership_assets: z.array(z.string().min(1).max(600)).max(30).default([]),
+  founder_credentials: z.array(z.string().min(1).max(600)).max(30).default([]),
+  business_ecosystem: z.array(z.string().min(1).max(600)).max(30).default([]),
+  reputation_proof_points: z.array(z.string().min(1).max(600)).max(30).default([]),
+  communication_use_guidance: z.string().min(1).max(4000),
+  cautions: z.array(z.string().min(1).max(600)).max(24).default([]),
+});
+
 export const brandKnowledgeBasePayloadSchema = z.object({
   curator_reading: z.string().min(1).max(16000),
   strategic_pillars: z.array(pillarSchema).min(1).max(12),
@@ -51,6 +64,8 @@ export const brandKnowledgeBasePayloadSchema = z.object({
   project_readiness_message: z.string().min(1).max(2500),
   /** Arquitectura de oferta: naturaleza, catálogo de ítems y guía para piezas comerciales (v1.1+). */
   offer_architecture: offerArchitectureSchema,
+  /** v1.2: trayectoria, roles, ecosistema y prueba reputacional (no confundir con catálogo de servicios). */
+  credibility_architecture: credibilityArchitectureSchema,
 });
 
 export const brandLimbicBasePayloadSchema = z.object({

@@ -29,18 +29,15 @@ export type BrandSectionInterpretationUi = {
   interpretation: string;
 };
 
-export type BrandKnowledgeUiModel = {
-  executiveReading: string;
-  sectionInterpretations: BrandSectionInterpretationUi[];
-  finalHighlights: BrandFinalHighlightsUi | null;
-  internalBaseNotice: string | null;
-  projectReadinessMessage: string | null;
-  curatorReading: string;
-  strategicPillars: { title: string; body: string }[];
-  restrictionsAndAlerts: string;
-  evidenceNarrative: string;
-  /** v1.1+ en payload consolidado; null en bases antiguas sin el bloque. */
-  offerArchitecture: BrandOfferArchitectureUi | null;
+export type BrandCredibilityArchitectureUi = {
+  authority_signals: string[];
+  institutional_roles: string[];
+  industry_leadership_assets: string[];
+  founder_credentials: string[];
+  business_ecosystem: string[];
+  reputation_proof_points: string[];
+  communication_use_guidance: string;
+  cautions: string[];
 };
 
 export type BrandOfferServiceCatalogEntryUi = {
@@ -56,6 +53,22 @@ export type BrandOfferArchitectureUi = {
   offer_summary: string;
   service_catalog: BrandOfferServiceCatalogEntryUi[];
   commercial_use_guidance: string;
+};
+
+export type BrandKnowledgeUiModel = {
+  executiveReading: string;
+  sectionInterpretations: BrandSectionInterpretationUi[];
+  finalHighlights: BrandFinalHighlightsUi | null;
+  internalBaseNotice: string | null;
+  projectReadinessMessage: string | null;
+  curatorReading: string;
+  strategicPillars: { title: string; body: string }[];
+  restrictionsAndAlerts: string;
+  evidenceNarrative: string;
+  /** v1.1+ en payload consolidado; null en bases antiguas sin el bloque. */
+  offerArchitecture: BrandOfferArchitectureUi | null;
+  /** v1.2+ credibilidad y respaldo reputacional; null en consolidaciones previas. */
+  credibilityArchitecture: BrandCredibilityArchitectureUi | null;
 };
 
 function asString(v: unknown): string {
@@ -146,6 +159,30 @@ function parseOfferArchitecture(raw: unknown): BrandOfferArchitectureUi | null {
   };
 }
 
+function parseCredibilityArchitecture(raw: unknown): BrandCredibilityArchitectureUi | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const communication_use_guidance = asString(o.communication_use_guidance).trim();
+  if (!communication_use_guidance) return null;
+  return {
+    authority_signals: asStringArray(o.authority_signals, 30),
+    institutional_roles: asStringArray(o.institutional_roles, 30),
+    industry_leadership_assets: asStringArray(o.industry_leadership_assets, 30),
+    founder_credentials: asStringArray(o.founder_credentials, 30),
+    business_ecosystem: asStringArray(o.business_ecosystem, 30),
+    reputation_proof_points: asStringArray(o.reputation_proof_points, 30),
+    communication_use_guidance,
+    cautions: asStringArray(o.cautions, 24),
+  };
+}
+
+/** True si el payload incluye el bloque v1.2 (aunque los arrays estén vacíos). */
+export function brandKnowledgeUiHasCredibilityBlock(
+  c: BrandCredibilityArchitectureUi | null,
+): c is BrandCredibilityArchitectureUi {
+  return c != null;
+}
+
 function sortInterpretations(rows: BrandSectionInterpretationUi[]): BrandSectionInterpretationUi[] {
   const order = new Map(BRAND_BASE_SECTION_DISPLAY_ORDER.map((k, i) => [k, i]));
   return [...rows].sort((a, b) => {
@@ -161,7 +198,7 @@ function sortInterpretations(rows: BrandSectionInterpretationUi[]): BrandSection
 }
 
 /**
- * Normaliza el payload guardado (v1.0 o v1.1) para la UI de `/bases`.
+ * Normaliza el payload guardado (v1.0–v1.2) para la UI de `/bases`.
  */
 export function buildBrandKnowledgeUiModel(payload: Record<string, unknown>): BrandKnowledgeUiModel {
   const p = payload;
@@ -200,5 +237,6 @@ export function buildBrandKnowledgeUiModel(payload: Record<string, unknown>): Br
     restrictionsAndAlerts: asString(p.restrictions_and_alerts),
     evidenceNarrative: asString(p.evidence_narrative),
     offerArchitecture: parseOfferArchitecture(p.offer_architecture),
+    credibilityArchitecture: parseCredibilityArchitecture(p.credibility_architecture),
   };
 }

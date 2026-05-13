@@ -68,11 +68,29 @@ describe("Journey marca — contrato UI consolidación (sin RTL)", () => {
     expect(src).toContain("offerPreview");
   });
 
-  it("schema OpenAI de consolidación incluye offer_architecture", () => {
+  it("schema OpenAI de consolidación incluye offer_architecture y credibility_architecture", () => {
     const p = path.join(__dirname, "../../lib/openai/brand-base-consolidation.ts");
     const src = readFileSync(p, "utf8");
     expect(src).toContain("offer_architecture");
     expect(src).toContain("service_catalog");
+    expect(src).toContain("credibility_architecture");
+  });
+
+  it("/bases: sección visible de credenciales y liderazgo", () => {
+    const interpretive = path.join(
+      __dirname,
+      "../../components/brands/bases/brand-bases-interpretive-reading.tsx",
+    );
+    const interpretiveSrc = readFileSync(interpretive, "utf8");
+    expect(interpretiveSrc).toContain("BrandBasesCredibilitySection");
+    expect(interpretiveSrc).toContain("brandKnowledgeUiHasCredibilityBlock");
+
+    const credibility = path.join(
+      __dirname,
+      "../../components/brands/bases/brand-bases-credibility-section.tsx",
+    );
+    const credibilitySrc = readFileSync(credibility, "utf8");
+    expect(credibilitySrc).toContain("Credenciales, liderazgo y respaldo reputacional");
   });
 
   it("dashboard interno: Ver Base de Marca cuando hay bases", () => {
