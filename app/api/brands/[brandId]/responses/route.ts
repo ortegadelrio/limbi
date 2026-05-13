@@ -241,5 +241,14 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: upsertError.message }, { status: 500 });
   }
 
+  const nowIso = new Date().toISOString();
+  const { error: brandTouchErr } = await supabase
+    .from("brands")
+    .update({ updated_at: nowIso })
+    .eq("id", brandId);
+  if (brandTouchErr) {
+    return NextResponse.json({ error: brandTouchErr.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true, saved: upsertRows.length });
 }

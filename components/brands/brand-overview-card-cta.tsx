@@ -16,9 +16,14 @@ import {
 type Props = {
   brandId: string;
   maintenance: BrandDashboardMaintenanceResolved;
+  activeDiagnosisEvaluationId?: string | null;
 };
 
-export function BrandOverviewCardCta({ brandId, maintenance }: Props) {
+export function BrandOverviewCardCta({
+  brandId,
+  maintenance,
+  activeDiagnosisEvaluationId = null,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -43,6 +48,16 @@ export function BrandOverviewCardCta({ brandId, maintenance }: Props) {
         const d = await postBrandDiagnosis(brandId);
         if (!d.ok) {
           setErrorMessage(d.error);
+          return;
+        }
+        if (
+          activeDiagnosisEvaluationId &&
+          d.evaluation.id === activeDiagnosisEvaluationId
+        ) {
+          setErrorMessage(
+            "El diagnóstico no se renovó; no consolidamos la Base de Marca para evitar datos desactualizados.",
+          );
+          await router.refresh();
           return;
         }
         const c = await postBrandConsolidate(brandId);
@@ -78,7 +93,7 @@ export function BrandOverviewCardCta({ brandId, maintenance }: Props) {
     } finally {
       setBusy(false);
     }
-  }, [brandId, maintenance, router]);
+  }, [brandId, maintenance, router, activeDiagnosisEvaluationId]);
 
   const isLink =
     (maintenance.primaryRole === "review_pending_facts" ||

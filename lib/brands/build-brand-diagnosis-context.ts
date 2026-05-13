@@ -172,13 +172,54 @@ export function strategicSectionKeysFromDefinitions(
     .filter((sk) => !EXCLUDED_DIAGNOSIS_SECTIONS.has(sk));
 }
 
-/** Solo respuestas ligadas a definiciones activas del catálogo actual (excluye filas huérfanas de catálogos viejos). */
+/**
+ * Respuestas alineadas al catálogo activo: conserva filas con `question_definition_id` vigente y
+ * **re-enlaza por `question_key`** cuando el id apunta a una definición inactiva/reemplazada (Ticket
+ * B u otros cambios de catálogo), deduplicando por `question_key` (máx. `updated_at`).
+ */
 export function filterBrandResponsesForActiveDefinitions(
   responses: BrandResponseRow[],
   definitions: QuestionDefinitionRow[],
 ): BrandResponseRow[] {
   const defIds = new Set(definitions.map((d) => d.id));
-  return responses.filter((r) => defIds.has(r.question_definition_id));
+  const defByKey = new Map<string, QuestionDefinitionRow>();
+  for (const d of definitions) {
+    if (!defByKey.has(d.question_key)) defByKey.set(d.question_key, d);
+  }
+
+  const resolveRow = (r: BrandResponseRow): BrandResponseRow | null => {
+    if (defIds.has(r.question_definition_id)) return r;
+    const canon = defByKey.get(r.question_key);
+    if (!canon) return null;
+    return {
+      ...r,
+      question_definition_id: canon.id,
+      section_key: canon.section_key,
+      module_key: canon.module_key,
+      question_key: canon.question_key,
+      answer_type: canon.answer_type,
+      is_required: canon.is_required,
+      is_sensitive: canon.is_sensitive,
+    };
+  };
+
+  const byKey = new Map<string, BrandResponseRow>();
+  for (const r of responses) {
+    const row = resolveRow(r);
+    if (!row) continue;
+    const prev = byKey.get(row.question_key);
+    if (!prev) {
+      byKey.set(row.question_key, row);
+      continue;
+    }
+    const prevTs = String(prev.updated_at ?? prev.created_at ?? "");
+    const curTs = String(row.updated_at ?? row.created_at ?? "");
+    const preferCurrent =
+      curTs > prevTs ||
+      (defIds.has(row.question_definition_id) && !defIds.has(prev.question_definition_id));
+    byKey.set(row.question_key, preferCurrent ? row : prev);
+  }
+  return [...byKey.values()];
 }
 
 export function buildCoverage(
@@ -250,6 +291,26 @@ export function buildCoverage(
   });
 }
 
+/** Huella de respuesta para hash (incluye contenido; no duplicar texto largo en snapshot). */
+function brandResponseAnswerDigest(r: BrandResponseRow): string {
+  const t = (r.answer_text ?? "").trim();
+  let vNorm = "";
+  try {
+    vNorm = JSON.stringify(r.answer_value ?? null);
+  } catch {
+    vNorm = "null";
+  }
+  return createHash("sha256")
+    .update(r.question_key)
+    .update("\0")
+    .update(r.question_definition_id)
+    .update("\0")
+    .update(t)
+    .update("\0")
+    .update(vNorm)
+    .digest("hex");
+}
+
 /** Metadatos para `source_snapshot` (sin texto sensible ni duplicar cuestionario completo). */
 export function buildBrandDiagnosisSourceSnapshot(args: {
   strategicSectionKeys: string[];
@@ -258,18 +319,40 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
   definitionsCount: number;
   responses: BrandResponseRow[];
   approvedFactsCount: number;
+  approvedFactsDigest: string;
   approvedSectionImprovements: BrandDiagnosisApprovedSectionImprovementEntry[];
+  approvedSectionImprovementsDigest: string;
   structuredOfferItemCount: number;
   structuredAudienceTerritoryCount: number;
+  structuredOfferItems: BrandDiagnosisStructuredOfferItemEntry[];
+  structuredAudienceTerritories: BrandDiagnosisStructuredAudienceTerritoryEntry[];
 }): Record<string, unknown> {
-  const sanitizedResponses = args.responses.map((r) => ({
+  const responsesMeta = args.responses.map((r) => ({
     section_key: r.section_key,
     question_key: r.question_key,
+    question_definition_id: r.question_definition_id,
     is_required: r.is_required,
     is_sensitive: r.is_sensitive,
     has_text: (r.answer_text ?? "").trim().length > 0,
     answer_text_len: (r.answer_text ?? "").length,
+    answer_digest: brandResponseAnswerDigest(r),
   }));
+
+  const structuredOfferDigest = createHash("sha256")
+    .update(
+      args.structuredOfferItems
+        .map((i) => `${i.item_type}\t${i.title}\t${(i.description ?? "").slice(0, 800)}`)
+        .join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 48);
+
+  const structuredTerritoryDigest = createHash("sha256")
+    .update(
+      args.structuredAudienceTerritories.map((t) => `${t.territory_type}\t${t.name}`).join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 48);
 
   const inputHash = createHash("sha256")
     .update(
@@ -278,10 +361,14 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
         offer_nature: args.offerNature,
         prompt_version: args.promptVersion,
         definitions_count: args.definitionsCount,
-        responses_meta: sanitizedResponses,
+        responses_meta: responsesMeta,
         approved_facts_count: args.approvedFactsCount,
+        approved_facts_digest: args.approvedFactsDigest,
+        approved_section_improvements_digest: args.approvedSectionImprovementsDigest,
         structured_offer_item_count: args.structuredOfferItemCount,
         structured_audience_territory_count: args.structuredAudienceTerritoryCount,
+        structured_offer_digest: structuredOfferDigest,
+        structured_audience_territory_digest: structuredTerritoryDigest,
         approved_section_improvements_meta: args.approvedSectionImprovements.map((i) => ({
           improvement_id: i.improvement_id,
           section_key: i.section_key,
@@ -302,9 +389,13 @@ export function buildBrandDiagnosisSourceSnapshot(args: {
     response_count: args.responses.length,
     sensitive_response_count: args.responses.filter((r) => r.is_sensitive).length,
     approved_facts_count: args.approvedFactsCount,
+    approved_facts_digest: args.approvedFactsDigest,
     structured_offer_item_count: args.structuredOfferItemCount,
     structured_audience_territory_count: args.structuredAudienceTerritoryCount,
+    structured_offer_digest: structuredOfferDigest,
+    structured_audience_territory_digest: structuredTerritoryDigest,
     approved_section_improvements_count: args.approvedSectionImprovements.length,
+    approved_section_improvements_digest: args.approvedSectionImprovementsDigest,
     responses_meta_hash: inputHash,
   };
 }
@@ -512,6 +603,38 @@ export async function buildBrandDiagnosisEvaluationContext(
     section_coverage_summary: coverage,
   };
 
+  const approvedFactsDigest = createHash("sha256")
+    .update(
+      factEntries
+        .map((f) =>
+          [
+            f.section_key,
+            f.module_key ?? "",
+            f.question_key ?? "",
+            (f.usable_text ?? "").slice(0, 800),
+          ].join("\t"),
+        )
+        .join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 48);
+
+  const approvedSectionImprovementsDigest = createHash("sha256")
+    .update(
+      approvedSectionImprovementEntries
+        .map((i) =>
+          [
+            i.improvement_id,
+            (i.improved_summary ?? "").slice(0, 800),
+            i.proposed_changes.map((c) => (c.proposed_improved_text ?? "").slice(0, 400)).join("|"),
+            i.remaining_gaps.map((g) => `${g.gap}\t${g.why_it_matters}`).join("|"),
+          ].join("\n"),
+        )
+        .join("\n\n"),
+    )
+    .digest("hex")
+    .slice(0, 48);
+
   const sourceSnapshot = buildBrandDiagnosisSourceSnapshot({
     strategicSectionKeys,
     offerNature,
@@ -519,9 +642,13 @@ export async function buildBrandDiagnosisEvaluationContext(
     definitionsCount: defEntries.length,
     responses,
     approvedFactsCount: factEntries.length,
+    approvedFactsDigest,
     approvedSectionImprovements: approvedSectionImprovementEntries,
+    approvedSectionImprovementsDigest,
     structuredOfferItemCount,
     structuredAudienceTerritoryCount: structuredTerritoryCount,
+    structuredOfferItems,
+    structuredAudienceTerritories: structuredTerritories,
   });
 
   return {

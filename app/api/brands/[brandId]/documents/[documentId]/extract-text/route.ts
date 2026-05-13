@@ -62,7 +62,7 @@ export async function POST(_request: Request, { params }: Params) {
   const { data: doc, error: docErr } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, source_metadata, created_at, updated_at",
     )
     .eq("id", documentId)
     .eq("brand_id", brandId)
@@ -208,9 +208,14 @@ export async function POST(_request: Request, { params }: Params) {
 
     if (trimmed.length === 0) {
       const emptyMsg = emptyExtractionUserMessage(doc.file_name);
+      const crawl =
+        doc.source_kind === "website_crawl" && doc.source_metadata && typeof doc.source_metadata === "object"
+          ? (doc.source_metadata as Record<string, unknown>).website_crawl
+          : undefined;
       const meta: Record<string, unknown> = {
         ...parsed.metadata,
         extraction_outcome: "empty",
+        ...(crawl !== undefined ? { website_crawl_explore: crawl } : {}),
       };
       await supabase
         .from("brand_document_extractions")
@@ -228,8 +233,13 @@ export async function POST(_request: Request, { params }: Params) {
         .update({ processing_status: "ready", processing_error: null })
         .eq("id", documentId);
     } else {
+      const crawl =
+        doc.source_kind === "website_crawl" && doc.source_metadata && typeof doc.source_metadata === "object"
+          ? (doc.source_metadata as Record<string, unknown>).website_crawl
+          : undefined;
       const meta: Record<string, unknown> = {
         ...parsed.metadata,
+        ...(crawl !== undefined ? { website_crawl_explore: crawl } : {}),
       };
       await supabase
         .from("brand_document_extractions")
@@ -274,7 +284,7 @@ export async function POST(_request: Request, { params }: Params) {
   const { data: finalDoc } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, source_metadata, created_at, updated_at",
     )
     .eq("id", documentId)
     .single();

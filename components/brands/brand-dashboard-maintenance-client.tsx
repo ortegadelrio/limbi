@@ -34,6 +34,8 @@ type Props = {
   diagnosisGeneratedAtBogota: string | null;
   baseConsolidatedAtBogota: string | null;
   hasActiveBases: boolean;
+  /** Evaluación activa al cargar la página; si POST devuelve el mismo id, no consolidamos. */
+  activeDiagnosisEvaluationId: string | null;
 };
 
 export function BrandDashboardMaintenanceClient({
@@ -46,6 +48,7 @@ export function BrandDashboardMaintenanceClient({
   diagnosisGeneratedAtBogota,
   baseConsolidatedAtBogota,
   hasActiveBases,
+  activeDiagnosisEvaluationId,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -95,9 +98,21 @@ export function BrandDashboardMaintenanceClient({
     try {
       if (primaryRole === "update_all") {
         setPhaseMessage("Limbi está actualizando el diagnóstico y la Base de Marca…");
-        const dOk = await runDiagnosis();
-        if (!dOk) {
+        const d = await postBrandDiagnosis(brandId);
+        if (!d.ok) {
+          setErrorMessage(d.error);
           setPhaseMessage(null);
+          return;
+        }
+        if (
+          activeDiagnosisEvaluationId &&
+          d.evaluation.id === activeDiagnosisEvaluationId
+        ) {
+          setErrorMessage(
+            "El diagnóstico no se renovó; no consolidamos la Base de Marca para evitar datos desactualizados.",
+          );
+          setPhaseMessage(null);
+          await router.refresh();
           return;
         }
         const cOk = await runConsolidate();
@@ -140,7 +155,7 @@ export function BrandDashboardMaintenanceClient({
     } finally {
       setBusy(false);
     }
-  }, [maintenance, router, runConsolidate, runDiagnosis]);
+  }, [maintenance, router, runConsolidate, runDiagnosis, activeDiagnosisEvaluationId, brandId]);
 
   const primaryDisabled =
     busy ||
@@ -189,7 +204,7 @@ export function BrandDashboardMaintenanceClient({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-limbi-border/60 pt-4 text-xs text-limbi-muted">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-limbi-border/60 pt-4 text-xs text-limbi-muted">
           {hasActiveDiagnosis ? (
             <>
               <span
@@ -205,6 +220,12 @@ export function BrandDashboardMaintenanceClient({
               {diagnosisGeneratedAtBogota ? (
                 <span>
                   Hora Bogotá · generado el {diagnosisGeneratedAtBogota}
+                </span>
+              ) : null}
+              {diagnosisGeneratedAtBogota ? (
+                <span className="basis-full max-w-prose text-[11px] leading-snug text-limbi-muted/90">
+                  Tras editar el cuestionario, «Actualizar todo» reconstruye el diagnóstico y luego la
+                  base; esta fecha debería quedar posterior a tu último guardado.
                 </span>
               ) : null}
             </>

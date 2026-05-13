@@ -170,7 +170,11 @@ export function BrandList({ brands }: { brands: BrandListItem[] }) {
                   )}
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[12rem] sm:items-stretch">
-                  <BrandOverviewCardCta brandId={b.id} maintenance={b.maintenance} />
+                  <BrandOverviewCardCta
+                    brandId={b.id}
+                    maintenance={b.maintenance}
+                    activeDiagnosisEvaluationId={b.activeDiagnosisEvaluationId}
+                  />
                   <Link
                     href={questionnaireHref}
                     className="text-center text-sm font-medium text-limbi-green underline-offset-4 hover:underline sm:text-right"

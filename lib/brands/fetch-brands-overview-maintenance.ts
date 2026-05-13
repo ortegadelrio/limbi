@@ -27,6 +27,8 @@ export type BrandOverviewListRow = {
   diagnosisIsStale: boolean;
   hasActiveBases: boolean;
   basesStale: boolean;
+  /** Para validar que POST diagnóstico devolvió una evaluación nueva antes de consolidar. */
+  activeDiagnosisEvaluationId: string | null;
 };
 
 /**
@@ -101,6 +103,7 @@ export async function fetchBrandsOverviewMaintenanceRows(
         diagnosisIsStale: diagnosisState.diagnosisIsStale,
         hasActiveBases,
         basesStale,
+        activeDiagnosisEvaluationId: diagnosisState.activeDiagnosis?.id ?? null,
       };
     }),
   );

@@ -321,6 +321,9 @@ export async function POST(_request: Request, { params }: Params) {
 
     return NextResponse.json({
       evaluation: updated as BrandEvaluationRow,
+      diagnosis_generated_at_bogota: formatBogotaDateTime(
+        (updated as BrandEvaluationRow).created_at,
+      ),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error al generar el diagnóstico.";

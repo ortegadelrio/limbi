@@ -183,6 +183,7 @@ export default async function BrandDetailPage({ params }: Props) {
           diagnosisGeneratedAtBogota={diagnosisGeneratedAtBogota}
           baseConsolidatedAtBogota={baseConsolidatedAtBogota}
           hasActiveBases={hasActiveBases}
+          activeDiagnosisEvaluationId={diagnosisState.activeDiagnosis?.id ?? null}
         />
 
         <div

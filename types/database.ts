@@ -208,6 +208,8 @@ export type BrandDocumentRow = {
   source_kind?: BrandDocumentSourceKind;
   /** URL de entrada cuando `source_kind` es `website_crawl`. */
   web_entry_url?: string | null;
+  /** Diagnóstico interno (p. ej. exploración web); no es copy de usuario. */
+  source_metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };

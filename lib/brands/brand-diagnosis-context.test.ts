@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BRAND_DIAGNOSIS_SCORING_POLICY_V2,
+  buildBrandDiagnosisSourceSnapshot,
   buildCoverage,
   filterBrandResponsesForActiveDefinitions,
   hasMinimumInputForDiagnosis,
@@ -9,7 +10,7 @@ import {
   applyOptionalEmptinessSectionScoreFloors,
   brandDiagnosisRawOutputSchema,
 } from "@/lib/schemas/brand-diagnosis";
-import type { BrandResponseRow, QuestionDefinitionRow } from "@/types/database";
+import type { BrandOfferNature, BrandResponseRow, QuestionDefinitionRow } from "@/types/database";
 
 function def(overrides: Partial<QuestionDefinitionRow>): QuestionDefinitionRow {
   return {
@@ -55,7 +56,7 @@ function resp(overrides: Partial<BrandResponseRow>): BrandResponseRow {
 }
 
 describe("filterBrandResponsesForActiveDefinitions", () => {
-  it("drops responses whose question_definition_id is not in active definitions", () => {
+  it("drops responses whose question_key has no active definition", () => {
     const definitions = [def({ id: "active-1", question_key: "a" })];
     const rows = [
       resp({ question_definition_id: "active-1", question_key: "a" }),
@@ -64,6 +65,104 @@ describe("filterBrandResponsesForActiveDefinitions", () => {
     const filtered = filterBrandResponsesForActiveDefinitions(rows, definitions);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]!.question_key).toBe("a");
+  });
+
+  it("re-attaches obsolete question_definition_id via active question_key and preserves answer_text", () => {
+    const definitions = [
+      def({ id: "active-1", question_key: "q1", section_key: "identity", module_key: "m1" }),
+    ];
+    const sentinel = "FRASE_CENTINELA_ACTUALIZACION_MARCA_2026";
+    const rows = [
+      resp({
+        question_definition_id: "old-b",
+        question_key: "q1",
+        answer_text: sentinel,
+        section_key: "legacy-section",
+        module_key: "legacy-mod",
+        updated_at: "2026-06-01",
+      }),
+    ];
+    const filtered = filterBrandResponsesForActiveDefinitions(rows, definitions);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]!.question_definition_id).toBe("active-1");
+    expect(filtered[0]!.section_key).toBe("identity");
+    expect(filtered[0]!.module_key).toBe("m1");
+    expect(filtered[0]!.answer_text).toBe(sentinel);
+  });
+
+  it("dedupes by question_key and keeps the row with newer updated_at", () => {
+    const definitions = [def({ id: "active-1", question_key: "q1" })];
+    const rows = [
+      resp({
+        id: "old-row",
+        question_definition_id: "active-1",
+        question_key: "q1",
+        answer_text: "primera",
+        updated_at: "2026-01-01",
+      }),
+      resp({
+        id: "new-row",
+        question_definition_id: "zombie",
+        question_key: "q1",
+        answer_text: "segunda",
+        updated_at: "2026-08-01",
+      }),
+    ];
+    const filtered = filterBrandResponsesForActiveDefinitions(rows, definitions);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]!.answer_text).toBe("segunda");
+    expect(filtered[0]!.question_definition_id).toBe("active-1");
+  });
+});
+
+describe("buildBrandDiagnosisSourceSnapshot", () => {
+  function snapForResponses(responses: BrandResponseRow[]) {
+    return buildBrandDiagnosisSourceSnapshot({
+      strategicSectionKeys: ["identity"],
+      offerNature: "service" as BrandOfferNature,
+      promptVersion: "pv-test",
+      definitionsCount: 1,
+      responses,
+      approvedFactsCount: 0,
+      approvedFactsDigest: "0".repeat(48),
+      approvedSectionImprovements: [],
+      approvedSectionImprovementsDigest: "1".repeat(48),
+      structuredOfferItemCount: 0,
+      structuredAudienceTerritoryCount: 0,
+      structuredOfferItems: [],
+      structuredAudienceTerritories: [],
+    });
+  }
+
+  it("changes responses_meta_hash when answer_text changes for the same question_key", () => {
+    const a = snapForResponses([
+      resp({ question_definition_id: "d1", question_key: "q1", answer_text: "aaa" }),
+    ]);
+    const b = snapForResponses([
+      resp({ question_definition_id: "d1", question_key: "q1", answer_text: "bbb" }),
+    ]);
+    expect(a.responses_meta_hash).not.toBe(b.responses_meta_hash);
+  });
+
+  it("includes structured offer item text in the hash", () => {
+    const r = [resp({ question_definition_id: "d1", question_key: "q1" })];
+    const withoutItems = snapForResponses(r);
+    const withItems = buildBrandDiagnosisSourceSnapshot({
+      strategicSectionKeys: ["identity"],
+      offerNature: "service" as BrandOfferNature,
+      promptVersion: "pv-test",
+      definitionsCount: 1,
+      responses: r,
+      approvedFactsCount: 0,
+      approvedFactsDigest: "0".repeat(48),
+      approvedSectionImprovements: [],
+      approvedSectionImprovementsDigest: "1".repeat(48),
+      structuredOfferItemCount: 1,
+      structuredAudienceTerritoryCount: 0,
+      structuredOfferItems: [{ item_type: "service", title: "Uno", description: null }],
+      structuredAudienceTerritories: [],
+    });
+    expect(withoutItems.responses_meta_hash).not.toBe(withItems.responses_meta_hash);
   });
 });
 

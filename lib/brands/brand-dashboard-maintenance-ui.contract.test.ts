@@ -11,6 +11,7 @@ describe("Dashboard marca — contrato UI mantenimiento (sin RTL)", () => {
     const src = readFileSync(p, "utf8");
     expect(src).toContain("BrandDashboardMaintenanceClient");
     expect(src).toContain("resolveBrandDashboardMaintenance");
+    expect(src).toContain("activeDiagnosisEvaluationId=");
     expect(src).not.toContain("BrandPostDiagnosisNextStepCard");
     expect(src).not.toContain("buildBrandDashboardCascadeBanner");
   });
@@ -22,7 +23,7 @@ describe("Dashboard marca — contrato UI mantenimiento (sin RTL)", () => {
     );
     const src = readFileSync(p, "utf8");
     expect(src).toContain("brand-maintenance-api-actions");
-    const idxDiag = src.indexOf("runDiagnosis()");
+    const idxDiag = src.indexOf("postBrandDiagnosis(brandId)");
     const idxCons = src.indexOf("runConsolidate()");
     expect(idxDiag).toBeGreaterThan(-1);
     expect(idxCons).toBeGreaterThan(-1);
