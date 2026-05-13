@@ -113,7 +113,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
 });
 
 describe("brandBaseConsolidationRawOutputSchema", () => {
-  it("accepts a valid v1.1 payload", () => {
+  it("accepts a valid v1.2 payload (incl. credibility_architecture)", () => {
     const section = (section_key: string) => ({
       section_key,
       headline: `Lectura ${section_key}`,
@@ -161,6 +161,17 @@ describe("brandBaseConsolidationRawOutputSchema", () => {
           ],
           commercial_use_guidance:
             "Listá estos nombres en piezas comerciales; no inventes servicios fuera de este catálogo.",
+        },
+        credibility_architecture: {
+          authority_signals: [],
+          institutional_roles: [],
+          industry_leadership_assets: [],
+          founder_credentials: [],
+          business_ecosystem: [],
+          reputation_proof_points: [],
+          communication_use_guidance:
+            "Sin credenciales adicionales declaradas en las fuentes actuales; completar evidencia cuando aplique.",
+          cautions: [],
         },
       },
       limbic_base: {

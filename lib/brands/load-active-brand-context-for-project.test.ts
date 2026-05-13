@@ -51,7 +51,7 @@ describe("deriveActiveBrandContextBlockingReasons", () => {
 });
 
 describe("assessKnowledgePayloadForProjectContract", () => {
-  it("conserva service_catalog cuando el payload es v1.1 válido", () => {
+  it("conserva service_catalog cuando el payload es v1.2 válido", () => {
     const z = brandBaseConsolidationRawOutputSchema.safeParse({
       knowledge_base: {
         curator_reading: "x",
@@ -95,6 +95,16 @@ describe("assessKnowledgePayloadForProjectContract", () => {
             },
           ],
           commercial_use_guidance: "g",
+        },
+        credibility_architecture: {
+          authority_signals: [],
+          institutional_roles: [],
+          industry_leadership_assets: [],
+          founder_credentials: [],
+          business_ecosystem: [],
+          reputation_proof_points: [],
+          communication_use_guidance: "Sin datos de credibilidad extra en esta prueba.",
+          cautions: [],
         },
       },
       limbic_base: {

@@ -16,7 +16,7 @@ export const BRAND_CONTEXT_INTERPRETIVE_RULES_FOR_PROJECTS_ES: readonly string[]
   "Las piezas generadas deben respetar palabras, temas y enfoques a evitar indicados en restricciones, avisos y guías simbólicas de la base.",
 ] as const;
 
-/** Alineado al prompt `brand-base-consolidation-v1.1` (secciones mínimas en `section_interpretations`). */
+/** Alineado al prompt `brand-base-consolidation-v1.2` (secciones mínimas en `section_interpretations`). */
 const SECTION_KEYS_EXPECTED_IN_KNOWLEDGE = [
   "identity",
   "offer",
@@ -69,7 +69,7 @@ export function pickSourceTraceFromSnapshot(
 }
 
 /**
- * Contrato mínimo de lectura para proyectos respecto al JSON `brand-base-consolidation-v1.1`.
+ * Contrato mínimo de lectura para proyectos respecto al JSON `brand-base-consolidation-v1.2`.
  * Algunos conceptos de producto viven bajo nombres distintos en el schema actual:
  * p. ej. `restrictions_and_alerts` cubre guardrails; `section_interpretations` cubre propuesta/audiencias/diferenciación/voz.
  */
@@ -117,7 +117,7 @@ const LIMBIC_KEYS_REQUIRED = [
 ] as const;
 
 /**
- * Contrato de Base Límbica consolidada (`brand-base-consolidation-v1.1`).
+ * Contrato de Base Límbica consolidada (`brand-base-consolidation-v1.2` / payload límbico estable).
  * Mapeo conceptual a nombres de producto: `rhythm_and_energy` ↔ energía/movimiento;
  * `atmosphere_and_metaphor` ↔ atmósfera visual/emocional; `non_literal_guidance` ↔ cómo usar (simbólico);
  * `symbolic_restrictions` ↔ cómo no usar / palabras a evitar en lectura simbólica.

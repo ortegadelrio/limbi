@@ -211,6 +211,7 @@ describe("BRAND_DIAGNOSIS_SCORING_POLICY_V2", () => {
     expect(blob).toMatch(/structured_offer_items/);
     expect(blob).toMatch(/structured_audience_territories/);
     expect(blob).toMatch(/simb[oó]lic/);
+    expect(blob).toMatch(/current_evidence/);
   });
 });
 
