@@ -21,6 +21,22 @@ const finalHighlightsSchema = z.object({
   narrative_care_and_avoids: z.array(z.string().min(1).max(800)).min(2).max(8),
 });
 
+/** Catálogo explícito de servicios/productos para piezas comerciales y consumo futuro por Limbi. */
+const offerServiceCatalogEntrySchema = z.object({
+  name: z.string().min(1).max(300),
+  item_type: z.string().max(80),
+  description: z.string().max(2000),
+  strategic_role: z.string().max(800),
+  main_value: z.string().max(800),
+});
+
+const offerArchitectureSchema = z.object({
+  offer_nature: z.string().max(200),
+  offer_summary: z.string().min(1).max(4000),
+  service_catalog: z.array(offerServiceCatalogEntrySchema).max(40),
+  commercial_use_guidance: z.string().min(1).max(2500),
+});
+
 export const brandKnowledgeBasePayloadSchema = z.object({
   curator_reading: z.string().min(1).max(16000),
   strategic_pillars: z.array(pillarSchema).min(1).max(12),
@@ -33,6 +49,8 @@ export const brandKnowledgeBasePayloadSchema = z.object({
   final_highlights: finalHighlightsSchema,
   internal_base_notice: z.string().min(1).max(2500),
   project_readiness_message: z.string().min(1).max(2500),
+  /** Arquitectura de oferta: naturaleza, catálogo de ítems y guía para piezas comerciales (v1.1+). */
+  offer_architecture: offerArchitectureSchema,
 });
 
 export const brandLimbicBasePayloadSchema = z.object({

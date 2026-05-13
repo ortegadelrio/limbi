@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   limbiDocumentCardClass,
+  limbiOutlineButtonClass,
   limbiPrimaryButtonClass,
 } from "@/components/projects/limbi-ui";
 import { QualityScoreRing } from "@/components/projects/quality-score-ring";
@@ -300,38 +301,55 @@ export function BrandDashboardMaintenanceClient({
           </p>
         ) : null}
 
-        {maintenance.primaryRole !== "none_up_to_date" ? (
-          <div className="flex flex-wrap gap-2">
-            {maintenance.primaryRole === "review_pending_facts" && maintenance.primaryHref ? (
-              <Button className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")} asChild>
-                <Link href={maintenance.primaryHref}>{maintenance.primaryLabel}</Link>
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")}
-                disabled={primaryDisabled}
-                onClick={() => void onPrimary()}
-              >
-                {busy ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-                    {maintenance.primaryLabel}
-                  </>
-                ) : (
-                  maintenance.primaryLabel
-                )}
-              </Button>
-            )}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {maintenance.primaryRole !== "none_up_to_date" ? (
+            <>
+              {maintenance.primaryRole === "review_pending_facts" && maintenance.primaryHref ? (
+                <Button
+                  className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")}
+                  asChild
+                >
+                  <Link href={maintenance.primaryHref}>{maintenance.primaryLabel}</Link>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")}
+                  disabled={primaryDisabled}
+                  onClick={() => void onPrimary()}
+                >
+                  {busy ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                      {maintenance.primaryLabel}
+                    </>
+                  ) : (
+                    maintenance.primaryLabel
+                  )}
+                </Button>
+              )}
+            </>
+          ) : null}
+          {hasActiveBases ? (
+            <Button
+              variant="outline"
+              className={cn(limbiOutlineButtonClass, "min-h-11 w-full px-5 sm:w-auto")}
+              asChild
+            >
+              <Link href={`/brands/${brandId}/bases`}>Ver Base de Marca</Link>
+            </Button>
+          ) : null}
+        </div>
 
         <div className="flex flex-col gap-3 border-t border-limbi-border/70 pt-5">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-limbi-muted">
             Accesos rápidos
           </p>
           <ul className="grid gap-2 sm:grid-cols-2">
-            {secondaryLinks.map((l) => (
+            {(hasActiveBases
+              ? secondaryLinks.filter((l) => l.label !== "Ver Base de Marca")
+              : secondaryLinks
+            ).map((l) => (
               <li key={l.href}>
                 <Link
                   href={l.href}

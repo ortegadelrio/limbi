@@ -43,6 +43,7 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
       has_active_diagnosis: Boolean(j.has_active_diagnosis),
       diagnosis_is_stale: Boolean(j.diagnosis_is_stale),
       knowledge_consolidated_at_bogota: j.knowledge_consolidated_at_bogota ?? null,
+      offer_preview: j.offer_preview ?? { offer_nature: null, items: [] },
     });
     setError(null);
   }, [brandId]);
@@ -241,7 +242,11 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
               Lectura ejecutiva para equipos: cómo Limbi entiende la marca hoy, en lenguaje claro.
             </p>
           </div>
-          <BrandBasesInterpretiveReading knowledgeUi={knowledgeUi} />
+          <BrandBasesInterpretiveReading
+            brandId={brandId}
+            offerPreview={bases.offer_preview}
+            knowledgeUi={knowledgeUi}
+          />
           {hasLimbic ? (
             <div className="space-y-4 border-t border-limbi-border/80 pt-10">
               <p className="max-w-prose text-xs leading-relaxed text-limbi-muted">

@@ -23,3 +23,26 @@ export function offerNatureLabelEs(value: string | null | undefined): string {
   if (!value) return "—";
   return OFFER_NATURE_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
+
+const OFFER_ITEM_TYPE_LABELS: Record<string, string> = {
+  service: "Servicio",
+  solution: "Solución",
+  product: "Producto",
+  feature: "Característica / feature",
+  offer: "Oferta",
+  module: "Módulo",
+  function: "Función",
+  use_case: "Caso de uso",
+  moment: "Momento / componente de experiencia",
+  component: "Componente",
+  program: "Programa",
+  line_of_action: "Línea de acción",
+  theme: "Tema",
+  format: "Formato",
+  other: "Otro",
+};
+
+export function offerItemTypeLabelEs(value: string | null | undefined): string {
+  if (!value) return "—";
+  return OFFER_ITEM_TYPE_LABELS[value] ?? value;
+}

@@ -5,7 +5,23 @@ import {
 } from "@/lib/brands/brand-bases-staleness";
 import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { formatBogotaDateTime } from "@/lib/datetime/format-bogota-date-time";
-import type { BrandKnowledgeBaseRow, BrandLimbicBaseRow } from "@/types/database";
+import type {
+  BrandKnowledgeBaseRow,
+  BrandLimbicBaseRow,
+  BrandOfferItemType,
+  BrandOfferNature,
+} from "@/types/database";
+
+export type BrandBasesOfferPreviewItem = {
+  title: string;
+  description: string | null;
+  item_type: BrandOfferItemType;
+};
+
+export type BrandBasesOfferPreview = {
+  offer_nature: BrandOfferNature | null;
+  items: BrandBasesOfferPreviewItem[];
+};
 
 export type BrandBasesDetailState = {
   pending_review_count: number;
@@ -17,6 +33,7 @@ export type BrandBasesDetailState = {
   has_active_diagnosis: boolean;
   diagnosis_is_stale: boolean;
   knowledge_consolidated_at_bogota: string | null;
+  offer_preview: BrandBasesOfferPreview;
 };
 
 export async function loadBrandBasesDetailState(
@@ -24,6 +41,31 @@ export async function loadBrandBasesDetailState(
   brandId: string,
 ): Promise<BrandBasesDetailState> {
   const diagnosisDashPromise = fetchBrandDashboardDiagnosisState(supabase, brandId);
+
+  const [profileRes, offerItemsRes] = await Promise.all([
+    supabase.from("brand_offer_profiles").select("offer_nature").eq("brand_id", brandId).maybeSingle(),
+    supabase
+      .from("brand_offer_items")
+      .select("title, description, item_type, display_order")
+      .eq("brand_id", brandId)
+      .order("display_order", { ascending: true }),
+  ]);
+
+  const offerNature = (profileRes.data?.offer_nature as BrandOfferNature | undefined) ?? null;
+  const offerRows = (offerItemsRes.data ?? []) as Array<{
+    title: string;
+    description: string | null;
+    item_type: BrandOfferItemType;
+    display_order: number | null;
+  }>;
+  const offer_preview: BrandBasesOfferPreview = {
+    offer_nature: offerNature,
+    items: offerRows.map((r) => ({
+      title: String(r.title ?? "").trim(),
+      description: r.description,
+      item_type: r.item_type,
+    })),
+  };
 
   const [
     pendingRes,
@@ -94,5 +136,6 @@ export async function loadBrandBasesDetailState(
     knowledge_consolidated_at_bogota: kRow?.created_at
       ? formatBogotaDateTime(kRow.created_at)
       : null,
+    offer_preview,
   };
 }

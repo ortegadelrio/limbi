@@ -39,6 +39,23 @@ export type BrandKnowledgeUiModel = {
   strategicPillars: { title: string; body: string }[];
   restrictionsAndAlerts: string;
   evidenceNarrative: string;
+  /** v1.1+ en payload consolidado; null en bases antiguas sin el bloque. */
+  offerArchitecture: BrandOfferArchitectureUi | null;
+};
+
+export type BrandOfferServiceCatalogEntryUi = {
+  name: string;
+  item_type: string;
+  description: string;
+  strategic_role: string;
+  main_value: string;
+};
+
+export type BrandOfferArchitectureUi = {
+  offer_nature: string;
+  offer_summary: string;
+  service_catalog: BrandOfferServiceCatalogEntryUi[];
+  commercial_use_guidance: string;
 };
 
 function asString(v: unknown): string {
@@ -97,6 +114,38 @@ function parseSectionInterpretations(raw: unknown): BrandSectionInterpretationUi
   return out;
 }
 
+function parseOfferArchitecture(raw: unknown): BrandOfferArchitectureUi | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const offer_summary = asString(o.offer_summary).trim();
+  const commercial_use_guidance = asString(o.commercial_use_guidance).trim();
+  if (!offer_summary || !commercial_use_guidance) return null;
+  const offer_nature = asString(o.offer_nature).trim();
+  const catRaw = o.service_catalog;
+  const service_catalog: BrandOfferServiceCatalogEntryUi[] = [];
+  if (Array.isArray(catRaw)) {
+    for (const row of catRaw) {
+      if (!row || typeof row !== "object") continue;
+      const r = row as Record<string, unknown>;
+      const name = asString(r.name).trim();
+      if (!name) continue;
+      service_catalog.push({
+        name,
+        item_type: asString(r.item_type).trim(),
+        description: asString(r.description).trim(),
+        strategic_role: asString(r.strategic_role).trim(),
+        main_value: asString(r.main_value).trim(),
+      });
+    }
+  }
+  return {
+    offer_nature,
+    offer_summary,
+    service_catalog,
+    commercial_use_guidance,
+  };
+}
+
 function sortInterpretations(rows: BrandSectionInterpretationUi[]): BrandSectionInterpretationUi[] {
   const order = new Map(BRAND_BASE_SECTION_DISPLAY_ORDER.map((k, i) => [k, i]));
   return [...rows].sort((a, b) => {
@@ -150,5 +199,6 @@ export function buildBrandKnowledgeUiModel(payload: Record<string, unknown>): Br
     strategicPillars,
     restrictionsAndAlerts: asString(p.restrictions_and_alerts),
     evidenceNarrative: asString(p.evidence_narrative),
+    offerArchitecture: parseOfferArchitecture(p.offer_architecture),
   };
 }

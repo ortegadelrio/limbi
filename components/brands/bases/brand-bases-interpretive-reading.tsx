@@ -4,10 +4,14 @@ import {
   BRAND_BASES_EXECUTIVE_DISCLAIMER_ES,
   type BrandKnowledgeUiModel,
 } from "@/lib/brands/brand-bases-consolidated-ui";
+import type { BrandBasesOfferPreview } from "@/lib/brands/load-brand-bases-state";
 import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
+import { BrandBasesOfferSection } from "@/components/brands/bases/brand-bases-offer-section";
 
 type Props = {
+  brandId: string;
+  offerPreview: BrandBasesOfferPreview;
   knowledgeUi: BrandKnowledgeUiModel;
 };
 
@@ -48,7 +52,7 @@ function CardSection({
   );
 }
 
-export function BrandBasesInterpretiveReading({ knowledgeUi }: Props) {
+export function BrandBasesInterpretiveReading({ brandId, offerPreview, knowledgeUi }: Props) {
   const h = knowledgeUi.finalHighlights;
   const hasSections = knowledgeUi.sectionInterpretations.length > 0;
 
@@ -67,6 +71,12 @@ export function BrandBasesInterpretiveReading({ knowledgeUi }: Props) {
           {knowledgeUi.executiveReading}
         </p>
       </CardSection>
+
+      <BrandBasesOfferSection
+        brandId={brandId}
+        offerArchitecture={knowledgeUi.offerArchitecture}
+        offerPreview={offerPreview}
+      />
 
       {hasSections ? (
         <div className="space-y-4">

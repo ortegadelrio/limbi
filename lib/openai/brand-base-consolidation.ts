@@ -77,6 +77,36 @@ const finalHighlights = {
   ],
 } as const;
 
+const offerServiceCatalogEntry = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 300 },
+    item_type: { type: "string", minLength: 0, maxLength: 80 },
+    description: { type: "string", minLength: 0, maxLength: 2000 },
+    strategic_role: { type: "string", minLength: 0, maxLength: 800 },
+    main_value: { type: "string", minLength: 0, maxLength: 800 },
+  },
+  required: ["name", "item_type", "description", "strategic_role", "main_value"],
+} as const;
+
+const offerArchitecture = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    offer_nature: { type: "string", minLength: 0, maxLength: 200 },
+    offer_summary: { type: "string", minLength: 1, maxLength: 4000 },
+    service_catalog: {
+      type: "array",
+      minItems: 0,
+      maxItems: 40,
+      items: offerServiceCatalogEntry,
+    },
+    commercial_use_guidance: { type: "string", minLength: 1, maxLength: 2500 },
+  },
+  required: ["offer_nature", "offer_summary", "service_catalog", "commercial_use_guidance"],
+} as const;
+
 export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, unknown> {
   const knowledge = {
     type: "object",
@@ -101,6 +131,7 @@ export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, un
       final_highlights: finalHighlights,
       internal_base_notice: { type: "string", minLength: 1, maxLength: 2500 },
       project_readiness_message: { type: "string", minLength: 1, maxLength: 2500 },
+      offer_architecture: offerArchitecture,
     },
     required: [
       "curator_reading",
@@ -112,6 +143,7 @@ export function buildBrandBaseConsolidationOutputJsonSchema(): Record<string, un
       "final_highlights",
       "internal_base_notice",
       "project_readiness_message",
+      "offer_architecture",
     ],
   } as const;
 
