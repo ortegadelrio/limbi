@@ -95,6 +95,7 @@ export async function loadBrandBasesDetailState(
       .select("*")
       .eq("brand_id", brandId)
       .eq("is_active", true)
+      .is("superseded_at", null)
       .eq("status", "succeeded")
       .maybeSingle(),
     supabase
@@ -102,6 +103,7 @@ export async function loadBrandBasesDetailState(
       .select("*")
       .eq("brand_id", brandId)
       .eq("is_active", true)
+      .is("superseded_at", null)
       .eq("status", "succeeded")
       .maybeSingle(),
     diagnosisDashPromise,

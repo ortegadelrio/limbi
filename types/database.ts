@@ -190,6 +190,8 @@ export type BrandDocumentProcessingStatus =
   | "ready"
   | "failed";
 
+export type BrandDocumentSourceKind = "file_upload" | "website_crawl";
+
 /** Fila en `brand_documents` (Ticket 3B.1). */
 export type BrandDocumentRow = {
   id: string;
@@ -202,6 +204,10 @@ export type BrandDocumentRow = {
   file_size_bytes: number | null;
   processing_status: BrandDocumentProcessingStatus;
   processing_error: string | null;
+  /** Ticket H.2: subida de archivo vs texto agregado por exploración web controlada. */
+  source_kind?: BrandDocumentSourceKind;
+  /** URL de entrada cuando `source_kind` es `website_crawl`. */
+  web_entry_url?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -520,6 +526,8 @@ export type GeneratedContentStatus =
 export type ProjectRow = {
   id: string;
   user_id: string;
+  /** Ticket I: marca anclada opcional (migración `20260528120000_projects_brand_id.sql`). */
+  brand_id: string | null;
   name_or_descriptor: string;
   name_status: ProjectNameStatus;
   challenge_type: string | null;

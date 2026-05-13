@@ -28,6 +28,7 @@ export const mainChallengeSchema = z.enum([
 export const createProjectBodySchema = z.object({
   name_or_descriptor: z.string().min(1).max(2000),
   name_status: nameStatusSchema.optional(),
+  brand_id: z.string().uuid().nullable().optional(),
 });
 
 /** PATCH /api/projects/:id — solo campos permitidos */
@@ -37,13 +38,15 @@ export const patchProjectBodySchema = z
     name_status: nameStatusSchema.optional(),
     challenge_type: challengeTypeSchema.nullable().optional(),
     main_challenge: mainChallengeSchema.nullable().optional(),
+    brand_id: z.string().uuid().nullable().optional(),
   })
   .refine(
     (data) =>
       data.name_or_descriptor !== undefined ||
       data.name_status !== undefined ||
       data.challenge_type !== undefined ||
-      data.main_challenge !== undefined,
+      data.main_challenge !== undefined ||
+      data.brand_id !== undefined,
     { message: "Envía al menos un campo para actualizar" },
   );
 
