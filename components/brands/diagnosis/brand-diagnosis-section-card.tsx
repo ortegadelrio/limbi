@@ -177,7 +177,7 @@ export function BrandDiagnosisSectionCard({
             <div className="pt-1">
               <Button variant="outline" size="sm" className={limbiOutlineButtonClass} asChild>
                 <Link href={`/brands/${brandId}/improve/${encodeURIComponent(row.section_key)}`}>
-                  Mejorar esta sección
+                  Mejorar esta sección con la IA de Limbi
                 </Link>
               </Button>
             </div>

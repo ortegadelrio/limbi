@@ -114,6 +114,7 @@ describe("resolveBrandPostDiagnosisNextStep", () => {
       diagnosisHints: { criticalGapsCount: 0, nextRecommendedAction: "ready_for_consolidation" },
       offerDiagnosisGenerationCta: false,
       staleDiagnosisPrimaryIsRegenerate: true,
+      useDirectConsolidateCta: false,
     });
     expect(r.body).toBe(BRAND_NEXT_STEP_CONSOLIDATE_BODY_ES);
     expect(r.primary).toEqual({
@@ -153,6 +154,26 @@ describe("resolveBrandPostDiagnosisNextStep", () => {
       staleDiagnosisPrimaryIsRegenerate: true,
     });
     expect(r.body).toBe(BRAND_NEXT_STEP_BRAND_READY_PROJECTS_ES);
-    expect(r.primary.href).toBe(`/brands/${brandId}/bases`);
+    expect(r.primary.kind).toBe("link");
+    if (r.primary.kind === "link") {
+      expect(r.primary.href).toBe(`/brands/${brandId}/bases`);
+    }
+  });
+
+  it("diagnóstico: consolidar directo sin navegar a /bases", () => {
+    const r = resolveBrandPostDiagnosisNextStep({
+      brandId,
+      pendingFactsCount: 0,
+      hasActiveSucceededDiagnosis: true,
+      diagnosisIsStale: false,
+      bases: emptyBases(),
+      offerDiagnosisGenerationCta: false,
+      staleDiagnosisPrimaryIsRegenerate: true,
+      useDirectConsolidateCta: true,
+    });
+    expect(r.primary).toEqual({
+      kind: "consolidate_direct",
+      label: "Consolidar Base de Marca",
+    });
   });
 });

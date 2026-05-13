@@ -10,6 +10,7 @@ import type { BrandSectionImprovementContextPayload } from "@/lib/brands/build-b
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
 import { brandSectionImproveTurnOutputSchema } from "@/lib/schemas/brand-section-improvement";
+import { shouldShowStructuredBrandContextForImprove } from "@/lib/brands/improve-structured-context-visibility";
 import {
   limbiDocumentCardClass,
   limbiOutlineButtonClass,
@@ -175,6 +176,8 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
     () => buildQuestionKeyDisplayLabelMap(ctx?.question_definitions ?? []),
     [ctx?.question_definitions],
   );
+
+  const showStructuredColumn = shouldShowStructuredBrandContextForImprove(sectionKey);
 
   const turnsRemaining = session
     ? Math.max(0, session.max_user_turns - session.user_turn_count)
@@ -545,7 +548,12 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
       ) : null}
 
       {ctx && !ctxErr ? (
-        <div className="mb-8 grid gap-6 lg:grid-cols-3">
+        <div
+          className={cn(
+            "mb-8 grid gap-6",
+            showStructuredColumn ? "lg:grid-cols-3" : "lg:grid-cols-2",
+          )}
+        >
           <section className={cn(limbiDocumentCardClass, "border border-limbi-border p-4")}>
             <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
               Información actual
@@ -584,46 +592,56 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
             )}
           </section>
 
-          <section className={cn(limbiDocumentCardClass, "border border-limbi-border p-4")}>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-limbi-muted">
-              Inventario y territorios
-            </h2>
-            <div className="mt-3 max-h-64 space-y-3 overflow-y-auto text-xs text-limbi-muted">
-              <div>
-                <p className="font-medium text-limbi-text">Oferta estructurada</p>
-                {ctx.structured_offer_items.filter((i) => i.title.trim()).length === 0 ? (
-                  <p className="mt-1">Sin ítems cargados en inventario.</p>
-                ) : (
-                  <ul className="mt-1 list-disc space-y-1 pl-4">
-                    {ctx.structured_offer_items
-                      .filter((i) => i.title.trim())
-                      .slice(0, 12)
-                      .map((i, idx) => (
-                        <li key={idx}>
-                          <span className="text-limbi-text">{i.title}</span>
-                          {i.description ? ` — ${i.description}` : ""}
-                        </li>
-                      ))}
-                  </ul>
-                )}
+          {showStructuredColumn ? (
+            <details
+              className={cn(
+                limbiDocumentCardClass,
+                "group border border-limbi-border p-4 [&_summary::-webkit-details-marker]:hidden",
+              )}
+            >
+              <summary className="cursor-pointer list-none text-sm font-semibold text-limbi-text">
+                Contexto estructurado que Limbi está usando
+                <span className="mt-1 block text-xs font-normal text-limbi-muted">
+                  Oferta e inventario en tablas y territorios de audiencia (solo lectura).
+                </span>
+              </summary>
+              <div className="mt-3 max-h-64 space-y-3 overflow-y-auto text-xs text-limbi-muted">
+                <div>
+                  <p className="font-medium text-limbi-text">Oferta curada</p>
+                  {ctx.structured_offer_items.filter((i) => i.title.trim()).length === 0 ? (
+                    <p className="mt-1">Todavía no hay ítems en el inventario de oferta.</p>
+                  ) : (
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {ctx.structured_offer_items
+                        .filter((i) => i.title.trim())
+                        .slice(0, 12)
+                        .map((i, idx) => (
+                          <li key={idx}>
+                            <span className="text-limbi-text">{i.title}</span>
+                            {i.description ? ` — ${i.description}` : ""}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium text-limbi-text">Territorios de audiencia</p>
+                  {ctx.structured_audience_territories.filter((t) => t.name.trim()).length === 0 ? (
+                    <p className="mt-1">Todavía no hay territorios cargados.</p>
+                  ) : (
+                    <ul className="mt-1 list-disc space-y-1 pl-4">
+                      {ctx.structured_audience_territories
+                        .filter((t) => t.name.trim())
+                        .slice(0, 12)
+                        .map((t, idx) => (
+                          <li key={idx}>{t.name}</li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
               </div>
-              <div>
-                <p className="font-medium text-limbi-text">Audiencias / territorios</p>
-                {ctx.structured_audience_territories.filter((t) => t.name.trim()).length === 0 ? (
-                  <p className="mt-1">Sin territorios cargados.</p>
-                ) : (
-                  <ul className="mt-1 list-disc space-y-1 pl-4">
-                    {ctx.structured_audience_territories
-                      .filter((t) => t.name.trim())
-                      .slice(0, 12)
-                      .map((t, idx) => (
-                        <li key={idx}>{t.name}</li>
-                      ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </section>
+            </details>
+          ) : null}
         </div>
       ) : null}
 
@@ -736,7 +754,7 @@ export function BrandSectionImproveClient({ brandId, brandName, sectionKey }: Pr
                   disabled={!canSendMessage || !input.trim()}
                   onClick={() => void sendMessage()}
                 >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar"}
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Conversa con Limbi"}
                 </Button>
                 <Button variant="outline" className={limbiOutlineButtonClass} asChild>
                   <Link href={`/brands/${brandId}/diagnosis`}>Volver al diagnóstico</Link>

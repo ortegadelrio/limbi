@@ -49,7 +49,7 @@ export async function POST(request: Request, { params }: Params) {
   const { data: doc, error: fetchError } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .eq("id", documentId)
     .eq("brand_id", brandId)
@@ -97,7 +97,7 @@ export async function POST(request: Request, { params }: Params) {
       })
       .eq("id", documentId)
       .select(
-        "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+        "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
       )
       .single();
     if (upErr || !updated) {
@@ -141,7 +141,7 @@ export async function POST(request: Request, { params }: Params) {
       })
       .eq("id", documentId)
       .select(
-        "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+        "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
       )
       .single();
     if (failErr || !failedRow) {
@@ -168,7 +168,7 @@ export async function POST(request: Request, { params }: Params) {
     .update({ processing_status: "uploaded", processing_error: null })
     .eq("id", documentId)
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .single();
 

@@ -19,6 +19,7 @@ describe("buildBrandKnowledgeUiModel", () => {
     expect(ui.sectionInterpretations).toHaveLength(0);
     expect(ui.strategicPillars).toHaveLength(2);
     expect(ui.finalHighlights).toBeNull();
+    expect(ui.offerArchitecture).toBeNull();
   });
 
   it("v1.1: respeta executive y secciones", () => {
@@ -44,11 +45,27 @@ describe("buildBrandKnowledgeUiModel", () => {
       },
       internal_base_notice: "Interno.",
       project_readiness_message: "Proyectos.",
+      offer_architecture: {
+        offer_nature: "product_service",
+        offer_summary: "Resumen de oferta.",
+        service_catalog: [
+          {
+            name: "Servicio demo",
+            item_type: "service",
+            description: "Desc",
+            strategic_role: "Rol",
+            main_value: "Valor",
+          },
+        ],
+        commercial_use_guidance: "Usar el catálogo tal cual en piezas comerciales.",
+      },
     });
     expect(ui.executiveReading).toBe("Ejecutiva explícita.");
     expect(ui.sectionInterpretations).toHaveLength(1);
     expect(ui.finalHighlights?.key_strengths).toHaveLength(2);
     expect(ui.internalBaseNotice).toBe("Interno.");
+    expect(ui.offerArchitecture?.service_catalog).toHaveLength(1);
+    expect(ui.offerArchitecture?.service_catalog[0]?.name).toBe("Servicio demo");
   });
 
   it("disclaimer estable", () => {

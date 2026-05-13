@@ -46,6 +46,7 @@ describe("Journey marca — contrato UI consolidación (sin RTL)", () => {
   it("/bases: lectura ejecutiva disclaimer y proyectos", () => {
     const p = path.join(__dirname, "../../components/brands/bases/brand-bases-client.tsx");
     const src = readFileSync(p, "utf8");
+    expect(src).toContain("BrandBasesInterpretiveReading");
     expect(src).toContain("Base de Conocimiento");
     expect(src).toContain("BrandBasesLimbicReading");
     expect(src).toContain("/projects");
@@ -55,5 +56,32 @@ describe("Journey marca — contrato UI consolidación (sin RTL)", () => {
   it("copy estable de disclaimer ejecutivo", () => {
     expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("lectura ejecutiva");
     expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("internamente");
+  });
+
+  it("/bases: sección explícita de oferta y servicios", () => {
+    const p = path.join(
+      __dirname,
+      "../../components/brands/bases/brand-bases-interpretive-reading.tsx",
+    );
+    const src = readFileSync(p, "utf8");
+    expect(src).toContain("BrandBasesOfferSection");
+    expect(src).toContain("offerPreview");
+  });
+
+  it("schema OpenAI de consolidación incluye offer_architecture", () => {
+    const p = path.join(__dirname, "../../lib/openai/brand-base-consolidation.ts");
+    const src = readFileSync(p, "utf8");
+    expect(src).toContain("offer_architecture");
+    expect(src).toContain("service_catalog");
+  });
+
+  it("dashboard interno: Ver Base de Marca cuando hay bases", () => {
+    const p = path.join(
+      __dirname,
+      "../../components/brands/brand-dashboard-maintenance-client.tsx",
+    );
+    const src = readFileSync(p, "utf8");
+    expect(src).toContain("Ver Base de Marca");
+    expect(src).toContain("/bases");
   });
 });

@@ -32,7 +32,7 @@ export default async function BrandDocumentsPage({ params }: Props) {
   const { data: docs, error: docsError } = await supabase
     .from("brand_documents")
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
     )
     .eq("brand_id", brandId)
     .order("created_at", { ascending: false });

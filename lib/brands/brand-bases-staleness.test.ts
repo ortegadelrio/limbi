@@ -146,6 +146,22 @@ describe("brandBaseConsolidationRawOutputSchema", () => {
         },
         internal_base_notice: "La base completa queda guardada para uso interno.",
         project_readiness_message: "La marca está razonablemente lista para iniciar proyectos.",
+        offer_architecture: {
+          offer_nature: "service",
+          offer_summary:
+            "La oferta se articula en torno a servicios de producción audiovisual con acompañamiento integral.",
+          service_catalog: [
+            {
+              name: "Producción de videos corporativos",
+              item_type: "service",
+              description: "Desde el guion hasta la edición.",
+              strategic_role: "Núcleo de ingresos recurrentes.",
+              main_value: "Calidad técnica y narrativa.",
+            },
+          ],
+          commercial_use_guidance:
+            "Listá estos nombres en piezas comerciales; no inventes servicios fuera de este catálogo.",
+        },
       },
       limbic_base: {
         symbolic_reading: "Lectura simbólica.",

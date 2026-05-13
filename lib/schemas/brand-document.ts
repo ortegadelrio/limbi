@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  assertPublicExplorableHttpUrl,
+  BRAND_WEB_EXPLORE_URL_HELP_ES,
+  normalizeWebsiteUrl,
+  sanitizeWebsiteUrlInput,
+} from "@/lib/brands/normalize-website-url";
 
 export const brandDocumentTypeSchema = z.enum([
   "manual",
@@ -50,3 +56,31 @@ export const completeBrandDocumentUploadSchema = z
 export type CompleteBrandDocumentUploadInput = z.infer<
   typeof completeBrandDocumentUploadSchema
 >;
+
+/** Exploración controlada de sitio web público (Ticket H.2). */
+export const brandWebExploreRequestSchema = z.object({
+  entry_url: z
+    .string()
+    .max(2048)
+    .transform((raw) => normalizeWebsiteUrl(sanitizeWebsiteUrlInput(raw)))
+    .superRefine((val, ctx) => {
+      if (!val) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: BRAND_WEB_EXPLORE_URL_HELP_ES,
+        });
+        return;
+      }
+      try {
+        assertPublicExplorableHttpUrl(val);
+      } catch (e) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: e instanceof Error ? e.message : BRAND_WEB_EXPLORE_URL_HELP_ES,
+        });
+      }
+    }),
+  document_type: brandDocumentTypeSchema.optional().default("other"),
+});
+
+export type BrandWebExploreRequest = z.infer<typeof brandWebExploreRequestSchema>;

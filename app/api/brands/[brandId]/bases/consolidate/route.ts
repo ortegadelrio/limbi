@@ -8,6 +8,7 @@ import {
   buildBrandBaseConsolidationContext,
   buildBrandBaseConsolidationSourceSnapshot,
 } from "@/lib/brands/build-brand-base-consolidation-context";
+import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { buildBrandBaseConsolidationSystemInstructions } from "@/lib/prompts/brand-base-consolidation";
 import { generateBrandBaseConsolidationJson } from "@/lib/openai/brand-base-consolidation";
 import {
@@ -88,6 +89,14 @@ export async function POST(_request: Request, { params }: Params) {
     return jsonConflict(
       "Revisa primero los hallazgos pendientes antes de consolidar las bases.",
       "pending_review_blocking",
+    );
+  }
+
+  const diagnosisDash = await fetchBrandDashboardDiagnosisState(supabase, brandId);
+  if (diagnosisDash.hasActiveDiagnosis && diagnosisDash.diagnosisIsStale) {
+    return jsonConflict(
+      "Actualizá el diagnóstico de marca antes de consolidar o regenerar bases.",
+      "diagnosis_stale_blocking",
     );
   }
 

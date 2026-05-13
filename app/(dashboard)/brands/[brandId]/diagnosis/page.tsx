@@ -1,11 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { BrandDiagnosisClient } from "@/components/brands/diagnosis/brand-diagnosis-client";
-import {
-  fetchStructuralQuestionnaireStaleness,
-  isBrandDiagnosisStale,
-} from "@/lib/brands/brand-diagnosis-staleness";
+import { fetchActiveBrandDiagnosisIsStale } from "@/lib/brands/brand-diagnosis-staleness";
 import { fetchBrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
+import { formatBogotaDateTime } from "@/lib/datetime/format-bogota-date-time";
 import { sectionKeysWithApprovedImprovementAfterEvaluation } from "@/lib/brands/diagnosis-improvement-badges";
 import type { BrandEvaluationRow } from "@/types/database";
 
@@ -68,36 +66,15 @@ export default async function BrandDiagnosisPage({ params }: Props) {
       (improvementBadgeRows ?? []) as { section_key: string; approved_at: string | null }[],
     );
 
-  const [responseStaleness, sourceFactStaleness, structuralStaleness] = activeEvaluation
-    ? await Promise.all([
-        supabase
-          .from("brand_responses")
-          .select("updated_at")
-          .eq("brand_id", brandId)
-          .gt("updated_at", activeEvaluation.created_at),
-        supabase
-          .from("brand_source_facts")
-          .select("id", { count: "exact", head: true })
-          .eq("brand_id", brandId)
-          .gt("updated_at", activeEvaluation.created_at),
-        fetchStructuralQuestionnaireStaleness(
-          supabase,
-          brandId,
-          activeEvaluation.created_at,
-        ),
-      ])
-    : [null, null, null];
+  const diagnosisIsStale = await fetchActiveBrandDiagnosisIsStale(
+    supabase,
+    brandId,
+    activeEvaluation,
+  );
 
-  const diagnosisIsStale = isBrandDiagnosisStale({
-    evaluation: activeEvaluation,
-    responseRows: responseStaleness?.data ?? [],
-    hasSourceFactsUpdatedAfterEvaluation: (sourceFactStaleness?.count ?? 0) > 0,
-    improvementRows: improvementBadgeRows ?? [],
-    offerProfileUpdatedAt: structuralStaleness?.offerProfileUpdatedAt ?? null,
-    hasStaleOfferItems: structuralStaleness?.hasStaleOfferItems ?? false,
-    hasStaleAudienceTerritories: structuralStaleness?.hasStaleAudienceTerritories ?? false,
-    brandRowUpdatedAt: structuralStaleness?.brandRowUpdatedAt ?? null,
-  });
+  const diagnosisGeneratedAtBogota = activeEvaluation?.created_at
+    ? formatBogotaDateTime(activeEvaluation.created_at)
+    : null;
 
   const initialBasesState = await fetchBrandDashboardBasesState(supabase, brandId);
 
@@ -111,6 +88,7 @@ export default async function BrandDiagnosisPage({ params }: Props) {
         sectionKeysWithImprovementAfterDiagnosis
       }
       initialDiagnosisIsStale={diagnosisIsStale}
+      initialDiagnosisGeneratedAtBogota={diagnosisGeneratedAtBogota}
       initialBasesState={initialBasesState}
     />
   );
