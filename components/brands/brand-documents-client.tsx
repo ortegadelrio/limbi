@@ -77,6 +77,32 @@ type UploadErrorJson = {
   detail?: string;
 };
 
+type WebExploreSuccessJson = UploadErrorJson & {
+  document?: BrandDocumentListRow;
+  web_explore?: { outcome?: string; user_message?: string; user_recommendation?: string };
+};
+
+type WebExploreApiJson = WebExploreSuccessJson & {
+  outcome?: string;
+  user_recommendation?: string;
+  source_metadata?: Record<string, unknown>;
+};
+
+function humanizeWebExploreHttpError(status: number, j: UploadErrorJson): string {
+  const err = j.error?.trim();
+  if (err) return err;
+  if (status === 409 && j.code === "pending_review_blocking") {
+    return "Hay hallazgos pendientes de revisión. Revísalos antes de agregar una nueva fuente.";
+  }
+  return "No pudimos leer suficiente información del sitio. Prueba con otra URL del mismo dominio o sube un archivo con el contenido.";
+}
+
+function formatWebExploreClientMessage(status: number, j: WebExploreApiJson): string {
+  const base = humanizeWebExploreHttpError(status, j);
+  const rec = j.user_recommendation?.trim();
+  return rec ? `${base}\n\n${rec}` : base;
+}
+
 type MaterialEmbeddedPhase =
   | "preparing"
   | "pending_review"
@@ -613,18 +639,17 @@ export function BrandDocumentsClient({
           document_type: documentType,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as UploadErrorJson & {
-        document?: BrandDocumentListRow;
-      };
+      const j = (await res.json().catch(() => ({}))) as WebExploreApiJson;
       if (!res.ok) {
-        throw new Error(formatUploadError(j, "No se pudo explorar el sitio."));
+        throw new Error(formatWebExploreClientMessage(res.status, j));
       }
       if (!j.document?.id) {
         throw new Error("Respuesta inválida del servidor.");
       }
       setWebExploreUrl("");
       setMessage(
-        "Sitio leído. Se agregó material de contexto; Limbi está extrayendo el texto consolidado.",
+        j.web_explore?.user_message?.trim() ||
+          "Sitio leído. Limbi encontró contenido útil y lo agregó como material de contexto.",
       );
       await refreshList();
       void onExtractText(j.document.id);

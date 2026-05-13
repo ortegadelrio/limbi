@@ -4,7 +4,12 @@ import {
   jsonBadRequest,
   jsonUnauthorized,
 } from "@/lib/api/route-auth";
-import { exploreBrandWebsiteControlled } from "@/lib/brands/explore-brand-website-text";
+import {
+  exploreBrandWebsiteControlled,
+  type BrandWebExploreChallengeSourceMetadata,
+  type BrandWebExploreOutcome,
+  type BrandWebExploreTechnicalSummary,
+} from "@/lib/brands/explore-brand-website-text";
 import {
   BRAND_WEB_EXPLORE_STORAGE_CONTENT_TYPE,
   humanizeBrandDocumentStorageError,
@@ -34,6 +39,20 @@ async function assertBrandOwned(
     .maybeSingle();
   if (error) return false;
   return Boolean(data);
+}
+
+function buildWebsiteCrawlSourceMetadata(
+  summary: BrandWebExploreTechnicalSummary,
+  outcome: BrandWebExploreOutcome,
+  userMessage: string,
+) {
+  return {
+    website_crawl: {
+      ...summary,
+      explore_outcome: outcome,
+      ui_message_used: userMessage,
+    },
+  };
 }
 
 export async function POST(request: Request, { params }: Params) {
@@ -93,19 +112,28 @@ export async function POST(request: Request, { params }: Params) {
   let explored: Awaited<ReturnType<typeof exploreBrandWebsiteControlled>>;
   try {
     explored = await exploreBrandWebsiteControlled(normalized.href);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error al explorar el sitio.";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "No pudimos leer suficiente información del sitio. Prueba con otra URL del mismo dominio o sube un archivo con el contenido.",
+        code: "web_explore_failed",
+      },
+      { status: 500 },
+    );
   }
 
   const text = explored.text.trim();
   if (text.length === 0) {
+    const meta: BrandWebExploreChallengeSourceMetadata | undefined = explored.challengeSourceMetadata;
+    const isJsBlocked = explored.outcome === "js_blocked";
     return NextResponse.json(
       {
-        error:
-          "No se obtuvo texto útil del sitio (páginas vacías, no HTML o sitio no accesible). Probá otra URL o subí un archivo.",
-        code: "web_explore_empty",
-        pages: explored.pages,
+        error: explored.userMessage,
+        code: isJsBlocked ? "web_explore_js_blocked" : "web_explore_empty",
+        outcome: explored.outcome,
+        ...(explored.userRecommendation ? { user_recommendation: explored.userRecommendation } : {}),
+        ...(meta ? { source_metadata: meta } : {}),
       },
       { status: 422 },
     );
@@ -121,6 +149,12 @@ export async function POST(request: Request, { params }: Params) {
   }
   const ext = storageExtensionForKind(kind);
   const storagePath = `${user.id}/${brandId}/${documentId}.${ext}`;
+
+  const sourceMetadata = buildWebsiteCrawlSourceMetadata(
+    explored.summary,
+    explored.outcome,
+    explored.userMessage,
+  );
 
   const { error: upErr } = await supabase.storage
     .from(BUCKET)
@@ -152,9 +186,10 @@ export async function POST(request: Request, { params }: Params) {
       processing_error: null,
       source_kind: "website_crawl",
       web_entry_url: normalized.href,
+      source_metadata: sourceMetadata,
     })
     .select(
-      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, created_at, updated_at",
+      "id, brand_id, user_id, file_name, file_type, document_type, storage_path, file_size_bytes, processing_status, processing_error, source_kind, web_entry_url, source_metadata, created_at, updated_at",
     )
     .single();
 
@@ -171,6 +206,10 @@ export async function POST(request: Request, { params }: Params) {
       ...(docRow as BrandDocumentRow),
       extraction_summary: null,
     } as BrandDocumentListRow,
-    explore_pages: explored.pages,
+    web_explore: {
+      outcome: explored.outcome,
+      user_message: explored.userMessage,
+      ...(explored.userRecommendation ? { user_recommendation: explored.userRecommendation } : {}),
+    },
   });
 }
