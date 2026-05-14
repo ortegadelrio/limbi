@@ -13,7 +13,17 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **Brainstormer** queda definido **conceptualmente** (canon, journey, modelo de datos sugerido, base preliminar universal, MVP). Referencia: `docs/LIMBI_BRAINSTORMER_CANON.md`, `docs/LIMBI_BRAINSTORMER_JOURNEY.md`, `docs/LIMBI_BRAINSTORMER_DATA_MODEL.md`, `docs/LIMBI_BRAINSTORMER_PRELIMINARY_BASE.md`, `docs/LIMBI_BRAINSTORMER_MVP.md`.
 - **No** se implementó **código funcional**; **no** se crearon **tablas**; **no** se crearon **rutas** de aplicación ni APIs nuevas para Brainstormer.
 - **No** se tocó **generación**; **no** se tocó el módulo **Proyecto**; **no** se modificó el journey de marca; **no** se ejecutó reset.
-- **Próximo paso futuro:** **BRAIN-1** — tablas y tipos mínimos (y, cuando corresponda, rutas/APIs alineados a estos documentos).
+- **Siguiente fase documentada:** **BRAIN-1** (ver sección siguiente).
+
+## Brainstormer — BRAIN-1 tablas y tipos mínimos
+
+- **Migración** `20260601120000_brainstormer_tables.sql`: tablas `brainstorm_sessions`, `brainstorm_messages`, `brainstorm_session_snapshots`, `brainstorm_project_bases` con RLS por `user_id`, checks de `status` / roles / `snapshot_kind`, índices, triggers `updated_at` vía `public.set_updated_at()` en sesiones y bases preliminares. `brainstorm_sessions.source_brand_context` (jsonb) guarda metadatos de versión/staleness al inicio (p. ej. `prompt_version`, `consolidated_at` por base, flags stale, `blocking_reasons_at_start`, copia de reglas interpretativas).
+- **Tipos:** `types/database.ts` — filas y enums alineados a esas tablas.
+- **Schemas Zod:** `lib/schemas/brainstormer.ts` + tests `lib/schemas/brainstormer.test.ts`.
+- **Helper:** `lib/brainstormer/create-brainstorm-session-context.ts` — `prepareBrainstormSessionContext` reutiliza **`loadActiveBrandContextForProject`** (no lee respuestas crudas del cuestionario ni documentos); devuelve ids de bases activas, `source_brand_context`, `blocking_reasons`, `can_start`, `recommended_warning`, reglas interpretativas.
+- **Contrato SQL en tests:** `lib/brainstormer/brainstormer-migration.contract.test.ts`.
+- **No** se implementó motor conversacional, **no** UI de Brainstormer, **no** API REST definitiva de Brainstormer, **no** creación de proyecto final desde Brainstormer, **no** generación de contenidos; **no** se modificó el journey de proyecto ni el de marca (salvo reutilizar el helper existente).
+- **Próximo paso futuro:** **BRAIN-2** — APIs mínimas de sesión/mensajes y persistencia desde UI o jobs.
 
 ## Qué funciona (alto nivel)
 
@@ -39,7 +49,7 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 
 ## Qué está en construcción / desalineado vs V2
 
-- **Brainstormer (BRAIN-0):** diseño funcional y canon **documentados** en `/docs/LIMBI_BRAINSTORMER_*.md`; **sin** código funcional, **sin** tablas y **sin** rutas/API de Brainstormer. Conexión obligatoria a marca y bases activas; diferencia con Proyecto y base preliminar con pendientes — ver canon.
+- **Brainstormer (BRAIN-1):** migración `20260601120000_brainstormer_tables.sql` + tipos `types/database.ts` + `lib/schemas/brainstormer.ts` + helper `prepareBrainstormSessionContext` (`lib/brainstormer/create-brainstorm-session-context.ts`) enlazado a `loadActiveBrandContextForProject`. **Sin** motor conversacional, **sin** UI Brainstormer, **sin** APIs definitivas, **sin** generación. Ver sección **Brainstormer — BRAIN-1** arriba.
 - **Journey de Marca completo:** parcial. **Tickets H.1 + H.2 + H.3** cierran bases, material/mejora y **staleness en cascada** (alertas coherentes en dashboard interno y resumen en listado `/brands`, diagnóstico y bases; fechas en hora Bogotá); **pulido UX/UI** reciente alinea tarjetas, CTAs, anillo de calidad y mensajes de error sin anexos técnicos en material de contexto; consolidación directa desde diagnóstico y lectura interpretativa en `/bases` acercan el cierre; **generación de contenidos** y **Sistema Límbico de Proyecto** siguen **pendientes** (Ticket J / fases posteriores). **Ticket I** (proyecto–marca) en rama se considera **postergado** en producto hasta cerrar el journey de marca.
 - **Proyecto anclado a marca:** si existe código de **Ticket I** en la rama, no es el siguiente paso de producto; la generación de maestro/contenidos **no** consume bases de marca como fuente principal todavía.
 - **Cuestionario puro como primera captura:** en **marca** ya hay cuestionario por secciones (`/brands/[brandId]/questionnaire`); el flujo principal de **proyecto** sigue siendo conversacional hasta alinear V2.

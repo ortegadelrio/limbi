@@ -1,6 +1,8 @@
 # Limbi — Brainstormer: modelo de datos sugerido (BRAIN-0)
 
-**Solo especificación.** No crear tablas, migraciones, rutas de aplicación, APIs ni tipos TypeScript en este entregable (BRAIN-0). Sirve para alinear BRAIN-1 (implementación mínima).
+**BRAIN-1 implementa este modelo mínimo** en la migración `supabase/migrations/20260601120000_brainstormer_tables.sql` (tablas reales + RLS). La sección siguiente conserva el diseño conceptual; los nombres de columnas coinciden salvo extensiones explícitas (`source_brand_context` jsonb en sesiones para metadatos de staleness y versión; `snapshot_kind` en snapshots; `conversion_readiness` en `brainstorm_project_bases`).
+
+**Especificación original (BRAIN-0).** Sirve como referencia de producto; la implementación SQL es la fuente de verdad para constraints e índices exactos.
 
 ---
 
@@ -28,6 +30,7 @@ Cada sesión debe registrar **qué filas de `brand_knowledge_bases` y `brand_lim
 | `recommended_route` | text | Ruta recomendada final o última conocida |
 | `maturity_level` | text o enum | Nivel de madurez de la sesión (coherente con base preliminar) |
 | `suggested_project_type` | jsonb | Última sugerencia estructurada (tipo + confianza + razonamiento breve) |
+| `source_brand_context` | jsonb | **BRAIN-1:** metadatos de bases al inicio (versiones, staleness, `blocking_reasons_at_start`, reglas interpretativas, etc.) |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 | `closed_at` | timestamptz nullable | |
@@ -43,6 +46,7 @@ Cada sesión debe registrar **qué filas de `brand_knowledge_bases` y `brand_lim
 |--------|------------------|--------|
 | `id` | UUID | PK |
 | `session_id` | UUID | FK a `brainstorm_sessions` |
+| `user_id` | UUID | Dueño del mensaje (debe coincidir con sesión) **BRAIN-1** |
 | `role` | enum | `user` \| `assistant` \| `system` |
 | `content` | text | Mensaje visible |
 | `structured_extraction` | jsonb nullable | Fragmento estructurado para alimentar mapa vivo (slots parciales, sin duplicar todo el mapa en cada mensaje) |
@@ -60,7 +64,9 @@ Para “Guardar” en el mapa vivo y puntos de restauración ligeros (MVP puede 
 |--------|------------------|--------|
 | `id` | UUID | PK |
 | `session_id` | UUID | FK |
+| `user_id` | UUID | Dueño (redundancia controlada; RLS) **BRAIN-1** |
 | `snapshot_payload` | jsonb | Estado del mapa vivo + metadatos opcionales |
+| `snapshot_kind` | text | **BRAIN-1:** `live_map` \| `strategic_summary` \| `conversion_candidate` |
 | `created_at` | timestamptz | |
 
 ---
@@ -73,6 +79,7 @@ Puente hacia Proyecto: **base preliminar universal** materializada (ver `LIMBI_B
 |--------|------------------|--------|
 | `id` | UUID | PK |
 | `session_id` | UUID | FK |
+| `user_id` | UUID | Dueño (RLS) **BRAIN-1** |
 | `brand_id` | UUID | Redundancia controlada para consultas |
 | `source_brand_knowledge_base_id` | UUID | Copiado de sesión al convertir |
 | `source_brand_limbic_base_id` | UUID | Copiado de sesión al convertir |
@@ -80,6 +87,7 @@ Puente hacia Proyecto: **base preliminar universal** materializada (ver `LIMBI_B
 | `suggested_project_type` | jsonb | Objeto sugerencia |
 | `specific_module` | jsonb nullable | Módulo opcional según tipo |
 | `pending_information` | jsonb | Lista estructurada de pendientes para Proyectos |
+| `conversion_readiness` | jsonb | **BRAIN-1:** nivel, `can_convert`, `reason` |
 | `status` | enum | `draft` \| `sent_to_project` \| `archived` |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
@@ -101,4 +109,4 @@ Políticas alineadas a **ownership de marca** vía `brands.user_id` (o el patró
 
 ---
 
-*BRAIN-0 — modelo documental; implementación = BRAIN-1.*
+*BRAIN-0 — modelo documental; **BRAIN-1** — migración `20260601120000_brainstormer_tables.sql` + tipos TypeScript.*

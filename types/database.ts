@@ -444,6 +444,87 @@ export type BrandLimbicBaseRow = {
   updated_at: string;
 };
 
+/** Estados de `brainstorm_sessions` (BRAIN-1). */
+export type BrainstormSessionStatus =
+  | "open"
+  | "paused"
+  | "closed"
+  | "converted_to_project_base";
+
+/** Madurez de sesión / conversión (columna `maturity_level`, nullable). */
+export type BrainstormSessionMaturityLevel = "low" | "medium" | "high";
+
+/** Fila en `brainstorm_sessions` (BRAIN-1). */
+export type BrainstormSessionRow = {
+  id: string;
+  user_id: string;
+  brand_id: string;
+  source_brand_knowledge_base_id: string | null;
+  source_brand_limbic_base_id: string | null;
+  title: string;
+  status: BrainstormSessionStatus;
+  summary: string | null;
+  recommended_route: string | null;
+  maturity_level: BrainstormSessionMaturityLevel | null;
+  suggested_project_type: Record<string, unknown>;
+  source_brand_context: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  converted_at: string | null;
+};
+
+/** Rol de mensaje en `brainstorm_messages` (BRAIN-1). */
+export type BrainstormMessageRole = "user" | "assistant" | "system";
+
+/** Fila en `brainstorm_messages` (BRAIN-1). */
+export type BrainstormMessageRow = {
+  id: string;
+  session_id: string;
+  user_id: string;
+  role: BrainstormMessageRole;
+  content: string;
+  structured_extraction: Record<string, unknown>;
+  created_at: string;
+};
+
+/** Tipo de snapshot en `brainstorm_session_snapshots` (BRAIN-1). */
+export type BrainstormSnapshotKind =
+  | "live_map"
+  | "strategic_summary"
+  | "conversion_candidate";
+
+/** Fila en `brainstorm_session_snapshots` (BRAIN-1). */
+export type BrainstormSessionSnapshotRow = {
+  id: string;
+  session_id: string;
+  user_id: string;
+  snapshot_payload: Record<string, unknown>;
+  snapshot_kind: BrainstormSnapshotKind;
+  created_at: string;
+};
+
+/** Estados de `brainstorm_project_bases` (BRAIN-1). */
+export type BrainstormProjectBaseStatus = "draft" | "sent_to_project" | "archived";
+
+/** Fila en `brainstorm_project_bases` (BRAIN-1). */
+export type BrainstormProjectBaseRow = {
+  id: string;
+  session_id: string;
+  user_id: string;
+  brand_id: string;
+  source_brand_knowledge_base_id: string | null;
+  source_brand_limbic_base_id: string | null;
+  common_base: Record<string, unknown>;
+  suggested_project_type: Record<string, unknown>;
+  specific_module: Record<string, unknown>;
+  pending_information: unknown;
+  conversion_readiness: Record<string, unknown>;
+  status: BrainstormProjectBaseStatus;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Estados de `brand_improvement_sessions` (Ticket 5). */
 export type BrandImprovementSessionStatus =
   | "open"
