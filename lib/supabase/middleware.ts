@@ -7,6 +7,7 @@ function isProtectedPath(pathname: string): boolean {
   if (pathname === "/projects" || pathname.startsWith("/projects/"))
     return true;
   if (pathname === "/brands" || pathname.startsWith("/brands/")) return true;
+  if (pathname === "/brainstormer" || pathname.startsWith("/brainstormer/")) return true;
   return false;
 }
 

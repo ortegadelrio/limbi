@@ -16,6 +16,7 @@ import {
   brandBaseConsolidationRawOutputSchema,
 } from "@/lib/schemas/brand-base-consolidation";
 import type { BrandDiagnosisBrandSnapshot } from "@/lib/brands/build-brand-diagnosis-context";
+import { auditBrandActiveBaseReadiness } from "@/lib/brands/audit-brand-active-base-readiness";
 import type { BrandKnowledgeBaseRow, BrandLimbicBaseRow } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -283,9 +284,16 @@ export async function POST(_request: Request, { params }: Params) {
       throw new Error(lUpdErr?.message ?? "No se pudo guardar la base límbica.");
     }
 
+    const post_consolidation_readiness = await auditBrandActiveBaseReadiness(
+      supabase,
+      brandId,
+      { assertUserId: user.id },
+    );
+
     return NextResponse.json({
       knowledge_base: knowledgeOut as BrandKnowledgeBaseRow,
       limbic_base: limbicOut as BrandLimbicBaseRow,
+      post_consolidation_readiness,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error al consolidar las bases.";

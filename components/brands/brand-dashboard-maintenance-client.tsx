@@ -21,6 +21,7 @@ import {
   postBrandConsolidate,
   postBrandDiagnosis,
 } from "@/lib/brands/brand-maintenance-api-actions";
+import { BRAND_IA_SOURCE_FOOTNOTE_ES } from "@/lib/brands/brand-active-base-source-of-truth";
 
 type SecondaryLink = { label: string; href: string };
 
@@ -235,6 +236,11 @@ export function BrandDashboardMaintenanceClient({
         {hasActiveBases && baseConsolidatedAtBogota ? (
           <p className="text-xs text-limbi-muted">
             Base de Marca consolidada (Hora Bogotá) · {baseConsolidatedAtBogota}
+          </p>
+        ) : null}
+        {hasActiveBases ? (
+          <p className="max-w-prose border-t border-limbi-border/50 pt-3 text-[11px] leading-snug text-limbi-muted/90">
+            {BRAND_IA_SOURCE_FOOTNOTE_ES}
           </p>
         ) : null}
       </section>

@@ -1,5 +1,10 @@
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 
+/**
+ * Modelo de **presentación** para humanos a partir del JSON consolidado.
+ * `buildBrandKnowledgeUiModel` resume y ordena; **no** reemplaza al `consolidated_payload` guardado
+ * en `brand_knowledge_bases` para consumo de IA (ver `loadActiveBrandContextForProject`).
+ */
 export const BRAND_BASES_EXECUTIVE_DISCLAIMER_ES =
   "Esta es una lectura ejecutiva de la Base de Marca. La base completa queda guardada internamente y será utilizada por Limbi para desarrollar proyectos, sistemas límbicos de proyecto y contenidos futuros con coherencia estratégica.";
 

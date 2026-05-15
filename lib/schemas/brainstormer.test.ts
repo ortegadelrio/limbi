@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  brainstormBrandContextStatusSchema,
   brainstormCommonBaseSchema,
   brainstormProjectBaseSchema,
   brainstormProjectBaseStatusSchema,
@@ -8,6 +9,10 @@ import {
 } from "@/lib/schemas/brainstormer";
 
 describe("brainstormer schemas", () => {
+  it("brand_context_status acepta ready | advisory | blocked", () => {
+    expect(brainstormBrandContextStatusSchema.safeParse("ready").success).toBe(true);
+    expect(brainstormBrandContextStatusSchema.safeParse("invalid").success).toBe(false);
+  });
   it("common_base acepta campos defined, hypothesis y pending", () => {
     const parsed = brainstormCommonBaseSchema.safeParse({
       challenge: { value: "Lanzar X", status: "defined" },

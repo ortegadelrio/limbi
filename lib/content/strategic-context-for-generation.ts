@@ -1,3 +1,9 @@
+/**
+ * Resolución de contexto para **generación de contenido de proyecto** desde maestro + wizard.
+ * Hoy prioriza `masterDocument` y cae a `project_responses` como fallback; **no** es el camino de
+ * marca anclada a `brand_knowledge_bases`. Cuando la generación consuma marca explícitamente, debe
+ * usar `loadActiveBrandContextForProject` (payload profundo), **no** el resumen visible de `/bases`.
+ */
 import type { MasterDocumentProjectPayload } from "@/lib/master-document/build-input";
 
 export type StrategicGenerationSource = "master_document" | "responses_fallback";

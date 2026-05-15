@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActiveBrandContextBlockingReason } from "@/lib/brands/load-active-brand-context-for-project";
 import { loadActiveBrandContextForProject } from "@/lib/brands/load-active-brand-context-for-project";
+import {
+  BRAND_PENDING_INCORPORATION_BRAINSTORMER_ES,
+} from "@/lib/brands/brand-active-base-source-of-truth";
+import type { BrainstormBrandContextStatus } from "@/types/database";
 
 export type PrepareBrainstormSessionContextOk = {
   ok: true;
@@ -9,16 +13,31 @@ export type PrepareBrainstormSessionContextOk = {
   title: string;
   source_brand_knowledge_base_id: string | null;
   source_brand_limbic_base_id: string | null;
+  /** Igual que `source_brand_*`: ids de filas activas cuyo `consolidated_payload` es la fuente profunda de IA. */
+  brand_knowledge_base_id_used: string | null;
+  brand_limbic_base_id_used: string | null;
+  /** ISO 8601: instante en que se capturó el contexto de marca para persistir en sesión. */
+  brand_context_generated_at: string;
+  brand_context_status: BrainstormBrandContextStatus;
+  /** Códigos de bloqueo al momento de captura (vacío si `ready`). */
+  brand_context_blocking_reasons: ActiveBrandContextBlockingReason[];
+  /** True si había staleness, hallazgos pendientes o gaps de contrato respecto a la base activa. */
+  brand_context_has_pending_updates: boolean;
   /**
    * Metadatos de la base usada al iniciar (staleness, versiones, reglas interpretativas).
    * Complementa las columnas `source_brand_*_id` en `brainstorm_sessions`.
    */
   source_brand_context: Record<string, unknown>;
   blocking_reasons: ActiveBrandContextBlockingReason[];
-  /** Requiere par de bases curadas activas (conocimiento + límbica). */
+  /**
+   * Puede iniciarse sesión con payloads profundos de ambas bases y sin bloqueos duros
+   * (diagnóstico obsoleto bloqueante o consolidación en curso bloquean).
+   */
   can_start: boolean;
-  /** Avisos no bloqueantes (staleness, hallazgos pendientes, etc.). */
+  /** Avisos no bloqueantes o mensaje de incorporación pendiente (producto). */
   recommended_warning: string | null;
+  /** Si no se puede iniciar con fuente curada válida. */
+  must_consolidate_or_update_first_es: string | null;
   interpretive_rules: readonly string[];
 };
 
@@ -26,9 +45,12 @@ export type PrepareBrainstormSessionContextResult =
   | PrepareBrainstormSessionContextOk
   | { ok: false; code: "brand_not_found"; message: string };
 
+const MUST_FIX_BRAND_FIRST_ES =
+  "Limbi no inventa contexto de marca: necesitás la Base de Conocimiento activa y la Base Límbica activa alineadas al diagnóstico vigente. Consolidá o actualizá la marca antes de brainstormear.";
+
 /**
  * Prepara el contexto inicial de una sesión Brainstormer sin persistir ni tocar la Base de Marca.
- * Usa solo `loadActiveBrandContextForProject` (bases curadas activas); no lee `brand_responses` ni documentos crudos.
+ * Usa solo `loadActiveBrandContextForProject` (payload profundo de bases activas); no lee cuestionario crudo ni documentos.
  */
 export async function prepareBrainstormSessionContext(
   supabase: SupabaseClient,
@@ -44,27 +66,58 @@ export async function prepareBrainstormSessionContext(
 
   const hasKnowledge = Boolean(ctx.active_knowledge_base);
   const hasLimbic = Boolean(ctx.active_limbic_base);
-  const can_start = hasKnowledge && hasLimbic;
+  const blockedHard =
+    !hasKnowledge ||
+    !hasLimbic ||
+    ctx.diagnosis_is_stale_blocking ||
+    ctx.consolidation_running;
+
+  const contractIssues =
+    ctx.knowledge_payload_contract_gaps.length > 0 ||
+    ctx.limbic_payload_contract_gaps.length > 0;
+
+  const brand_context_has_pending_updates =
+    ctx.pending_source_facts_review ||
+    ctx.is_stale ||
+    contractIssues;
+
+  const brand_context_status: BrainstormBrandContextStatus = blockedHard
+    ? "blocked"
+    : brand_context_has_pending_updates
+      ? "advisory"
+      : "ready";
+
+  const brand_context_blocking_reasons: ActiveBrandContextBlockingReason[] = blockedHard
+    ? [...ctx.blocking_reasons]
+    : [];
+
+  const can_start = !blockedHard;
 
   const warnings: string[] = [];
-  if (ctx.pending_source_facts_review) {
-    warnings.push(
-      "Hay hallazgos de documentos pendientes de revisión. Conviene revisarlos antes de tomar decisiones públicas.",
-    );
-  }
-  if (ctx.is_stale) {
-    warnings.push(
-      "La base consolidada puede estar desactualizada respecto al diagnóstico o al cuestionario de marca.",
-    );
-  }
   if (!can_start) {
-    warnings.push(
-      "Para iniciar Brainstormer con fuentes curadas se requieren la Base de Conocimiento activa y la Base Límbica activa.",
-    );
+    if (!hasKnowledge || !hasLimbic) {
+      warnings.push(
+        "Para iniciar Brainstormer con fuentes curadas se requieren la Base de Conocimiento activa y la Base Límbica activa.",
+      );
+    }
+    if (ctx.diagnosis_is_stale_blocking) {
+      warnings.push(
+        "Actualizá el diagnóstico de marca antes de usar Brainstormer con contexto fiable.",
+      );
+    }
+    if (ctx.consolidation_running) {
+      warnings.push(
+        "Hay una consolidación en curso; esperá a que termine antes de iniciar una sesión nueva.",
+      );
+    }
+  } else if (ctx.pending_source_facts_review || ctx.is_stale || contractIssues) {
+    warnings.push(BRAND_PENDING_INCORPORATION_BRAINSTORMER_ES);
   }
 
   const promptVersion =
     ctx.active_knowledge_base?.prompt_version ?? ctx.active_limbic_base?.prompt_version ?? null;
+
+  const brand_context_generated_at = new Date().toISOString();
 
   const source_brand_context: Record<string, unknown> = {
     source_brand_base_prompt_version: promptVersion,
@@ -79,22 +132,36 @@ export async function prepareBrainstormSessionContext(
     interpretive_rules: [...ctx.interpretive_rules],
     blocking_reasons_at_start: [...ctx.blocking_reasons],
     generated_at_bogota_at_context_build: ctx.generated_at_bogota,
+    brand_context_status_at_prepare: brand_context_status,
+    brand_context_generated_at_iso: brand_context_generated_at,
+    knowledge_payload_contract_gaps_at_start: [...ctx.knowledge_payload_contract_gaps],
+    limbic_payload_contract_gaps_at_start: [...ctx.limbic_payload_contract_gaps],
   };
 
   const trimmed = typeof input.title === "string" ? input.title.trim() : "";
   const title =
-    trimmed.length > 0 ? trimmed : `Brainstorm · ${ctx.brand.name}`;
+    trimmed.length > 0 ? trimmed : `Sesión Brainstormer — ${ctx.brand.name}`;
+
+  const kid = ctx.source_metadata.active_brand_knowledge_base_id;
+  const lid = ctx.source_metadata.active_brand_limbic_base_id;
 
   return {
     ok: true,
     brand: ctx.brand,
     title,
-    source_brand_knowledge_base_id: ctx.source_metadata.active_brand_knowledge_base_id,
-    source_brand_limbic_base_id: ctx.source_metadata.active_brand_limbic_base_id,
+    source_brand_knowledge_base_id: kid,
+    source_brand_limbic_base_id: lid,
+    brand_knowledge_base_id_used: kid,
+    brand_limbic_base_id_used: lid,
+    brand_context_generated_at,
+    brand_context_status,
+    brand_context_blocking_reasons,
+    brand_context_has_pending_updates,
     source_brand_context,
     blocking_reasons: ctx.blocking_reasons,
     can_start,
     recommended_warning: warnings.length > 0 ? warnings.join("\n\n") : null,
+    must_consolidate_or_update_first_es: blockedHard ? MUST_FIX_BRAND_FIRST_ES : null,
     interpretive_rules: ctx.interpretive_rules,
   };
 }

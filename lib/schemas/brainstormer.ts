@@ -8,6 +8,13 @@ export const brainstormSessionStatusSchema = z.enum([
   "converted_to_project_base",
 ]);
 
+/** `brainstorm_sessions.brand_context_status` (fuente de verdad / salud al iniciar). */
+export const brainstormBrandContextStatusSchema = z.enum([
+  "ready",
+  "advisory",
+  "blocked",
+]);
+
 /** Rol en `brainstorm_messages.role`. */
 export const brainstormMessageRoleSchema = z.enum(["user", "assistant", "system"]);
 

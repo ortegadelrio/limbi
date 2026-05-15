@@ -25,6 +25,12 @@ Documento de estado para alinear equipo y agentes. **Actualizar al cierre de ses
 - **No** se implementó motor conversacional, **no** UI de Brainstormer, **no** API REST definitiva de Brainstormer, **no** creación de proyecto final desde Brainstormer, **no** generación de contenidos; **no** se modificó el journey de proyecto ni el de marca (salvo reutilizar el helper existente).
 - **Próximo paso futuro:** **BRAIN-2** — APIs mínimas de sesión/mensajes y persistencia desde UI o jobs.
 
+## Fuente de verdad — Base activa vs resumen visible
+
+- **Regla:** la IA y los módulos que consumen marca (Brainstormer, proyecto anclado, generación futura explícita) deben leer el **JSON consolidado profundo** de `brand_knowledge_bases` / `brand_limbic_bases` **activas** (`loadActiveBrandContextForProject`). El resumen en `/bases` **presenta**; no sustituye al payload.
+- **Docs:** `docs/LIMBI_BRAND_ACTIVE_BASE_SOURCE_OF_TRUTH.md`, pipeline futuro `docs/LIMBI_BRAND_KNOWLEDGE_UPDATE_PIPELINE.md`, tipos esqueleto `lib/brands/brand-knowledge-update-pipeline.stub.ts`.
+- **Migración:** `20260602130000_brainstorm_sessions_brand_truth_traceability.sql` (trazabilidad en `brainstorm_sessions`); helper `prepareBrainstormSessionContext` con estados `ready` / `advisory` / `blocked` y mensaje estándar de pendientes; `auditBrandActiveBaseReadiness` + campo `post_consolidation_readiness` en `POST .../bases/consolidate`; pie de página en dashboard de marca (`BRAND_IA_SOURCE_FOOTNOTE_ES`).
+
 ## Qué funciona (alto nivel)
 
 - **Auth:** Supabase (login, signup, callback, middleware de rutas protegidas).

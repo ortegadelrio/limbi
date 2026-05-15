@@ -1,3 +1,8 @@
+/**
+ * Contexto de **marca para proyecto**: debe alinearse siempre a `loadActiveBrandContextForProject`
+ * (bases activas, payload profundo). **No** usar el resumen ejecutivo de la UI de `/bases` como
+ * sustituto del `consolidated_payload` para prompts de IA.
+ */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadActiveBrandContextForProject } from "@/lib/brands/load-active-brand-context-for-project";
 import type {

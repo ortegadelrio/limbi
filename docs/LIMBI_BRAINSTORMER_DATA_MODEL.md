@@ -24,6 +24,12 @@ Cada sesión debe registrar **qué filas de `brand_knowledge_bases` y `brand_lim
 | `brand_id` | UUID | FK a `brands`; obligatorio |
 | `source_brand_knowledge_base_id` | UUID | Base de conocimiento activa al inicio (o al último “refresh” explícito si el producto lo permite más adelante) |
 | `source_brand_limbic_base_id` | UUID | Base límbica activa al inicio |
+| `brand_knowledge_base_id_used` | UUID | **Trazabilidad:** misma fila activa cuya `consolidated_payload` alimenta la IA (migración `20260602130000_*`) |
+| `brand_limbic_base_id_used` | UUID | Idem límbica |
+| `brand_context_generated_at` | timestamptz | Momento de captura del contexto |
+| `brand_context_status` | text | `ready` \| `advisory` \| `blocked` |
+| `brand_context_blocking_reasons` | jsonb | Códigos de bloqueo al iniciar |
+| `brand_context_has_pending_updates` | boolean | Staleness / pendientes / gaps de contrato |
 | `title` | text | Título editable de sesión |
 | `status` | enum | `open` \| `paused` \| `closed` \| `converted_to_project_base` |
 | `summary` | text | Resumen estratégico curado (post-sesión o incremental) |

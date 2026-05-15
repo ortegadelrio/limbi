@@ -4,6 +4,15 @@ import { loadBrandBasesDetailState } from "@/lib/brands/load-brand-bases-state";
 import type { BrandKnowledgeBaseRow, BrandLimbicBaseRow } from "@/types/database";
 
 /**
+ * **Fuente de verdad para IA:** este módulo expone el JSON **profundo** (`consolidated_payload`) de
+ * `brand_knowledge_bases` / `brand_limbic_bases` **activas**. Eso es lo que deben consumir Brainstormer,
+ * proyectos anclados a marca y generación futura ligada a marca.
+ *
+ * **No** es el resumen visible de `/bases` (`executive_reading`, tarjetas UI): esa capa **presenta**
+ * al humano; **no** sustituye al payload operativo. Nunca uses solo el modelo UI como contexto de modelo.
+ *
+ * ---
+ *
  * Reglas de interpretación que todo consumidor de este contexto (p. ej. proyectos)
  * debe aplicar al usar bases curadas. No sustituyen el payload; alinean lectura humana e IA.
  */

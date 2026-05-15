@@ -28,7 +28,11 @@ export const CONTENT_GENERATION_MAX_QUANTITY = 10;
 /** Máximo de caracteres para `user_note` (orientación secundaria). */
 export const CONTENT_GENERATION_USER_NOTE_MAX = 600;
 
-/** Contexto curado enviado al modelo: maestro + marco aprobado + guía editorial. */
+/** Contexto curado enviado al modelo: maestro + marco aprobado + guía editorial.
+ * Generación de proyecto **no** usa aquí la Base de Marca activa (`brand_knowledge_bases`); cuando
+ * exista pipeline explícito marca→generación, debe alimentarse con `consolidated_payload` profundo,
+ * no con el resumen visible de `/bases`.
+ */
 export type ContentGenerationContextBundle = {
   from_master_document: Record<string, unknown>;
   from_approved_visible_framework: Record<string, unknown>;

@@ -454,6 +454,9 @@ export type BrainstormSessionStatus =
 /** Madurez de sesión / conversión (columna `maturity_level`, nullable). */
 export type BrainstormSessionMaturityLevel = "low" | "medium" | "high";
 
+/** Salud del contexto de marca fijado al crear la sesión (migración `20260602130000_*`). */
+export type BrainstormBrandContextStatus = "ready" | "advisory" | "blocked";
+
 /** Fila en `brainstorm_sessions` (BRAIN-1). */
 export type BrainstormSessionRow = {
   id: string;
@@ -461,6 +464,13 @@ export type BrainstormSessionRow = {
   brand_id: string;
   source_brand_knowledge_base_id: string | null;
   source_brand_limbic_base_id: string | null;
+  /** Trazabilidad explícita: misma fila activa que `source_brand_*` al persistir (payload profundo, no UI). */
+  brand_knowledge_base_id_used: string | null;
+  brand_limbic_base_id_used: string | null;
+  brand_context_generated_at: string | null;
+  brand_context_status: BrainstormBrandContextStatus;
+  brand_context_blocking_reasons: unknown;
+  brand_context_has_pending_updates: boolean;
   title: string;
   status: BrainstormSessionStatus;
   summary: string | null;
