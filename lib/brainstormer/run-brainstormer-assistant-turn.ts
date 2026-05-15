@@ -1,11 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildBrainstormerOpenAIInput } from "@/lib/brainstormer/build-brainstormer-openai-input";
 import { loadFrozenBrandPayloadsForBrainstormSession } from "@/lib/brainstormer/load-frozen-brand-payloads-for-session";
 import { mergeBrainstormerSessionProgress } from "@/lib/brainstormer/merge-brainstormer-session-progress";
 import { generateBrainstormerTurnJson } from "@/lib/openai/brainstormer-session";
-import {
-  buildBrainstormerSessionSystemInstructions,
-  buildBrainstormerSessionUserPayload,
-} from "@/lib/prompts/brainstormer-session";
 import {
   brainstormerTurnOutputSchema,
   coerceBrainstormerSessionProgress,
@@ -16,12 +13,6 @@ import type {
   BrainstormSessionRow,
   BrainstormSessionSnapshotRow,
 } from "@/types/database";
-
-function truncateForPrompt(json: unknown, max: number): string {
-  const s = JSON.stringify(json);
-  if (s.length <= max) return s;
-  return `${s.slice(0, max)}\n…(truncado por límite de contexto)`;
-}
 
 export type RunBrainstormerAssistantTurnResult =
   | {
@@ -60,8 +51,7 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
 
   const excerpt = (history ?? [])
     .map((m) => `${(m as { role: string }).role}: ${(m as { content: string }).content}`)
-    .join("\n\n")
-    .slice(-18_000);
+    .join("\n\n");
 
   const { data: lastSnap } = await supabase
     .from("brainstorm_session_snapshots")
@@ -82,18 +72,7 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
 
   const brandName = String(brand?.name ?? "").trim() || "Marca";
 
-  const knowledgeJson = truncateForPrompt(frozen.knowledge_payload ?? {}, 42_000);
-  const limbicJson = truncateForPrompt(frozen.limbic_payload ?? {}, 24_000);
-
-  const systemText = `${buildBrainstormerSessionSystemInstructions()}
-
-FROZEN_ACTIVE_KNOWLEDGE_BASE_JSON (deep consolidated_payload — authoritative for strategy; NOT the /bases UI summary):
-${knowledgeJson}
-
-FROZEN_ACTIVE_LIMBIC_BASE_JSON (deep consolidated_payload — tone/atmosphere; symbolic):
-${limbicJson}`;
-
-  const userText = buildBrainstormerSessionUserPayload({
+  const { full_input } = buildBrainstormerOpenAIInput({
     brand_name: brandName,
     session_title: session.title,
     brand_context_status: session.brand_context_status,
@@ -103,13 +82,13 @@ ${limbicJson}`;
       : [],
     session_summary_progress: progress,
     conversation_excerpt: excerpt,
+    knowledge_payload: frozen.knowledge_payload,
+    limbic_payload: frozen.limbic_payload,
   });
-
-  const fullInput = `${systemText}\n\n---\n\n${userText}`;
 
   try {
     const { model_used, raw_json_text } = await generateBrainstormerTurnJson({
-      input: fullInput,
+      input: full_input,
     });
 
     const json = JSON.parse(raw_json_text) as unknown;

@@ -1,115 +1,104 @@
 import { describe, expect, it } from "vitest";
 import { buildBrainstormerSessionSystemInstructions } from "@/lib/prompts/brainstormer-session";
+import {
+  derivePossiblePositioningTerritories,
+  extractDetectedBrandSignalsFromPayloads,
+  formatBrandSignalsFromActiveBaseBlock,
+} from "@/lib/brainstormer/brand-signals-from-active-base";
 
-/**
- * Contratos de texto del prompt v1.2 (comportamiento esperado del modelo;
- * no ejecuta OpenAI).
- */
-describe("Brainstormer session prompt (v1.2 contratos)", () => {
+describe("Brainstormer session prompt (v1.5 — hipótesis en posicionamiento)", () => {
   const p = () => buildBrainstormerSessionSystemInstructions();
 
   it("versión del prompt", () => {
-    expect(p()).toContain("brainstormer-session-v1.2");
+    expect(p()).toContain("brainstormer-session-v1.5");
   });
 
-  it("respuestas cortas por defecto (60–140 palabras)", () => {
+  it("Positioning requires a strategic hypothesis before asking", () => {
     const s = p();
-    expect(s).toMatch(/60[\s–-]+140\s+words|60.*140.*palabras/i);
-    expect(s).toMatch(/long texts|textos largos|Do NOT write long/i);
+    expect(s).toMatch(/Positioning requires a strategic hypothesis BEFORE asking/i);
+    expect(s).toMatch(/STRATEGIC HYPOTHESIS BEFORE ASKING/i);
+    expect(s).toMatch(/Mi hipótesis es que|State your hypothesis explicitly/i);
   });
 
-  it("una sola pregunta estratégica por turno", () => {
+  it("Do not only present options", () => {
     const s = p();
-    expect(s).toMatch(/At most ONE strategic question|máximo.*una pregunta|ONE strategic question/i);
+    expect(s).toMatch(/Do not only present options/i);
+    expect(s).toMatch(/Do NOT open with only|menu of formats|multiple-choice menu/i);
   });
 
-  it("no listas largas sin solicitud", () => {
+  it("Use named credibility assets as evidence when available", () => {
     const s = p();
-    expect(s).toMatch(/long bullet|listas largas|Do NOT use long bullet/i);
+    expect(s).toMatch(/named assets|concrete named assets|Pópuli|credibility EVIDENCE/i);
   });
 
-  it("no sugerir proyecto en primera respuesta vaga", () => {
+  it("Distinguish positioning territory from service format", () => {
     const s = p();
-    expect(s).toMatch(/Do NOT suggest project conversion on the first vague|primera.*vag|necesito vender boletas/i);
-    expect(s).toMatch(/should_suggest_project_conversion MUST be false|should_suggest_project_conversion = false/i);
+    expect(s).toMatch(/distinguish territory from service format|formats\/offers|territorio.*formato/i);
   });
 
-  it("no repetir frases plantilla del reto / criterio / ruta", () => {
+  it("Ask one validation question after the hypothesis", () => {
     const s = p();
-    expect(s).toMatch(/El reto que enfrentamos es claro/);
-    expect(s).toMatch(/Desde un criterio experto/);
-    expect(s).toMatch(/forbidden|NEVER use these/i);
+    expect(s).toMatch(/ONE validation|prioritization question.*after the hypothesis|after the hypothesis, not instead/i);
   });
 
-  it("no pedir audiencia si está en la base; precisión puntual", () => {
+  it("ejemplo hipótesis autoridad narrativa con activos", () => {
     const s = p();
-    expect(s).toMatch(/Re-asking for audience|frozen knowledge base/i);
-    expect(s).toMatch(/ONE precise disambiguation|disambiguation/i);
+    expect(s).toMatch(/autoridad narrativa|Mi hipótesis es que tu posicionamiento no debería partir por formato/i);
+    expect(s).toMatch(/Pópuli|Perrenque|COMARKA|UNEMEC/);
   });
 
-  it("para ok/sí/dale avanzar con microdecisión sin repetir", () => {
+  it("mantiene reglas v1.4 (intent-sensitive + brevedad)", () => {
     const s = p();
-    expect(s).toMatch(/"ok"|"sí"|"dale"/i);
-    expect(s).toMatch(/advance to the NEXT micro-decision|Do NOT repeat the previous/i);
-  });
-
-  it("para qué debo hacer / cómo lo hago: acción + pregunta", () => {
-    const s = p();
-    expect(s).toMatch(/qué debo hacer|cómo lo hago/i);
-    expect(s).toMatch(/ONE concrete first action|primera acción/i);
-  });
-
-  it("podcast: evaluar rol y prioridad, no aprobar en automático", () => {
-    const s = p();
-    expect(s).toMatch(/podcast/i);
-    expect(s).toMatch(/Do NOT auto-approve|authority|conversi/i);
-  });
-
-  it("estructura interna sin plantilla visible", () => {
-    const s = p();
-    expect(s).toMatch(/Internal logic|invisible to user/i);
-    expect(s).toMatch(/do not label sections/i);
-  });
-
-  it("avanzar conversación sin repetir información previa", () => {
-    const s = p();
-    expect(s).toMatch(/ADVANCE the conversation|Do not repeat information you already gave/i);
-  });
-
-  it("microdecisiones y no planes completos temprano", () => {
-    const s = p();
-    expect(s).toMatch(/micro-decision|microdecision/i);
-    expect(s).toMatch(/complete plans too early|planes completos/i);
-  });
-
-  it("project_readiness: low / medium / high con criterios", () => {
-    const s = p();
-    expect(s).toMatch(/project_readiness.*low|low:.*vague/i);
-    expect(s).toMatch(/medium:/i);
-    expect(s).toMatch(/high:.*prioritized audience/i);
-  });
-
-  it("banner UI: no verbalizar conversión a proyecto en cada turno", () => {
-    const s = p();
-    expect(s).toMatch(/UI shows a banner|do NOT need to say/i);
-    expect(s).toMatch(/every turn/i);
-  });
-
-  it("no promete descarga BRAIN-3", () => {
-    const s = p();
-    expect(s).toMatch(/BRAIN-3|download|descarg/i);
+    expect(s).toMatch(/INTENT-SENSITIVE/i);
+    expect(s).toMatch(/60[\s–-]+140/i);
+    expect(s).toMatch(/At most ONE strategic question/i);
   });
 });
 
-describe("Escenarios de producto (v1.2)", () => {
-  it("vender boletas: diagnóstico breve, no plan completo ni lista táctica larga", () => {
-    const s = buildBrainstormerSessionSystemInstructions();
-    expect(s).toMatch(/necesito vender boletas/i);
-    expect(s).toMatch(/NOT a full campaign plan/i);
-  });
+describe("formatBrandSignalsFromActiveBaseBlock", () => {
+  const sampleKnowledge = {
+    executive_reading: "Estratega de marketing y storyteller empresarial con trayectoria en industria creativa.",
+    section_interpretations: [
+      {
+        section_key: "audiences",
+        headline: "Profesionales",
+        interpretation: "Marketing y comunicación en Colombia.",
+      },
+      {
+        section_key: "differentiators",
+        headline: "Diferenciación",
+        interpretation: "Integración de servicios, innovación y reputación.",
+      },
+    ],
+    offer_architecture: {
+      offer_summary: "Consultoría y conferencias.",
+      service_catalog: [
+        { name: "Perrenque", item_type: "event" },
+        { name: "Consultoría estratégica", item_type: "service" },
+      ],
+    },
+    credibility_architecture: {
+      authority_signals: ["Más de 20 años de experiencia"],
+      institutional_roles: ["COMARKA", "UNEMEC"],
+      industry_leadership_assets: [],
+      founder_credentials: [],
+      business_ecosystem: ["Pópuli", "2HPRO"],
+      reputation_proof_points: ["Reputación en sector"],
+      communication_use_guidance: "x",
+      cautions: [],
+    },
+    restrictions_and_alerts: "Evitar dispersión de mensajes.",
+  };
 
-  it("no repetir el reto en cada respuesta", () => {
-    const s = buildBrainstormerSessionSystemInstructions();
-    expect(s).toMatch(/Do NOT repeat the challenge verbatim/i);
+  it("incluye Possible positioning territories separado de oferta comercial", () => {
+    const signals = extractDetectedBrandSignalsFromPayloads(sampleKnowledge, {
+      symbolic_reading: "Autoridad y energía alta.",
+    });
+    const block = formatBrandSignalsFromActiveBaseBlock(signals, sampleKnowledge);
+    expect(block).toContain("Possible positioning territories");
+    expect(block).toContain("Oferta / roles comerciales");
+    expect(block).toMatch(/hipótesis estratégica|menú de opciones/i);
+    const territories = derivePossiblePositioningTerritories(signals, sampleKnowledge);
+    expect(territories.some((t) => /storyteller|estratega|industria creativa/i.test(t))).toBe(true);
   });
 });

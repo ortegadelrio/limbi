@@ -39,7 +39,7 @@ describe("brainstormer-session schemas", () => {
   });
 
   it("versión de prompt fija", () => {
-    expect(BRAINSTORMER_SESSION_PROMPT_VERSION).toBe("brainstormer-session-v1.2");
+    expect(BRAINSTORMER_SESSION_PROMPT_VERSION).toBe("brainstormer-session-v1.5");
   });
 
   it("session_progress incluye señales de proyecto", () => {
