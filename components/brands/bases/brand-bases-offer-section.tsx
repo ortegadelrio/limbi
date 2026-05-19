@@ -142,7 +142,7 @@ export function BrandBasesOfferSection({ brandId, offerArchitecture, offerPrevie
             en piezas futuras.
           </p>
           <Button variant="outline" className={limbiOutlineButtonClass} asChild>
-            <Link href={questionnaireHref}>Editar información de marca</Link>
+            <Link href={questionnaireHref}>Editar cuestionario de marca</Link>
           </Button>
         </div>
       )}

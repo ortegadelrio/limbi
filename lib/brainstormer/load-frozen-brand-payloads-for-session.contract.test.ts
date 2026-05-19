@@ -14,5 +14,8 @@ describe("loadFrozenBrandPayloadsForBrainstormSession (contrato fuente)", () => 
     expect(src).toContain("consolidated_payload");
     expect(src).not.toContain("/bases");
     expect(src).not.toMatch(/\.from\(\s*["']brand_responses["']\s*\)/);
+    expect(src).not.toMatch(/\.from\(\s*["']brand_knowledge_updates["']\s*\)/);
+    expect(src).toContain("brand_knowledge_base_id_used");
+    expect(src).toContain("brand_limbic_base_id_used");
   });
 });

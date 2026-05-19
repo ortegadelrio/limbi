@@ -12,7 +12,10 @@ import {
 } from "@/components/projects/limbi-ui";
 import { QualityScoreRing } from "@/components/projects/quality-score-ring";
 import { cn } from "@/lib/utils";
-import type { BrandDashboardMaintenanceResolved } from "@/lib/brands/brand-dashboard-maintenance-action";
+import type {
+  BrandDashboardMaintenanceResolved,
+  BrandDashboardSecondaryLink,
+} from "@/lib/brands/brand-dashboard-maintenance-action";
 import {
   brandInformationQualityBandFromScore,
   brandInformationQualityBandHintEs,
@@ -23,12 +26,10 @@ import {
 } from "@/lib/brands/brand-maintenance-api-actions";
 import { BRAND_IA_SOURCE_FOOTNOTE_ES } from "@/lib/brands/brand-active-base-source-of-truth";
 
-type SecondaryLink = { label: string; href: string };
-
 type Props = {
   brandId: string;
   maintenance: BrandDashboardMaintenanceResolved;
-  secondaryLinks: SecondaryLink[];
+  secondaryLinks: BrandDashboardSecondaryLink[];
   hasActiveDiagnosis: boolean;
   diagnosisIsStale: boolean;
   overallScore: number | null;
@@ -378,7 +379,7 @@ export function BrandDashboardMaintenanceClient({
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-limbi-muted">
             Accesos rápidos
           </p>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="grid gap-3 sm:grid-cols-2">
             {(hasActiveBases
               ? secondaryLinks.filter((l) => l.label !== "Ver Base de Marca")
               : secondaryLinks
@@ -386,9 +387,31 @@ export function BrandDashboardMaintenanceClient({
               <li key={l.href}>
                 <Link
                   href={l.href}
-                  className="block rounded-xl border border-transparent px-1 py-1.5 text-sm text-limbi-muted transition-colors hover:border-limbi-border/80 hover:bg-limbi-bg-soft/50 hover:text-limbi-green"
+                  className={cn(
+                    "block rounded-xl border px-3 py-2.5 transition-colors",
+                    l.emphasized
+                      ? "border-limbi-accent/30 bg-limbi-accent/5 hover:border-limbi-accent/50 hover:bg-limbi-accent/10"
+                      : "border-transparent hover:border-limbi-border/80 hover:bg-limbi-bg-soft/50",
+                  )}
                 >
-                  {l.label}
+                  <span
+                    className={cn(
+                      "text-sm font-medium",
+                      l.emphasized ? "text-limbi-green" : "text-limbi-text",
+                    )}
+                  >
+                    {l.label}
+                    {l.emphasized ? (
+                      <span className="ml-1.5 text-xs font-normal text-limbi-muted">
+                        (recomendado)
+                      </span>
+                    ) : null}
+                  </span>
+                  {l.description ? (
+                    <p className="mt-1 text-xs leading-relaxed text-limbi-muted">
+                      {l.description}
+                    </p>
+                  ) : null}
                 </Link>
               </li>
             ))}

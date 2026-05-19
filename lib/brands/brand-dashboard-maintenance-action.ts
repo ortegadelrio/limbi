@@ -77,20 +77,36 @@ export function brandOverviewExecutiveStatusLabel(
   return "En progreso";
 }
 
-export function buildBrandDashboardMaintenanceSecondaryLinks(brandId: string): {
+export type BrandDashboardSecondaryLink = {
   label: string;
   href: string;
-}[] {
+  /** Microcopy bajo el enlace en el dashboard. */
+  description?: string;
+  /** Destaca como camino recomendado para información nueva. */
+  emphasized?: boolean;
+};
+
+export function buildBrandDashboardMaintenanceSecondaryLinks(
+  brandId: string,
+): BrandDashboardSecondaryLink[] {
   const base = `/brands/${brandId}`;
   return [
-    { label: "Editar información de marca", href: `${base}/questionnaire` },
-    { label: "Ver diagnóstico", href: `${base}/diagnosis` },
-    { label: "Ver Base de Marca", href: `${base}/bases` },
-    { label: "Ver hallazgos", href: `${base}/source-facts` },
     {
       label: "Actualizar conocimiento de marca",
       href: `${base}/knowledge-updates`,
+      description:
+        "Agrega nueva información sin alterar el cuestionario original. Limbi la incorporará solo después de aprobarla y consolidar la Base de Marca.",
+      emphasized: true,
     },
+    {
+      label: "Editar cuestionario de marca",
+      href: `${base}/questionnaire`,
+      description:
+        "Corrige información estructural original. Si guardas cambios, el diagnóstico y la Base de Marca deberán actualizarse.",
+    },
+    { label: "Ver diagnóstico", href: `${base}/diagnosis` },
+    { label: "Ver Base de Marca", href: `${base}/bases` },
+    { label: "Ver hallazgos", href: `${base}/source-facts` },
   ];
 }
 

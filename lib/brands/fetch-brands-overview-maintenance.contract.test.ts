@@ -32,7 +32,7 @@ describe("Listado /brands — contrato mantenimiento (sin RTL)", () => {
     expect(src).toContain("Aún no hay diagnóstico");
     expect(src).toContain("executiveStatusLabel");
     expect(src).toContain("BrandOverviewCardCta");
-    expect(src).toContain("Editar información de marca");
+    expect(src).toContain("Editar cuestionario de marca");
     expect(src).toContain("/questionnaire");
   });
 

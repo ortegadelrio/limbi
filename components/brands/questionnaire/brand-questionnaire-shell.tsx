@@ -14,6 +14,7 @@ import {
 import { BrandOfferItemsBlock, offerItemDraftsFromRows, payloadFromOfferItemDrafts, type OfferItemDraft } from "@/components/brands/questionnaire/brand-offer-items-block";
 import { BrandOfferNatureCards } from "@/components/brands/questionnaire/brand-offer-nature-cards";
 import { BrandQuestionBlock } from "@/components/brands/questionnaire/brand-question-block";
+import { BrandQuestionnaireActiveBaseNotice } from "@/components/brands/questionnaire/brand-questionnaire-active-base-notice";
 import { BrandQuestionnaireIntro } from "@/components/brands/questionnaire/brand-questionnaire-intro";
 import { BrandQuestionSectionNav } from "@/components/brands/questionnaire/brand-question-section-nav";
 import { BrandQuestionnaireProgress } from "@/components/brands/questionnaire/brand-questionnaire-progress";
@@ -45,7 +46,11 @@ import type {
   QuestionDefinitionRow,
 } from "@/types/database";
 
-type Props = { brandId: string };
+type Props = {
+  brandId: string;
+  /** True si existen bases activas consolidadas (knowledge + limbic). */
+  hasActiveBases?: boolean;
+};
 
 const MATERIAL_EMBEDDED_TITLE = "Material de contexto y fuentes de marca";
 const MATERIAL_EMBEDDED_INTRO =
@@ -87,7 +92,10 @@ function validateRequiredForQuestions(
   return null;
 }
 
-export function BrandQuestionnaireShell({ brandId }: Props) {
+export function BrandQuestionnaireShell({
+  brandId,
+  hasActiveBases = false,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [brandName, setBrandName] = useState<string | null>(null);
@@ -583,6 +591,8 @@ export function BrandQuestionnaireShell({ brandId }: Props) {
             <p className="mt-1 text-sm text-limbi-muted">{brandName}</p>
           ) : null}
         </div>
+
+        {hasActiveBases ? <BrandQuestionnaireActiveBaseNotice brandId={brandId} /> : null}
 
         {showIntro ? <BrandQuestionnaireIntro /> : null}
 

@@ -305,11 +305,83 @@ describe("prepareBrainstormSessionContext", () => {
     expect(out.brand_context_status).toBe("advisory");
   });
 
-  it("el helper no referencia brand_responses en código fuente", () => {
+  it("el helper no referencia tablas crudas de marca en código fuente", () => {
     const p = path.join(__dirname, "create-brainstorm-session-context.ts");
     const src = readFileSync(p, "utf8");
     expect(src).toContain("loadActiveBrandContextForProject");
     expect(src).not.toMatch(/\.from\(\s*["']brand_responses["']\s*\)/);
+    expect(src).not.toMatch(/\.from\(\s*["']brand_knowledge_updates["']\s*\)/);
+  });
+
+  it("congela ids de bases activas al preparar sesión (trazabilidad)", async () => {
+    vi.mocked(loadCtx.loadActiveBrandContextForProject).mockResolvedValue({
+      ok: true,
+      brand: { id: "b1", name: "Acme" },
+      active_knowledge_base: {
+        id: "k-freeze-me",
+        brand_id: "b1",
+        consolidation_run_id: "r1",
+        status: "succeeded",
+        consolidated_payload: { tag: "base-at-start" },
+        source_snapshot: {},
+        prompt_version: "pv",
+        model_used: null,
+        error_message: null,
+        is_active: true,
+        superseded_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+      active_limbic_base: {
+        id: "l-freeze-me",
+        brand_id: "b1",
+        consolidation_run_id: "r1",
+        status: "succeeded",
+        consolidated_payload: {},
+        source_snapshot: {},
+        prompt_version: "pv",
+        model_used: null,
+        error_message: null,
+        is_active: true,
+        superseded_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+      knowledge_payload: { tag: "base-at-start" },
+      limbic_payload: {},
+      source_metadata: {
+        brand_id: "b1",
+        brand_name: "Acme",
+        active_brand_knowledge_base_id: "k-freeze-me",
+        active_brand_limbic_base_id: "l-freeze-me",
+        knowledge_consolidated_at: "2026-01-01T00:00:00Z",
+        limbic_consolidated_at: "2026-01-01T00:00:00Z",
+        prompt_version: "pv",
+        source_snapshot: null,
+        source_trace: null,
+      },
+      is_stale: false,
+      blocking_reasons: [],
+      knowledge_payload_contract_gaps: [],
+      limbic_payload_contract_gaps: [],
+      consolidation_running: false,
+      knowledge_base_is_stale: false,
+      limbic_base_is_stale: false,
+      pending_source_facts_review: false,
+      diagnosis_is_stale_blocking: false,
+      generated_at_bogota: "x",
+      interpretive_rules: loadCtx.BRAND_CONTEXT_INTERPRETIVE_RULES_FOR_PROJECTS_ES,
+    });
+
+    const out = await prepareBrainstormSessionContext(supabase, {
+      userId: "u1",
+      brandId: "b1",
+    });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.brand_knowledge_base_id_used).toBe("k-freeze-me");
+    expect(out.brand_limbic_base_id_used).toBe("l-freeze-me");
+    expect(out.source_brand_knowledge_base_id).toBe("k-freeze-me");
   });
 
   it("bloquea si el diagnóstico activo está obsoleto (bloqueo duro)", async () => {

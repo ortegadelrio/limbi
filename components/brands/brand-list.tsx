@@ -179,7 +179,7 @@ export function BrandList({ brands }: { brands: BrandListItem[] }) {
                     href={questionnaireHref}
                     className="text-center text-sm font-medium text-limbi-green underline-offset-4 hover:underline sm:text-right"
                   >
-                    Editar información de marca
+                    Editar cuestionario de marca
                   </Link>
                 </div>
               </CardContent>

@@ -13,6 +13,26 @@ export default async function BrandQuestionnairePage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const [{ data: knowledge }, { data: limbic }] = await Promise.all([
+    supabase
+      .from("brand_knowledge_bases")
+      .select("id")
+      .eq("brand_id", brandId)
+      .eq("is_active", true)
+      .is("superseded_at", null)
+      .eq("status", "succeeded")
+      .maybeSingle(),
+    supabase
+      .from("brand_limbic_bases")
+      .select("id")
+      .eq("brand_id", brandId)
+      .eq("is_active", true)
+      .is("superseded_at", null)
+      .eq("status", "succeeded")
+      .maybeSingle(),
+  ]);
+  const hasActiveBases = Boolean(knowledge && limbic);
+
   return (
     <Suspense
       fallback={
@@ -21,7 +41,7 @@ export default async function BrandQuestionnairePage({ params }: Props) {
         </div>
       }
     >
-      <BrandQuestionnaireShell brandId={brandId} />
+      <BrandQuestionnaireShell brandId={brandId} hasActiveBases={hasActiveBases} />
     </Suspense>
   );
 }

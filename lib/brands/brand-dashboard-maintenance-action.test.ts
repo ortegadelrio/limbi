@@ -121,21 +121,24 @@ describe("resolveBrandDashboardMaintenance", () => {
     expect(r.blockingReason).toBe("consolidation_running");
   });
 
-  it("secondary links incluyen actualizar conocimiento de marca", () => {
+  it("secondary links priorizan actualizar conocimiento con microcopy", () => {
     const links = buildBrandDashboardMaintenanceSecondaryLinks("x");
-    expect(
-      links.some((l) => l.label === "Actualizar conocimiento de marca"),
-    ).toBe(true);
-    expect(links.find((l) => l.label === "Actualizar conocimiento de marca")?.href).toBe(
-      "/brands/x/knowledge-updates",
-    );
+    const knowledge = links.find((l) => l.label === "Actualizar conocimiento de marca");
+    expect(knowledge?.href).toBe("/brands/x/knowledge-updates");
+    expect(knowledge?.emphasized).toBe(true);
+    expect(knowledge?.description).toContain("consolidar la Base de Marca");
+    expect(links[0]?.label).toBe("Actualizar conocimiento de marca");
   });
 
-  it("secondary links incluyen Editar información de marca", () => {
+  it("secondary links usan Editar cuestionario de marca (no editar base)", () => {
     const links = buildBrandDashboardMaintenanceSecondaryLinks("x");
-    expect(links.some((l) => l.label === "Editar información de marca")).toBe(true);
-    expect(links.find((l) => l.label === "Editar información de marca")?.href).toBe(
+    expect(links.some((l) => l.label === "Editar cuestionario de marca")).toBe(true);
+    expect(links.some((l) => l.label.toLowerCase().includes("editar base"))).toBe(false);
+    expect(links.find((l) => l.label === "Editar cuestionario de marca")?.href).toBe(
       "/brands/x/questionnaire",
+    );
+    expect(links.find((l) => l.label === "Editar cuestionario de marca")?.description).toContain(
+      "diagnóstico",
     );
   });
 
