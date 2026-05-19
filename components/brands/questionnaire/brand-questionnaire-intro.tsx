@@ -4,11 +4,22 @@ import { Card, CardContent } from "@/components/ui/card";
 import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 
-const COPY = `No necesitas tener todas las respuestas perfectas desde el inicio. Puedes escribir poco y avanzar. Mientras más contexto entregues, mejores serán los resultados. Si alguna sección te genera dudas, Limbi podrá ayudarte más adelante a mejorarla con criterio estratégico.
+const COPY_BEFORE_DIAGNOSIS = `No necesitas tener todas las respuestas perfectas desde el inicio. Puedes escribir poco y avanzar. Mientras más contexto entregues, mejores serán los resultados.
+
+Cuando completes el cuestionario y Limbi genere el primer diagnóstico, podrás usar «Mejorar con Limbi» en cada respuesta con el contexto completo de la marca.
 
 En secciones opcionales puedes avanzar aunque escribas poco: no están pensadas para frenarte.`;
 
-export function BrandQuestionnaireIntro() {
+const COPY_AFTER_DIAGNOSIS = `No necesitas tener todas las respuestas perfectas. Puedes guardar y seguir editando. En campos de texto, «Mejorar con Limbi» te ayuda con el diagnóstico y el resto de respuestas como contexto; siempre apruebas antes de guardar un cambio.
+
+En secciones opcionales puedes avanzar aunque escribas poco: no están pensadas para frenarte.`;
+
+type Props = {
+  hasActiveDiagnosis?: boolean;
+};
+
+export function BrandQuestionnaireIntro({ hasActiveDiagnosis = false }: Props) {
+  const copy = hasActiveDiagnosis ? COPY_AFTER_DIAGNOSIS : COPY_BEFORE_DIAGNOSIS;
   return (
     <Card
       className={cn(
@@ -21,7 +32,7 @@ export function BrandQuestionnaireIntro() {
           Antes de empezar
         </p>
         <div className="space-y-3 text-sm leading-relaxed text-limbi-text">
-          {COPY.split("\n\n").map((para, i) => (
+          {copy.split("\n\n").map((para, i) => (
             <p key={i}>{para}</p>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { BrandQuestionnaireShell } from "@/components/brands/questionnaire/brand-questionnaire-shell";
+import { fetchBrandDashboardDiagnosisState } from "@/lib/brands/fetch-brand-dashboard-diagnosis-state";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type Props = { params: Promise<{ brandId: string }> };
@@ -32,6 +33,7 @@ export default async function BrandQuestionnairePage({ params }: Props) {
       .maybeSingle(),
   ]);
   const hasActiveBases = Boolean(knowledge && limbic);
+  const diagnosisState = await fetchBrandDashboardDiagnosisState(supabase, brandId);
 
   return (
     <Suspense
@@ -41,7 +43,11 @@ export default async function BrandQuestionnairePage({ params }: Props) {
         </div>
       }
     >
-      <BrandQuestionnaireShell brandId={brandId} hasActiveBases={hasActiveBases} />
+      <BrandQuestionnaireShell
+        brandId={brandId}
+        hasActiveBases={hasActiveBases}
+        hasActiveDiagnosis={diagnosisState.hasActiveDiagnosis}
+      />
     </Suspense>
   );
 }

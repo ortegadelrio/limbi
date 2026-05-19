@@ -1,27 +1,40 @@
 "use client";
 
+import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import type { QuestionDefinitionRow } from "@/types/database";
 import type { BrandAnswerDraft } from "@/lib/brand-answers/serialize-parse";
+import { canShowLimbiFieldImprove } from "@/lib/brands/brand-field-improve-eligibility";
 import { orderedOptionsForQuestionnaireUi } from "@/lib/brands/questionnaire-choice-option-order";
 import { applyExclusiveMultiChoiceRules } from "@/lib/brands/exclusive-multi-choice";
 import { BrandChoiceOptionGrid } from "@/components/brands/questionnaire/brand-choice-option-grid";
+import { BrandQuestionFieldImproveDialog } from "@/components/brands/questionnaire/brand-question-field-improve-dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { limbiOutlineButtonClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
 
 type Props = {
+  brandId: string;
   definition: QuestionDefinitionRow;
   draft: BrandAnswerDraft;
   onDraftChange: (next: BrandAnswerDraft) => void;
   disabled?: boolean;
+  hasActiveDiagnosis?: boolean;
+  onFieldImproveApplied?: (args: { questionKey: string; proposedText: string }) => void;
 };
 
 export function BrandQuestionBlock({
+  brandId,
   definition,
   draft,
   onDraftChange,
   disabled,
+  hasActiveDiagnosis = false,
+  onFieldImproveApplied,
 }: Props) {
+  const [improveOpen, setImproveOpen] = useState(false);
   const { question_text, help_text, answer_type, options, is_required } =
     definition;
 
@@ -47,6 +60,12 @@ export function BrandQuestionBlock({
     hasOtherOption &&
     multiDraft &&
     multiDraft.values.includes("other");
+
+  const showFieldImprove = canShowLimbiFieldImprove({
+    hasActiveDiagnosis,
+    answerType: answer_type,
+    sectionKey: definition.section_key,
+  });
 
   return (
     <div className="space-y-2">
@@ -205,6 +224,35 @@ export function BrandQuestionBlock({
       answer_type !== "multi_choice"
         ? unsupported
         : null}
+
+      {showFieldImprove ? (
+        <div className="pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(limbiOutlineButtonClass, "gap-1.5 rounded-xl")}
+            disabled={disabled}
+            onClick={() => setImproveOpen(true)}
+          >
+            <Sparkles className="size-3.5 text-limbi-green" aria-hidden />
+            Mejorar con Limbi
+          </Button>
+          <BrandQuestionFieldImproveDialog
+            brandId={brandId}
+            definition={definition}
+            open={improveOpen}
+            onOpenChange={setImproveOpen}
+            onApplied={({ proposedText }) => {
+              onDraftChange({ kind: "text", text: proposedText });
+              onFieldImproveApplied?.({
+                questionKey: definition.question_key,
+                proposedText,
+              });
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

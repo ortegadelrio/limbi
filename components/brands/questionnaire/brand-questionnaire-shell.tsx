@@ -16,6 +16,7 @@ import { BrandOfferNatureCards } from "@/components/brands/questionnaire/brand-o
 import { BrandQuestionBlock } from "@/components/brands/questionnaire/brand-question-block";
 import { BrandQuestionnaireActiveBaseNotice } from "@/components/brands/questionnaire/brand-questionnaire-active-base-notice";
 import { BrandQuestionnaireIntro } from "@/components/brands/questionnaire/brand-questionnaire-intro";
+import { BrandQuestionnaireStaleMaintenanceBanner } from "@/components/brands/questionnaire/brand-questionnaire-stale-maintenance-banner";
 import { BrandQuestionSectionNav } from "@/components/brands/questionnaire/brand-question-section-nav";
 import { BrandQuestionnaireProgress } from "@/components/brands/questionnaire/brand-questionnaire-progress";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,8 @@ type Props = {
   brandId: string;
   /** True si existen bases activas consolidadas (knowledge + limbic). */
   hasActiveBases?: boolean;
+  /** True si hay diagnóstico activo succeeded (habilita «Mejorar con Limbi»). */
+  hasActiveDiagnosis?: boolean;
 };
 
 const MATERIAL_EMBEDDED_TITLE = "Material de contexto y fuentes de marca";
@@ -95,6 +98,7 @@ function validateRequiredForQuestions(
 export function BrandQuestionnaireShell({
   brandId,
   hasActiveBases = false,
+  hasActiveDiagnosis = false,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -114,6 +118,10 @@ export function BrandQuestionnaireShell({
   const [showCompletionCelebration, setShowCompletionCelebration] =
     useState(false);
   const [gateSubmitting, setGateSubmitting] = useState(false);
+  const [staleBanner, setStaleBanner] = useState<{
+    showDiagnosisCta: boolean;
+    showBasesCta: boolean;
+  } | null>(null);
 
   const definitionGroups = useMemo(
     () => groupBrandQuestionDefinitionsBySection(definitions),
@@ -442,6 +450,12 @@ export function BrandQuestionnaireShell({
         setSaveMessage((m) =>
           m ? `${m} Cambios guardados.` : "Cambios guardados.",
         );
+        if (hasActiveDiagnosis) {
+          setStaleBanner({
+            showDiagnosisCta: true,
+            showBasesCta: hasActiveBases,
+          });
+        }
       }
 
       if (activeSectionIndex < lastNavigableIndex) {
@@ -474,6 +488,8 @@ export function BrandQuestionnaireShell({
     router,
     sectionPlan,
     territoryDrafts,
+    hasActiveDiagnosis,
+    hasActiveBases,
   ]);
 
   const onCompleteNatureGate = useCallback(async () => {
@@ -525,7 +541,7 @@ export function BrandQuestionnaireShell({
             Marca
           </Link>
         </Button>
-        <BrandQuestionnaireIntro />
+        <BrandQuestionnaireIntro hasActiveDiagnosis={hasActiveDiagnosis} />
         <Card className={cn(limbiDocumentCardClass, "mt-8 border-limbi-border")}>
           <CardHeader>
             <CardTitle id="gate-nature-title" className="text-lg text-limbi-text">
@@ -606,7 +622,17 @@ export function BrandQuestionnaireShell({
 
         {hasActiveBases ? <BrandQuestionnaireActiveBaseNotice brandId={brandId} /> : null}
 
-        {showIntro ? <BrandQuestionnaireIntro /> : null}
+        {staleBanner ? (
+          <BrandQuestionnaireStaleMaintenanceBanner
+            brandId={brandId}
+            showDiagnosisCta={staleBanner.showDiagnosisCta}
+            showBasesCta={staleBanner.showBasesCta}
+          />
+        ) : null}
+
+        {showIntro ? (
+          <BrandQuestionnaireIntro hasActiveDiagnosis={hasActiveDiagnosis} />
+        ) : null}
 
         {!showCompletionCelebration ? (
           <BrandQuestionnaireProgress
@@ -719,6 +745,7 @@ export function BrandQuestionnaireShell({
                   {activeSection?.questions.map((def) => (
                     <BrandQuestionBlock
                       key={def.question_key}
+                      brandId={brandId}
                       definition={def}
                       draft={
                         drafts[def.question_key] ?? defaultDraftForQuestion(def)
@@ -730,6 +757,15 @@ export function BrandQuestionnaireShell({
                         }))
                       }
                       disabled={saving}
+                      hasActiveDiagnosis={hasActiveDiagnosis}
+                      onFieldImproveApplied={() => {
+                        if (hasActiveDiagnosis) {
+                          setStaleBanner({
+                            showDiagnosisCta: true,
+                            showBasesCta: hasActiveBases,
+                          });
+                        }
+                      }}
                     />
                   ))}
                 </CardContent>
