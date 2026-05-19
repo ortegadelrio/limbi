@@ -1,57 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { buildBrainstormerSessionSystemInstructions } from "@/lib/prompts/brainstormer-session";
+import { buildConversationalRendererSystemInstructions } from "@/lib/brainstormer/conversational-renderer";
 import {
   derivePossiblePositioningTerritories,
   extractDetectedBrandSignalsFromPayloads,
   formatBrandSignalsFromActiveBaseBlock,
 } from "@/lib/brainstormer/brand-signals-from-active-base";
 
-describe("Brainstormer session prompt (v1.5 — hipótesis en posicionamiento)", () => {
-  const p = () => buildBrainstormerSessionSystemInstructions();
+describe("Brainstormer Conversational Renderer prompt (v2.0 — BRAIN-12)", () => {
+  const p = () => buildConversationalRendererSystemInstructions();
 
   it("versión del prompt", () => {
-    expect(p()).toContain("brainstormer-session-v1.5");
+    expect(p()).toContain("brainstormer-session-v2.0");
+    expect(p()).toContain("conversational-renderer-v4");
   });
 
-  it("Positioning requires a strategic hypothesis before asking", () => {
+  it("no re-decide estrategia: sigue CONVERSATION_DIRECTION", () => {
     const s = p();
-    expect(s).toMatch(/Positioning requires a strategic hypothesis BEFORE asking/i);
-    expect(s).toMatch(/STRATEGIC HYPOTHESIS BEFORE ASKING/i);
-    expect(s).toMatch(/Mi hipótesis es que|State your hypothesis explicitly/i);
+    expect(s).toMatch(/do NOT choose challenge type|do NOT improvise a different conversational move/i);
+    expect(s).toMatch(/next_best_question, question_id, question_asks_for, question_reason/i);
   });
 
-  it("Do not only present options", () => {
+  it("give_hypothesis_then_question: hipótesis antes de preguntar", () => {
     const s = p();
-    expect(s).toMatch(/Do not only present options/i);
-    expect(s).toMatch(/Do NOT open with only|menu of formats|multiple-choice menu/i);
+    expect(s).toMatch(/give_hypothesis_then_question/i);
+    expect(s).toMatch(/Mi hipótesis es que|Hipótesis explícita/i);
+    expect(s).toMatch(/No menú A\/B\/C sin hipótesis previa/i);
   });
 
-  it("Use named credibility assets as evidence when available", () => {
+  it("voz consultor: breve, sin informe", () => {
     const s = p();
-    expect(s).toMatch(/named assets|concrete named assets|Pópuli|credibility EVIDENCE/i);
+    expect(s).toMatch(/60–140 words|consultor|sin informe/i);
+    expect(s).toMatch(/At most ONE question/i);
   });
 
-  it("Distinguish positioning territory from service format", () => {
+  it("prohíbe fillers de chatbot", () => {
     const s = p();
-    expect(s).toMatch(/distinguish territory from service format|formats\/offers|territorio.*formato/i);
+    expect(s).toMatch(/El reto que enfrentamos es claro/i);
   });
 
-  it("Ask one validation question after the hypothesis", () => {
+  it("BRAIN-9: work_mode y material antes de copy final", () => {
     const s = p();
-    expect(s).toMatch(/ONE validation|prioritization question.*after the hypothesis|after the hypothesis, not instead/i);
+    expect(s).toMatch(/work_mode/i);
+    expect(s).toMatch(/deliverable_building/i);
+    expect(s).toMatch(/should_request_user_material/i);
+    expect(s).toMatch(/world_cup_ip_guardrail/i);
   });
 
-  it("ejemplo hipótesis autoridad narrativa con activos", () => {
+  it("BRAIN-10: voz consultor y lenguaje débil prohibido", () => {
     const s = p();
-    expect(s).toMatch(/autoridad narrativa|Mi hipótesis es que tu posicionamiento no debería partir por formato/i);
-    expect(s).toMatch(/Pópuli|Perrenque|COMARKA|UNEMEC/);
+    expect(s).toMatch(/consultor senior/i);
+    expect(s).toMatch(/podrías/);
+    expect(s).toMatch(/repair_confusion|no entendió/i);
+    expect(s).toMatch(/typo_avoid_terms/i);
   });
 
-  it("mantiene reglas v1.4 (intent-sensitive + brevedad)", () => {
+  it("BRAIN-12: borrador de sección y sin pedir notas", () => {
     const s = p();
-    expect(s).toMatch(/INTENT-SENSITIVE/i);
-    expect(s).toMatch(/60[\s–-]+140/i);
-    expect(s).toMatch(/At most ONE strategic question/i);
+    expect(s).toMatch(/should_generate_content_now/i);
+    expect(s).toMatch(/user_has_no_material/i);
+    expect(s).toMatch(/150–280/);
+    expect(s).toMatch(/FODA\/SWOT|profundizar/i);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   extractDetectedBrandSignalsFromPayloads,
   type BrainstormerDetectedBrandSignals,
 } from "@/lib/brainstormer/brand-signals-from-active-base";
+import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
 import { loadFrozenBrandPayloadsForBrainstormSession } from "@/lib/brainstormer/load-frozen-brand-payloads-for-session";
 import {
   assessKnowledgePayloadForProjectContract,
@@ -183,6 +184,26 @@ export async function auditBrainstormerContextForSession(
 
   const progress = coerceBrainstormerSessionProgress(lastSnap?.snapshot_payload);
 
+  const userMessages = (messages ?? []).filter((m) => (m as { role: string }).role === "user");
+  const lastUserContent =
+    userMessages.length > 0
+      ? String((userMessages[userMessages.length - 1] as { content: string }).content ?? "").trim()
+      : "";
+  const detected = extractDetectedBrandSignalsFromPayloads(knowledge, limbic);
+  const conversationDirector = resolveConversationDirector({
+    user_message: lastUserContent,
+    conversation_excerpt: excerptFull,
+    session_progress: {
+      session_summary: progress.session_summary,
+      current_challenge: progress.current_challenge,
+      preliminary_objective: progress.preliminary_objective,
+      project_readiness: progress.project_readiness,
+      should_suggest_project_conversion: progress.should_suggest_project_conversion,
+    },
+    brand_signals: detected,
+    user_message_count: userMessages.length,
+  });
+
   const prompt = buildBrainstormerOpenAIInput({
     brand_name: brandName,
     session_title: session.title,
@@ -193,6 +214,7 @@ export async function auditBrainstormerContextForSession(
       : [],
     session_summary_progress: progress,
     conversation_excerpt: excerptFull,
+    conversation_director: conversationDirector,
     knowledge_payload: knowledge,
     limbic_payload: limbic,
   });
@@ -240,7 +262,6 @@ export async function auditBrainstormerContextForSession(
     warnings.push("knowledge_payload muy pequeño; puede ser consolidación vacía o legacy.");
   }
 
-  const detected = extractDetectedBrandSignalsFromPayloads(knowledge, limbic);
   if (
     contains_audiences &&
     contains_value_proposition &&

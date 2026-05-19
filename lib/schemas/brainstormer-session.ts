@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Versión del prompt de sesión Brainstormer (persistido en mensajes / trazabilidad). */
-export const BRAINSTORMER_SESSION_PROMPT_VERSION = "brainstormer-session-v1.5" as const;
+export const BRAINSTORMER_SESSION_PROMPT_VERSION = "brainstormer-session-v2.0" as const;
 
 export const postBrainstormerSessionBodySchema = z.object({
   brand_id: z.string().uuid(),

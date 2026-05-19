@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OperationalSummaryCard } from "@/components/brainstormer/operational-summary-card";
+import {
+  applyTurnSnapshotUpdate,
+  isSnapshotNewer,
+} from "@/lib/brainstormer/apply-turn-snapshot-update";
 import { ArrowLeft, Loader2, Pause, Play, DoorOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { limbiDocumentCardClass, limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
@@ -84,6 +89,12 @@ export function BrainstormerSessionPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    const incoming = props.initialSnapshot;
+    if (!incoming) return;
+    setSnapshot((prev) => (isSnapshotNewer(prev, incoming) ? incoming : prev));
+  }, [props.initialSnapshot]);
+
   const sessionProgress = useMemo(
     () => coerceBrainstormerSessionProgress(snapshot?.snapshot_payload ?? null),
     [snapshot],
@@ -151,18 +162,26 @@ export function BrainstormerSessionPanel(props: {
       const j = (await res.json().catch(() => ({}))) as {
         messages?: BrainstormMessageRow[];
         snapshot?: BrainstormSessionSnapshotRow | null;
+        session_progress?: ReturnType<typeof coerceBrainstormerSessionProgress>;
         error?: string;
       };
       if (!res.ok) throw new Error(j.error ?? "No se pudo enviar el mensaje.");
       if (j.messages) setMessages(j.messages);
-      if (j.snapshot !== undefined) setSnapshot(j.snapshot ?? null);
-      router.refresh();
+      setSnapshot((prev) =>
+        applyTurnSnapshotUpdate({
+          previous: prev,
+          snapshotFromApi: j.snapshot,
+          sessionProgress: j.session_progress,
+          sessionId: props.sessionId,
+          userId: session.user_id,
+        }),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al enviar.");
     } finally {
       setSending(false);
     }
-  }, [canSend, input, props.sessionId, router, sending]);
+  }, [canSend, input, props.sessionId, sending, session.user_id]);
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 py-8 sm:px-6">
@@ -245,14 +264,7 @@ export function BrainstormerSessionPanel(props: {
         </p>
       ) : null}
 
-      {snapshot?.snapshot_payload && typeof snapshot.snapshot_payload === "object" ? (
-        <details className="mb-4 rounded-xl border border-limbi-border bg-limbi-bg-soft/30 px-3 py-2 text-sm">
-          <summary className="cursor-pointer font-medium text-limbi-text">Resumen operativo</summary>
-          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-limbi-muted">
-            {JSON.stringify(snapshot.snapshot_payload, null, 2)}
-          </pre>
-        </details>
-      ) : null}
+      <OperationalSummaryCard progress={sessionProgress} />
 
       <div className={cn(limbiDocumentCardClass, "flex min-h-[320px] flex-1 flex-col p-4 sm:p-5")}>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">

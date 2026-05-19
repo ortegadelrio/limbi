@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildBrainstormerOpenAIInput } from "@/lib/brainstormer/build-brainstormer-openai-input";
+import {
+  extractDetectedBrandSignalsFromPayloads,
+} from "@/lib/brainstormer/brand-signals-from-active-base";
+import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
+import { coerceConversationDirectorDecision } from "@/lib/brainstormer/conversation-director/coerce-conversation-director-decision";
+import type { ResolveConversationDirectorInput } from "@/lib/brainstormer/conversation-director/types";
 import { loadFrozenBrandPayloadsForBrainstormSession } from "@/lib/brainstormer/load-frozen-brand-payloads-for-session";
+import { enrichSessionProgressFromDirector } from "@/lib/brainstormer/enrich-session-progress-from-director";
 import { mergeBrainstormerSessionProgress } from "@/lib/brainstormer/merge-brainstormer-session-progress";
 import { generateBrainstormerTurnJson } from "@/lib/openai/brainstormer-session";
 import {
@@ -72,6 +79,36 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
 
   const brandName = String(brand?.name ?? "").trim() || "Marca";
 
+  const userMessages = (history ?? []).filter((m) => (m as { role: string }).role === "user");
+  const lastUserContent =
+    userMessages.length > 0
+      ? String((userMessages[userMessages.length - 1] as { content: string }).content ?? "").trim()
+      : "";
+
+  const brandSignals = extractDetectedBrandSignalsFromPayloads(
+    frozen.knowledge_payload,
+    frozen.limbic_payload,
+  );
+
+  const directorInput: ResolveConversationDirectorInput = {
+    user_message: lastUserContent,
+    conversation_excerpt: excerpt,
+    session_progress: {
+      session_summary: progress.session_summary,
+      current_challenge: progress.current_challenge,
+      preliminary_objective: progress.preliminary_objective,
+      project_readiness: progress.project_readiness,
+      should_suggest_project_conversion: progress.should_suggest_project_conversion,
+    },
+    brand_signals: brandSignals,
+    user_message_count: userMessages.length,
+  };
+
+  const conversationDirector = coerceConversationDirectorDecision(
+    resolveConversationDirector(directorInput),
+    directorInput,
+  );
+
   const { full_input } = buildBrainstormerOpenAIInput({
     brand_name: brandName,
     session_title: session.title,
@@ -82,6 +119,7 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       : [],
     session_summary_progress: progress,
     conversation_excerpt: excerpt,
+    conversation_director: conversationDirector,
     knowledge_payload: frozen.knowledge_payload,
     limbic_payload: frozen.limbic_payload,
   });
@@ -102,7 +140,15 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       };
     }
 
-    const merged = mergeBrainstormerSessionProgress(progress, z.data.session_progress);
+    const merged = enrichSessionProgressFromDirector(
+      mergeBrainstormerSessionProgress(progress, z.data.session_progress),
+      conversationDirector,
+      {
+        conversation_excerpt: excerpt,
+        user_message: lastUserContent,
+        brand_signals: brandSignals,
+      },
+    );
 
     const { error: asstErr } = await supabase.from("brainstorm_messages").insert({
       session_id: sessionId,
@@ -112,6 +158,7 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       structured_extraction: {
         model_used,
         session_progress: z.data.session_progress,
+        conversation_director: conversationDirector,
       },
     });
     if (asstErr) {

@@ -2,16 +2,16 @@ import {
   extractDetectedBrandSignalsFromPayloads,
   formatBrandSignalsFromActiveBaseBlock,
 } from "@/lib/brainstormer/brand-signals-from-active-base";
-import {
-  buildBrainstormerSessionSystemInstructions,
-  buildBrainstormerSessionUserPayload,
-} from "@/lib/prompts/brainstormer-session";
+import { buildBrainstormerSessionUserPayload } from "@/lib/prompts/brainstormer-session";
 import {
   BRAINSTORMER_CONVERSATION_EXCERPT_MAX_CHARS,
   BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS,
   BRAINSTORMER_LIMBIC_PROMPT_MAX_CHARS,
   truncateForBrainstormerPrompt,
 } from "@/lib/brainstormer/brainstormer-prompt-limits";
+import type { ConversationDirectorDecision } from "@/lib/brainstormer/conversation-director/types";
+import { formatConversationDirectionForPrompt } from "@/lib/brainstormer/conversational-renderer";
+import { buildConversationalRendererSystemInstructions } from "@/lib/brainstormer/conversational-renderer";
 import type { BrainstormerSessionProgressPayload } from "@/lib/schemas/brainstormer-session";
 import type { BrainstormBrandContextStatus } from "@/types/database";
 
@@ -23,6 +23,7 @@ export type BuildBrainstormerOpenAIInputArgs = {
   brand_context_blocking_reasons: readonly string[];
   session_summary_progress: BrainstormerSessionProgressPayload;
   conversation_excerpt: string;
+  conversation_director: ConversationDirectorDecision;
   knowledge_payload: Record<string, unknown> | null;
   limbic_payload: Record<string, unknown> | null;
 };
@@ -33,6 +34,7 @@ export type BuildBrainstormerOpenAIInputResult = {
   knowledge_json_in_prompt: string;
   limbic_json_in_prompt: string;
   user_payload: string;
+  conversation_direction_block: string;
   full_input: string;
   system_instructions_character_count: number;
   brand_signals_block_character_count: number;
@@ -51,7 +53,7 @@ export type BuildBrainstormerOpenAIInputResult = {
 export function buildBrainstormerOpenAIInput(
   args: BuildBrainstormerOpenAIInputArgs,
 ): BuildBrainstormerOpenAIInputResult {
-  const system_instructions = buildBrainstormerSessionSystemInstructions();
+  const system_instructions = buildConversationalRendererSystemInstructions();
 
   const signals = extractDetectedBrandSignalsFromPayloads(
     args.knowledge_payload,
@@ -77,6 +79,10 @@ export function buildBrainstormerOpenAIInput(
     ? excerptRaw.slice(-BRAINSTORMER_CONVERSATION_EXCERPT_MAX_CHARS)
     : excerptRaw;
 
+  const conversation_direction_block = formatConversationDirectionForPrompt(
+    args.conversation_director,
+  );
+
   const user_payload = buildBrainstormerSessionUserPayload({
     brand_name: args.brand_name,
     session_title: args.session_title,
@@ -85,6 +91,7 @@ export function buildBrainstormerOpenAIInput(
     brand_context_blocking_reasons: args.brand_context_blocking_reasons,
     session_summary_progress: args.session_summary_progress,
     conversation_excerpt,
+    conversation_direction_block,
   });
 
   const systemText = `${system_instructions}
@@ -105,6 +112,7 @@ ${limbic.text}`;
     knowledge_json_in_prompt: knowledge.text,
     limbic_json_in_prompt: limbic.text,
     user_payload,
+    conversation_direction_block,
     full_input,
     system_instructions_character_count: system_instructions.length,
     brand_signals_block_character_count: brand_signals_block.length,

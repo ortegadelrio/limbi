@@ -7,6 +7,7 @@ import {
 import { buildBrainstormerOpenAIInput } from "@/lib/brainstormer/build-brainstormer-openai-input";
 import { BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS } from "@/lib/brainstormer/brainstormer-prompt-limits";
 import { truncateForBrainstormerPrompt } from "@/lib/brainstormer/brainstormer-prompt-limits";
+import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
 import { emptyBrainstormerSessionProgress } from "@/lib/schemas/brainstormer-session";
 
 describe("isBrainstormerDebugContextEnabled", () => {
@@ -109,14 +110,38 @@ describe("buildBrainstormerOpenAIInput / truncado", () => {
     expect(t.truncated).toBe(true);
     expect(t.text).toContain("truncado");
 
+    const progress = emptyBrainstormerSessionProgress();
+    const conversation_director = resolveConversationDirector({
+      user_message: "hola",
+      conversation_excerpt: "user: hola",
+      session_progress: {
+        session_summary: progress.session_summary,
+        current_challenge: progress.current_challenge,
+        preliminary_objective: progress.preliminary_objective,
+        project_readiness: progress.project_readiness,
+        should_suggest_project_conversion: progress.should_suggest_project_conversion,
+      },
+      brand_signals: {
+        identity_or_positioning: [],
+        audiences: [],
+        offer_or_roles: [],
+        differentiators: [],
+        credibility_assets: [],
+        tone_or_limbic_cues: [],
+        guardrails: [],
+      },
+      user_message_count: 1,
+    });
+
     const built = buildBrainstormerOpenAIInput({
       brand_name: "Ortegadelrio",
       session_title: "Test",
       brand_context_status: "ready",
       brand_context_has_pending_updates: false,
       brand_context_blocking_reasons: [],
-      session_summary_progress: emptyBrainstormerSessionProgress(),
+      session_summary_progress: progress,
       conversation_excerpt: "user: hola",
+      conversation_director,
       knowledge_payload: huge,
       limbic_payload: { symbolic_reading: "ok" },
     });
@@ -137,5 +162,6 @@ describe("buildBrainstormerOpenAIInput / truncado", () => {
     expect(knowledgeIdx).toBeGreaterThan(signalsIdx);
     expect(limbicIdx).toBeGreaterThan(knowledgeIdx);
     expect(userIdx).toBeGreaterThan(limbicIdx);
+    expect(built.full_input).toContain("CONVERSATION_DIRECTION");
   });
 });

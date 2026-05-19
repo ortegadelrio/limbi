@@ -9,6 +9,8 @@ import type {
 
 type PageProps = { params: Promise<{ sessionId: string }> };
 
+export const dynamic = "force-dynamic";
+
 export default async function BrainstormerSessionPage({ params }: PageProps) {
   const { sessionId } = await params;
   const supabase = await createServerSupabaseClient();
