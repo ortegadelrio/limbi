@@ -6,6 +6,7 @@ import {
 
 export type BrandDashboardBasesState = {
   pendingFactsCount: number;
+  pendingKnowledgeUpdatesCount: number;
   consolidationRunning: boolean;
   hasActiveKnowledgeBase: boolean;
   hasActiveLimbicBase: boolean;
@@ -19,11 +20,19 @@ export async function fetchBrandDashboardBasesState(
   supabase: SupabaseClient,
   brandId: string,
 ): Promise<BrandDashboardBasesState> {
-  const { count: pendingFactsCount } = await supabase
-    .from("brand_source_facts")
-    .select("id", { count: "exact", head: true })
-    .eq("brand_id", brandId)
-    .eq("status", "pending_review");
+  const [{ count: pendingFactsCount }, { count: pendingKnowledgeUpdatesCount }] =
+    await Promise.all([
+      supabase
+        .from("brand_source_facts")
+        .select("id", { count: "exact", head: true })
+        .eq("brand_id", brandId)
+        .eq("status", "pending_review"),
+      supabase
+        .from("brand_knowledge_updates")
+        .select("id", { count: "exact", head: true })
+        .eq("brand_id", brandId)
+        .eq("status", "pending_review"),
+    ]);
 
   const [{ count: kRun }, { count: lRun }] = await Promise.all([
     supabase
@@ -67,6 +76,7 @@ export async function fetchBrandDashboardBasesState(
 
   return {
     pendingFactsCount: pendingFactsCount ?? 0,
+    pendingKnowledgeUpdatesCount: pendingKnowledgeUpdatesCount ?? 0,
     consolidationRunning: (kRun ?? 0) > 0 || (lRun ?? 0) > 0,
     hasActiveKnowledgeBase: Boolean(knowledge),
     hasActiveLimbicBase: Boolean(limbic),

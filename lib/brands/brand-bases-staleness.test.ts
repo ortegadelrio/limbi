@@ -35,6 +35,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
         hasImprovementsApprovedAfterBase: false,
+        hasKnowledgeUpdatesApprovedAfterBase: false,
         offerProfileUpdatedAt: null,
         brandRowUpdatedAt: null,
         hasStaleOfferItems: false,
@@ -52,6 +53,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
         hasImprovementsApprovedAfterBase: false,
+        hasKnowledgeUpdatesApprovedAfterBase: false,
         offerProfileUpdatedAt: null,
         brandRowUpdatedAt: null,
         hasStaleOfferItems: false,
@@ -69,6 +71,7 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
         hasImprovementsApprovedAfterBase: false,
+        hasKnowledgeUpdatesApprovedAfterBase: false,
         offerProfileUpdatedAt: null,
         brandRowUpdatedAt: null,
         hasStaleOfferItems: true,
@@ -86,12 +89,31 @@ describe("isBrandCuratedBaseStaleFromFacts", () => {
         hasResponsesUpdatedAfterBase: false,
         hasSourceFactsUpdatedAfterBase: false,
         hasImprovementsApprovedAfterBase: false,
+        hasKnowledgeUpdatesApprovedAfterBase: false,
         offerProfileUpdatedAt: null,
         brandRowUpdatedAt: null,
         hasStaleOfferItems: false,
         hasStaleAudienceTerritories: false,
       }),
     ).toBe(false);
+  });
+
+  it("is stale when knowledge updates were approved after base", () => {
+    expect(
+      isBrandCuratedBaseStaleFromFacts({
+        baseCreatedAt: base,
+        activeDiagnosisIsStale: false,
+        diagnosisRenewedAfterBase: false,
+        hasResponsesUpdatedAfterBase: false,
+        hasSourceFactsUpdatedAfterBase: false,
+        hasImprovementsApprovedAfterBase: false,
+        hasKnowledgeUpdatesApprovedAfterBase: true,
+        offerProfileUpdatedAt: null,
+        brandRowUpdatedAt: null,
+        hasStaleOfferItems: false,
+        hasStaleAudienceTerritories: false,
+      }),
+    ).toBe(true);
   });
 
   it("is stale when offer profile updated after base", () => {

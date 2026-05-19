@@ -97,6 +97,7 @@ export default async function BrandDetailPage({ params }: Props) {
   const maintenance = resolveBrandDashboardMaintenance({
     brandId,
     pendingFactsCount: pendingFacts,
+    pendingKnowledgeUpdatesCount: basesState.pendingKnowledgeUpdatesCount,
     consolidationRunning: basesState.consolidationRunning,
     hasActiveDiagnosis,
     diagnosisIsStale,

@@ -56,6 +56,19 @@ async function countPendingReview(
   return count ?? 0;
 }
 
+async function countPendingKnowledgeUpdates(
+  supabase: Awaited<ReturnType<typeof getAuthenticatedSupabase>>["supabase"],
+  brandId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("brand_knowledge_updates")
+    .select("id", { count: "exact", head: true })
+    .eq("brand_id", brandId)
+    .eq("status", "pending_review");
+  if (error) return 0;
+  return count ?? 0;
+}
+
 async function countRunningConsolidation(
   supabase: Awaited<ReturnType<typeof getAuthenticatedSupabase>>["supabase"],
   brandId: string,
@@ -90,6 +103,17 @@ export async function POST(_request: Request, { params }: Params) {
     return jsonConflict(
       "Revisa primero los hallazgos pendientes antes de consolidar las bases.",
       "pending_review_blocking",
+    );
+  }
+
+  const pending_knowledge_updates_count = await countPendingKnowledgeUpdates(
+    supabase,
+    brandId,
+  );
+  if (pending_knowledge_updates_count > 0) {
+    return jsonConflict(
+      "Revisá primero las actualizaciones de conocimiento de marca pendientes antes de consolidar las bases.",
+      "pending_knowledge_updates_blocking",
     );
   }
 

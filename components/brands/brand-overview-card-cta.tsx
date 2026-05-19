@@ -33,7 +33,9 @@ export function BrandOverviewCardCta({
     const { primaryRole } = maintenance;
 
     if (
-      (primaryRole === "review_pending_facts" || primaryRole === "view_brand") &&
+      (primaryRole === "review_pending_facts" ||
+        primaryRole === "review_pending_knowledge_updates" ||
+        primaryRole === "view_brand") &&
       maintenance.primaryHref
     ) {
       return;
@@ -97,6 +99,7 @@ export function BrandOverviewCardCta({
 
   const isLink =
     (maintenance.primaryRole === "review_pending_facts" ||
+      maintenance.primaryRole === "review_pending_knowledge_updates" ||
       maintenance.primaryRole === "view_brand") &&
     maintenance.primaryHref;
 

@@ -87,7 +87,11 @@ export function BrandDashboardMaintenanceClient({
     setSuccessMessage(null);
     const { primaryRole } = maintenance;
 
-    if (primaryRole === "review_pending_facts" && maintenance.primaryHref) {
+    if (
+      (primaryRole === "review_pending_facts" ||
+        primaryRole === "review_pending_knowledge_updates") &&
+      maintenance.primaryHref
+    ) {
       return;
     }
     if (primaryRole === "none_up_to_date" || primaryRole === "blocked_busy") {
@@ -331,7 +335,9 @@ export function BrandDashboardMaintenanceClient({
         <div className="flex flex-wrap gap-2">
           {maintenance.primaryRole !== "none_up_to_date" ? (
             <>
-              {maintenance.primaryRole === "review_pending_facts" && maintenance.primaryHref ? (
+              {(maintenance.primaryRole === "review_pending_facts" ||
+                maintenance.primaryRole === "review_pending_knowledge_updates") &&
+              maintenance.primaryHref ? (
                 <Button
                   className={cn(limbiPrimaryButtonClass, "min-h-11 w-full px-6 text-[15px] sm:w-auto")}
                   asChild

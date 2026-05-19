@@ -365,6 +365,47 @@ export type BrandSourceFactRow = {
   reviewed_at: string | null;
 };
 
+export type BrandKnowledgeUpdateSourceType =
+  | "manual_addition"
+  | "correction"
+  | "replacement"
+  | "brainstormer_suggestion"
+  | "document_finding"
+  | "other";
+
+export type BrandKnowledgeUpdateImportanceLevel =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low";
+
+export type BrandKnowledgeUpdateStatus =
+  | "pending_review"
+  | "approved"
+  | "discarded"
+  | "incorporated";
+
+/** Fila en `brand_knowledge_updates` (BRAND-U1). */
+export type BrandKnowledgeUpdateRow = {
+  id: string;
+  brand_id: string;
+  user_id: string;
+  raw_text: string;
+  interpreted_summary: string | null;
+  source_type: BrandKnowledgeUpdateSourceType;
+  section_key: string | null;
+  importance_level: BrandKnowledgeUpdateImportanceLevel;
+  must_include: boolean;
+  status: BrandKnowledgeUpdateStatus;
+  user_decision: string | null;
+  reason_for_exclusion: string | null;
+  approved_at: string | null;
+  discarded_at: string | null;
+  incorporated_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Estados de `brand_evaluations` (Ticket 4 — diagnóstico de marca). */
 export type BrandEvaluationStatus = "running" | "succeeded" | "failed";
 

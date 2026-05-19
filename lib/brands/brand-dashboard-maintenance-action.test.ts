@@ -18,6 +18,18 @@ const baseInput = {
 };
 
 describe("resolveBrandDashboardMaintenance", () => {
+  it("prioriza actualizaciones de marca pendientes después de hallazgos", () => {
+    const r = resolveBrandDashboardMaintenance({
+      ...baseInput,
+      pendingFactsCount: 0,
+      pendingKnowledgeUpdatesCount: 1,
+      diagnosisIsStale: true,
+    });
+    expect(r.primaryRole).toBe("review_pending_knowledge_updates");
+    expect(r.primaryHref).toContain("knowledge-updates");
+    expect(r.blockingReason).toBe("pending_knowledge_updates");
+  });
+
   it("prioriza pending_review antes de update-all", () => {
     const r = resolveBrandDashboardMaintenance({
       ...baseInput,
@@ -107,6 +119,16 @@ describe("resolveBrandDashboardMaintenance", () => {
     });
     expect(r.primaryRole).toBe("blocked_busy");
     expect(r.blockingReason).toBe("consolidation_running");
+  });
+
+  it("secondary links incluyen actualizar conocimiento de marca", () => {
+    const links = buildBrandDashboardMaintenanceSecondaryLinks("x");
+    expect(
+      links.some((l) => l.label === "Actualizar conocimiento de marca"),
+    ).toBe(true);
+    expect(links.find((l) => l.label === "Actualizar conocimiento de marca")?.href).toBe(
+      "/brands/x/knowledge-updates",
+    );
   });
 
   it("secondary links incluyen Editar información de marca", () => {

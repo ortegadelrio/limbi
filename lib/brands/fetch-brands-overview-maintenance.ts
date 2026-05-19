@@ -64,6 +64,7 @@ export async function fetchBrandsOverviewMaintenanceRows(
       const maintenance = resolveBrandDashboardMaintenance({
         brandId: b.id,
         pendingFactsCount: diagnosisState.pendingFactsCount,
+        pendingKnowledgeUpdatesCount: basesState.pendingKnowledgeUpdatesCount,
         consolidationRunning: basesState.consolidationRunning,
         hasActiveDiagnosis: diagnosisState.hasActiveDiagnosis,
         diagnosisIsStale: diagnosisState.diagnosisIsStale,

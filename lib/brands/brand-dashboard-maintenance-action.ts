@@ -1,6 +1,7 @@
 export type BrandDashboardMaintenanceWarningState =
   | "none"
   | "pending_facts"
+  | "pending_knowledge_updates"
   | "consolidation_running"
   | "both_stale"
   | "base_stale_only"
@@ -8,6 +9,7 @@ export type BrandDashboardMaintenanceWarningState =
 
 export type BrandDashboardPrimaryMaintenanceRole =
   | "review_pending_facts"
+  | "review_pending_knowledge_updates"
   | "update_all"
   | "update_base_only"
   | "generate_diagnosis"
@@ -19,6 +21,7 @@ export type BrandDashboardPrimaryMaintenanceRole =
 
 export type BrandDashboardMaintenanceBlockingReason =
   | "pending_facts"
+  | "pending_knowledge_updates"
   | "consolidation_running"
   | null;
 
@@ -52,6 +55,9 @@ export function brandOverviewExecutiveStatusLabel(
   ctx: { hasActiveDiagnosis: boolean; hasActiveBases: boolean },
 ): string {
   if (maintenance.warningState === "pending_facts") return "Hallazgos pendientes";
+  if (maintenance.warningState === "pending_knowledge_updates") {
+    return "Actualizaciones pendientes";
+  }
   if (maintenance.warningState === "consolidation_running") return "Consolidación en curso";
   if (!ctx.hasActiveDiagnosis) return "Sin diagnóstico";
   if (maintenance.warningState === "both_stale") {
@@ -81,6 +87,10 @@ export function buildBrandDashboardMaintenanceSecondaryLinks(brandId: string): {
     { label: "Ver diagnóstico", href: `${base}/diagnosis` },
     { label: "Ver Base de Marca", href: `${base}/bases` },
     { label: "Ver hallazgos", href: `${base}/source-facts` },
+    {
+      label: "Actualizar conocimiento de marca",
+      href: `${base}/knowledge-updates`,
+    },
   ];
 }
 
@@ -90,6 +100,7 @@ export function buildBrandDashboardMaintenanceSecondaryLinks(brandId: string): {
 export function resolveBrandDashboardMaintenance(input: {
   brandId: string;
   pendingFactsCount: number;
+  pendingKnowledgeUpdatesCount?: number;
   consolidationRunning: boolean;
   hasActiveDiagnosis: boolean;
   diagnosisIsStale: boolean;
@@ -101,6 +112,7 @@ export function resolveBrandDashboardMaintenance(input: {
   const {
     brandId,
     pendingFactsCount,
+    pendingKnowledgeUpdatesCount = 0,
     consolidationRunning,
     hasActiveDiagnosis,
     diagnosisIsStale,
@@ -110,6 +122,7 @@ export function resolveBrandDashboardMaintenance(input: {
   } = input;
 
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
+  const knowledgeUpdatesHref = `/brands/${brandId}/knowledge-updates`;
 
   const baseStaleNotice =
     !diagnosisIsStale && hasActiveBases && basesStale
@@ -146,6 +159,23 @@ export function resolveBrandDashboardMaintenance(input: {
       primaryHref: sourceFactsHref,
       canRunUpdateAll: false,
       blockingReason: "pending_facts",
+      upToDateHeadline: null,
+    };
+  }
+
+  if (pendingKnowledgeUpdatesCount > 0) {
+    return {
+      warningState: "pending_knowledge_updates",
+      baseStaleNotice,
+      combinedStaleNotice,
+      diagnosisStaleNotice,
+      primaryRole: "review_pending_knowledge_updates",
+      primaryLabel: forBrandsList
+        ? "Revisar actualizaciones"
+        : "Revisar actualizaciones de marca",
+      primaryHref: knowledgeUpdatesHref,
+      canRunUpdateAll: false,
+      blockingReason: "pending_knowledge_updates",
       upToDateHeadline: null,
     };
   }

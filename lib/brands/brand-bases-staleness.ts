@@ -19,6 +19,7 @@ export type BrandCuratedBaseStalenessFacts = {
   hasResponsesUpdatedAfterBase: boolean;
   hasSourceFactsUpdatedAfterBase: boolean;
   hasImprovementsApprovedAfterBase: boolean;
+  hasKnowledgeUpdatesApprovedAfterBase: boolean;
   offerProfileUpdatedAt: string | null;
   brandRowUpdatedAt: string | null;
   hasStaleOfferItems: boolean;
@@ -33,6 +34,7 @@ export function isBrandCuratedBaseStaleFromFacts(facts: BrandCuratedBaseStalenes
   if (facts.hasSourceFactsUpdatedAfterBase) return true;
   if (facts.hasResponsesUpdatedAfterBase) return true;
   if (facts.hasImprovementsApprovedAfterBase) return true;
+  if (facts.hasKnowledgeUpdatesApprovedAfterBase) return true;
   if (isAfterConsolidationCreatedAt(t, facts.offerProfileUpdatedAt ?? undefined)) return true;
   if (isAfterConsolidationCreatedAt(t, facts.brandRowUpdatedAt ?? undefined)) return true;
   return false;
@@ -48,6 +50,7 @@ export async function fetchBrandCuratedBaseStalenessFacts(
     responsesRes,
     factsRes,
     improvementsRes,
+    knowledgeUpdatesRes,
     structural,
     activeEvalRes,
   ] = await Promise.all([
@@ -67,6 +70,12 @@ export async function fetchBrandCuratedBaseStalenessFacts(
       .eq("brand_id", brandId)
       .eq("status", "approved")
       .eq("is_active", true)
+      .gt("approved_at", baseCreatedAt),
+    supabase
+      .from("brand_knowledge_updates")
+      .select("id", { count: "exact", head: true })
+      .eq("brand_id", brandId)
+      .eq("status", "approved")
       .gt("approved_at", baseCreatedAt),
     fetchStructuralQuestionnaireStaleness(supabase, brandId, baseCreatedAt),
     supabase
@@ -99,6 +108,7 @@ export async function fetchBrandCuratedBaseStalenessFacts(
     hasResponsesUpdatedAfterBase: (responsesRes.count ?? 0) > 0,
     hasSourceFactsUpdatedAfterBase: (factsRes.count ?? 0) > 0,
     hasImprovementsApprovedAfterBase: (improvementsRes.count ?? 0) > 0,
+    hasKnowledgeUpdatesApprovedAfterBase: (knowledgeUpdatesRes.count ?? 0) > 0,
     offerProfileUpdatedAt: structural.offerProfileUpdatedAt,
     brandRowUpdatedAt: structural.brandRowUpdatedAt,
     hasStaleOfferItems: structural.hasStaleOfferItems,
