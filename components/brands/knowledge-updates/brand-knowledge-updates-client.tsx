@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,10 @@ import {
   brandKnowledgeUpdateSectionLabelEs,
   brandKnowledgeUpdateStatusLabelEs,
 } from "@/lib/brands/brand-knowledge-update-labels";
+import {
+  brandKnowledgeUpdateSectionKeySchema,
+  type BrandKnowledgeUpdateSectionKey,
+} from "@/lib/brands/brand-knowledge-update-types";
 import { cn } from "@/lib/utils";
 import type {
   BrandKnowledgeUpdateRow,
@@ -40,6 +45,15 @@ export function BrandKnowledgeUpdatesClient({
   brandName,
   hasApprovedPendingConsolidation,
 }: Props) {
+  const searchParams = useSearchParams();
+  const presetSectionRaw = searchParams.get("section");
+  const presetSectionParsed = presetSectionRaw
+    ? brandKnowledgeUpdateSectionKeySchema.safeParse(presetSectionRaw)
+    : null;
+  const presetSection: BrandKnowledgeUpdateSectionKey | null = presetSectionParsed?.success
+    ? presetSectionParsed.data
+    : null;
+
   const [updates, setUpdates] = useState<BrandKnowledgeUpdateRow[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending_review");
   const [loading, setLoading] = useState(true);
@@ -94,7 +108,10 @@ export function BrandKnowledgeUpdatesClient({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_text: text }),
+        body: JSON.stringify({
+          raw_text: text,
+          ...(presetSection ? { section_key: presetSection } : {}),
+        }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -108,7 +125,7 @@ export function BrandKnowledgeUpdatesClient({
     } finally {
       setSubmitting(false);
     }
-  }, [brandId, draftText, load]);
+  }, [brandId, draftText, load, presetSection]);
 
   const review = useCallback(
     async (updateId: string, action: "approve" | "discard") => {
@@ -141,9 +158,9 @@ export function BrandKnowledgeUpdatesClient({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
       <Button variant="ghost" size="sm" className="mb-6 gap-1 rounded-xl" asChild>
-        <Link href={`/brands/${brandId}`}>
+        <Link href={`/brands/${brandId}/knowledge`}>
           <ArrowLeft className="size-4" aria-hidden />
-          {brandName}
+          Información de marca
         </Link>
       </Button>
 
@@ -153,8 +170,11 @@ export function BrandKnowledgeUpdatesClient({
             Marca
           </p>
           <h1 className="font-heading text-2xl font-semibold text-limbi-text">
-            Actualizar conocimiento de marca
+            {presetSection
+              ? `Agregar en ${brandKnowledgeUpdateSectionLabelEs(presetSection)}`
+              : "Actualizaciones de marca"}
           </h1>
+          <p className="text-sm text-limbi-muted">{brandName}</p>
           <p className="text-sm leading-relaxed text-limbi-muted">
             Agregá información estable nueva sin rehacer el cuestionario. Cada entrada queda
             pendiente de revisión; al aprobarla queda lista para la próxima consolidación de la

@@ -11,6 +11,8 @@ export const brandKnowledgeUpdatesGetQuerySchema = z.object({
 
 export const postBrandKnowledgeUpdateBodySchema = z.object({
   raw_text: z.string().trim().min(1).max(8000),
+  /** Si viene del hub por sección, fija la clasificación en esa sección. */
+  section_key: brandKnowledgeUpdateSectionKeySchema.optional(),
 });
 
 export const patchBrandKnowledgeUpdateBodySchema = z.discriminatedUnion("action", [

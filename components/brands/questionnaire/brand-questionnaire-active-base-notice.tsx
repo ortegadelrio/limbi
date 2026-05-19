@@ -29,10 +29,10 @@ export function BrandQuestionnaireActiveBaseNotice({ brandId }: Props) {
       <p className="mt-2 text-amber-900/90">
         Para información nueva (servicios, logros, restricciones), usá{" "}
         <Link
-          href={`/brands/${brandId}/knowledge-updates`}
+          href={`/brands/${brandId}/knowledge`}
           className="font-medium text-amber-950 underline underline-offset-2"
         >
-          Actualizar conocimiento de marca
+          Información de marca
         </Link>
         .
       </p>

@@ -93,6 +93,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const classification = classifyBrandKnowledgeUpdate(parsed.data.raw_text);
+  const sectionKey = parsed.data.section_key ?? classification.section_key;
 
   const { data: inserted, error: insErr } = await supabase
     .from("brand_knowledge_updates")
@@ -102,7 +103,7 @@ export async function POST(request: Request, { params }: Params) {
       raw_text: parsed.data.raw_text,
       interpreted_summary: classification.interpreted_summary,
       source_type: "manual_addition",
-      section_key: classification.section_key,
+      section_key: sectionKey,
       importance_level: classification.importance_level,
       must_include: classification.must_include,
       status: "pending_review",

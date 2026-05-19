@@ -279,6 +279,13 @@ export function BrandQuestionnaireShell({
       setShowCompletionCelebration(false);
       const idx = sectionPlan.findIndex((s) => s.isMaterialContext);
       if (idx >= 0) setActiveSectionIndex(idx);
+      return;
+    }
+    const sectionParam = searchParams.get("section")?.trim();
+    if (sectionParam) {
+      setShowCompletionCelebration(false);
+      const idx = sectionPlan.findIndex((s) => s.section_key === sectionParam);
+      if (idx >= 0) setActiveSectionIndex(idx);
     }
   }, [loading, searchParams, sectionPlan]);
 
@@ -296,6 +303,11 @@ export function BrandQuestionnaireShell({
       if (sec?.isMaterialContext) {
         router.replace(
           `/brands/${brandId}/questionnaire?step=material_context`,
+          { scroll: false },
+        );
+      } else if (sec?.section_key) {
+        router.replace(
+          `/brands/${brandId}/questionnaire?section=${encodeURIComponent(sec.section_key)}`,
           { scroll: false },
         );
       } else {

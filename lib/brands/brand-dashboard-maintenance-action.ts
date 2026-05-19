@@ -92,17 +92,11 @@ export function buildBrandDashboardMaintenanceSecondaryLinks(
   const base = `/brands/${brandId}`;
   return [
     {
-      label: "Actualizar conocimiento de marca",
-      href: `${base}/knowledge-updates`,
+      label: "Gestionar información de marca",
+      href: `${base}/knowledge`,
       description:
-        "Agrega nueva información sin alterar el cuestionario original. Limbi la incorporará solo después de aprobarla y consolidar la Base de Marca.",
+        "Aquí puedes revisar y actualizar lo que Limbi sabe de esta marca. Corrige información existente o agrega novedades por sección. Limbi solo usará los cambios cuando estén aprobados e incorporados en la Base de Marca.",
       emphasized: true,
-    },
-    {
-      label: "Editar cuestionario de marca",
-      href: `${base}/questionnaire`,
-      description:
-        "Corrige información estructural original. Si guardas cambios, el diagnóstico y la Base de Marca deberán actualizarse.",
     },
     { label: "Ver diagnóstico", href: `${base}/diagnosis` },
     { label: "Ver Base de Marca", href: `${base}/bases` },
@@ -138,7 +132,7 @@ export function resolveBrandDashboardMaintenance(input: {
   } = input;
 
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
-  const knowledgeUpdatesHref = `/brands/${brandId}/knowledge-updates`;
+  const knowledgeHubHref = `/brands/${brandId}/knowledge`;
 
   const baseStaleNotice =
     !diagnosisIsStale && hasActiveBases && basesStale
@@ -189,7 +183,7 @@ export function resolveBrandDashboardMaintenance(input: {
       primaryLabel: forBrandsList
         ? "Revisar actualizaciones"
         : "Revisar actualizaciones de marca",
-      primaryHref: knowledgeUpdatesHref,
+      primaryHref: knowledgeHubHref,
       canRunUpdateAll: false,
       blockingReason: "pending_knowledge_updates",
       upToDateHeadline: null,

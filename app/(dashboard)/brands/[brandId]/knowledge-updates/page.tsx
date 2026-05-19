@@ -1,10 +1,11 @@
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { BrandKnowledgeUpdatesClient } from "@/components/brands/knowledge-updates/brand-knowledge-updates-client";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type Props = { params: Promise<{ brandId: string }> };
 
-export default async function BrandKnowledgeUpdatesPage({ params }: Props) {
+async function BrandKnowledgeUpdatesPageInner({ params }: Props) {
   const { brandId } = await params;
   const supabase = await createServerSupabaseClient();
   const {
@@ -57,5 +58,19 @@ export default async function BrandKnowledgeUpdatesPage({ params }: Props) {
       brandName={brand.name}
       hasApprovedPendingConsolidation={hasApprovedPendingConsolidation}
     />
+  );
+}
+
+export default function BrandKnowledgeUpdatesPage(props: Props) {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl px-4 py-16 text-center text-limbi-muted">
+          Cargando actualizaciones…
+        </div>
+      }
+    >
+      <BrandKnowledgeUpdatesPageInner {...props} />
+    </Suspense>
   );
 }

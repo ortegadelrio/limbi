@@ -26,7 +26,7 @@ describe("resolveBrandDashboardMaintenance", () => {
       diagnosisIsStale: true,
     });
     expect(r.primaryRole).toBe("review_pending_knowledge_updates");
-    expect(r.primaryHref).toContain("knowledge-updates");
+    expect(r.primaryHref).toContain("/knowledge");
     expect(r.blockingReason).toBe("pending_knowledge_updates");
   });
 
@@ -121,25 +121,15 @@ describe("resolveBrandDashboardMaintenance", () => {
     expect(r.blockingReason).toBe("consolidation_running");
   });
 
-  it("secondary links priorizan actualizar conocimiento con microcopy", () => {
+  it("secondary links priorizan Gestionar información de marca", () => {
     const links = buildBrandDashboardMaintenanceSecondaryLinks("x");
-    const knowledge = links.find((l) => l.label === "Actualizar conocimiento de marca");
-    expect(knowledge?.href).toBe("/brands/x/knowledge-updates");
-    expect(knowledge?.emphasized).toBe(true);
-    expect(knowledge?.description).toContain("consolidar la Base de Marca");
-    expect(links[0]?.label).toBe("Actualizar conocimiento de marca");
-  });
-
-  it("secondary links usan Editar cuestionario de marca (no editar base)", () => {
-    const links = buildBrandDashboardMaintenanceSecondaryLinks("x");
-    expect(links.some((l) => l.label === "Editar cuestionario de marca")).toBe(true);
-    expect(links.some((l) => l.label.toLowerCase().includes("editar base"))).toBe(false);
-    expect(links.find((l) => l.label === "Editar cuestionario de marca")?.href).toBe(
-      "/brands/x/questionnaire",
-    );
-    expect(links.find((l) => l.label === "Editar cuestionario de marca")?.description).toContain(
-      "diagnóstico",
-    );
+    const hub = links.find((l) => l.label === "Gestionar información de marca");
+    expect(hub?.href).toBe("/brands/x/knowledge");
+    expect(hub?.emphasized).toBe(true);
+    expect(hub?.description).toContain("incorporados en la Base de Marca");
+    expect(links[0]?.label).toBe("Gestionar información de marca");
+    expect(links.some((l) => l.label === "Editar cuestionario de marca")).toBe(false);
+    expect(links.some((l) => l.label === "Actualizar conocimiento de marca")).toBe(false);
   });
 
   it("forBrandsList + base stale → Actualizar Base de Marca (misma prioridad que interno)", () => {

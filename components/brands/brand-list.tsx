@@ -74,7 +74,7 @@ export function BrandList({ brands }: { brands: BrandListItem[] }) {
           b.hasActiveDiagnosis && b.overallScore != null && !Number.isNaN(b.overallScore)
             ? `${Math.round(b.overallScore)}%`
             : null;
-        const questionnaireHref = `/brands/${b.id}/questionnaire`;
+        const knowledgeHref = `/brands/${b.id}/knowledge`;
 
         return (
           <li key={b.id}>
@@ -176,10 +176,10 @@ export function BrandList({ brands }: { brands: BrandListItem[] }) {
                     activeDiagnosisEvaluationId={b.activeDiagnosisEvaluationId}
                   />
                   <Link
-                    href={questionnaireHref}
+                    href={knowledgeHref}
                     className="text-center text-sm font-medium text-limbi-green underline-offset-4 hover:underline sm:text-right"
                   >
-                    Editar cuestionario de marca
+                    Gestionar información de marca
                   </Link>
                 </div>
               </CardContent>
