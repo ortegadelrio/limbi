@@ -23,7 +23,7 @@ describe("Listado /brands — contrato mantenimiento (sin RTL)", () => {
     expect(src).toContain("forBrandsList: true");
   });
 
-  it("tarjeta lista: calidad, sin diagnóstico, estado ejecutivo, CTA e información de marca", () => {
+  it("tarjeta lista: calidad, sin diagnóstico, estado ejecutivo, CTA y cuestionario", () => {
     const p = path.join(__dirname, "../../components/brands/brand-list.tsx");
     const src = readFileSync(p, "utf8");
     expect(src).toContain("Calidad de información");
@@ -32,9 +32,10 @@ describe("Listado /brands — contrato mantenimiento (sin RTL)", () => {
     expect(src).toContain("Aún no hay diagnóstico");
     expect(src).toContain("executiveStatusLabel");
     expect(src).toContain("BrandOverviewCardCta");
-    expect(src).toContain("Gestionar información de marca");
-    expect(src).toContain("/knowledge");
-    expect(src).not.toContain("/questionnaire");
+    expect(src).toContain("Editar cuestionario de marca");
+    expect(src).toContain("/questionnaire");
+    expect(src).not.toContain("Gestionar información de marca");
+    expect(src).not.toContain("/knowledge");
   });
 
   it("CTA tarjeta listado: update-all llama diagnóstico antes que consolidación", () => {

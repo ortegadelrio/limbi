@@ -86,16 +86,18 @@ export type BrandDashboardSecondaryLink = {
   emphasized?: boolean;
 };
 
+export const BRAND_QUESTIONNAIRE_SECONDARY_LINK_DESCRIPTION_ES =
+  "Corrige, completa o actualiza la información estructural de la marca. Después actualiza el diagnóstico y la Base de Marca para que Limbi use los cambios.";
+
 export function buildBrandDashboardMaintenanceSecondaryLinks(
   brandId: string,
 ): BrandDashboardSecondaryLink[] {
   const base = `/brands/${brandId}`;
   return [
     {
-      label: "Gestionar información de marca",
-      href: `${base}/knowledge`,
-      description:
-        "Aquí puedes revisar y actualizar lo que Limbi sabe de esta marca. Corrige información existente o agrega novedades por sección. Limbi solo usará los cambios cuando estén aprobados e incorporados en la Base de Marca.",
+      label: "Editar cuestionario de marca",
+      href: `${base}/questionnaire`,
+      description: BRAND_QUESTIONNAIRE_SECONDARY_LINK_DESCRIPTION_ES,
       emphasized: true,
     },
     { label: "Ver diagnóstico", href: `${base}/diagnosis` },
@@ -110,6 +112,7 @@ export function buildBrandDashboardMaintenanceSecondaryLinks(
 export function resolveBrandDashboardMaintenance(input: {
   brandId: string;
   pendingFactsCount: number;
+  /** @deprecated Ya no bloquea el mantenimiento; conservado por compatibilidad de callers. */
   pendingKnowledgeUpdatesCount?: number;
   consolidationRunning: boolean;
   hasActiveDiagnosis: boolean;
@@ -122,7 +125,6 @@ export function resolveBrandDashboardMaintenance(input: {
   const {
     brandId,
     pendingFactsCount,
-    pendingKnowledgeUpdatesCount = 0,
     consolidationRunning,
     hasActiveDiagnosis,
     diagnosisIsStale,
@@ -132,7 +134,6 @@ export function resolveBrandDashboardMaintenance(input: {
   } = input;
 
   const sourceFactsHref = `/brands/${brandId}/source-facts`;
-  const knowledgeHubHref = `/brands/${brandId}/knowledge`;
 
   const baseStaleNotice =
     !diagnosisIsStale && hasActiveBases && basesStale
@@ -169,23 +170,6 @@ export function resolveBrandDashboardMaintenance(input: {
       primaryHref: sourceFactsHref,
       canRunUpdateAll: false,
       blockingReason: "pending_facts",
-      upToDateHeadline: null,
-    };
-  }
-
-  if (pendingKnowledgeUpdatesCount > 0) {
-    return {
-      warningState: "pending_knowledge_updates",
-      baseStaleNotice,
-      combinedStaleNotice,
-      diagnosisStaleNotice,
-      primaryRole: "review_pending_knowledge_updates",
-      primaryLabel: forBrandsList
-        ? "Revisar actualizaciones"
-        : "Revisar actualizaciones de marca",
-      primaryHref: knowledgeHubHref,
-      canRunUpdateAll: false,
-      blockingReason: "pending_knowledge_updates",
       upToDateHeadline: null,
     };
   }

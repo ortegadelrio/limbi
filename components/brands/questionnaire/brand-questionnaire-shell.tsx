@@ -620,7 +620,7 @@ export function BrandQuestionnaireShell({
           ) : null}
         </div>
 
-        {hasActiveBases ? <BrandQuestionnaireActiveBaseNotice brandId={brandId} /> : null}
+        {hasActiveBases ? <BrandQuestionnaireActiveBaseNotice /> : null}
 
         {staleBanner ? (
           <BrandQuestionnaireStaleMaintenanceBanner

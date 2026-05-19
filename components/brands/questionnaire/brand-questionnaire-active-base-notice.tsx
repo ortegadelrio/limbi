@@ -1,16 +1,11 @@
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { limbiDocumentCardClass } from "@/components/projects/limbi-ui";
-
-type Props = {
-  brandId: string;
-};
 
 /**
  * Aviso al editar respuestas originales cuando ya existe Base de Marca consolidada.
  * La base activa no se edita manualmente; se reconsolida desde fuentes aprobadas.
  */
-export function BrandQuestionnaireActiveBaseNotice({ brandId }: Props) {
+export function BrandQuestionnaireActiveBaseNotice() {
   return (
     <div
       className={cn(
@@ -27,14 +22,8 @@ export function BrandQuestionnaireActiveBaseNotice({ brandId }: Props) {
         <strong className="font-medium">no se edita a mano</strong>; se reconsolida.
       </p>
       <p className="mt-2 text-amber-900/90">
-        Para información nueva (servicios, logros, restricciones), usá{" "}
-        <Link
-          href={`/brands/${brandId}/knowledge`}
-          className="font-medium text-amber-950 underline underline-offset-2"
-        >
-          Información de marca
-        </Link>
-        .
+        Completá o corregí las respuestas aquí; después actualizá el diagnóstico y la Base de
+        Marca desde el dashboard de la marca.
       </p>
     </div>
   );

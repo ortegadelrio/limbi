@@ -23,9 +23,9 @@ describe("brand knowledge hub", () => {
     expect(brandKnowledgeHubStatusLabelEs("pending_consolidation")).toContain("consolidar");
   });
 
-  it("dashboard enlaza al hub /knowledge como acción principal", () => {
+  it("dashboard enlaza al cuestionario como acción secundaria principal", () => {
     const links = buildBrandDashboardMaintenanceSecondaryLinks("abc");
-    expect(links[0]?.href).toBe("/brands/abc/knowledge");
-    expect(links[0]?.label).toBe("Gestionar información de marca");
+    expect(links[0]?.href).toBe("/brands/abc/questionnaire");
+    expect(links[0]?.label).toBe("Editar cuestionario de marca");
   });
 });
