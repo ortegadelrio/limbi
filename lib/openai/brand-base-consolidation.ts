@@ -28,9 +28,10 @@ const sectionInterpretation = {
   properties: {
     section_key: { type: "string", minLength: 1, maxLength: 80 },
     headline: { type: "string", minLength: 1, maxLength: 220 },
+    brand_information: { type: "string", minLength: 1, maxLength: 6000 },
     interpretation: { type: "string", minLength: 1, maxLength: 6000 },
   },
-  required: ["section_key", "headline", "interpretation"],
+  required: ["section_key", "headline", "brand_information", "interpretation"],
 } as const;
 
 const finalHighlights = {

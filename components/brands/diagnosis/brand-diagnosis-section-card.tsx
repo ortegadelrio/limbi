@@ -7,6 +7,7 @@ import {
   limbiOutlineButtonClass,
 } from "@/components/projects/limbi-ui";
 import { Button } from "@/components/ui/button";
+import { brandQuestionnaireSectionHref } from "@/lib/brands/brand-diagnosis-questionnaire-link";
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 import type { BrandDiagnosisSectionScoreParsed } from "@/lib/schemas/brand-diagnosis";
 import { cn } from "@/lib/utils";
@@ -176,8 +177,8 @@ export function BrandDiagnosisSectionCard({
           {canImproveSection ? (
             <div className="pt-1">
               <Button variant="outline" size="sm" className={limbiOutlineButtonClass} asChild>
-                <Link href={`/brands/${brandId}/improve/${encodeURIComponent(row.section_key)}`}>
-                  Mejorar esta sección con la IA de Limbi
+                <Link href={brandQuestionnaireSectionHref(brandId, row.section_key)}>
+                  Editar esta sección en el cuestionario
                 </Link>
               </Button>
             </div>

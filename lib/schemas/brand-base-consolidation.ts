@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** v1.2: `credibility_architecture` (liderazgo, gremios, ecosistema, prueba reputacional desde evidencia). */
-export const BRAND_BASE_CONSOLIDATION_PROMPT_VERSION = "brand-base-consolidation-v1.2";
+/** v1.3: `section_interpretations[].brand_information` + `interpretation` (lectura Limbi) por sección. */
+export const BRAND_BASE_CONSOLIDATION_PROMPT_VERSION = "brand-base-consolidation-v1.3";
 
 const pillarSchema = z.object({
   title: z.string().min(1).max(200),
@@ -11,6 +11,9 @@ const pillarSchema = z.object({
 const sectionInterpretationSchema = z.object({
   section_key: z.string().min(1).max(80),
   headline: z.string().min(1).max(220),
+  /** Resumen fiel y redactado de lo diligenciado en el cuestionario (v1.3+). */
+  brand_information: z.string().min(1).max(6000).optional(),
+  /** Lectura estratégica de Limbi sobre esa sección. */
   interpretation: z.string().min(1).max(6000),
 });
 

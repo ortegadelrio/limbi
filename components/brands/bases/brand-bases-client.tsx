@@ -239,14 +239,10 @@ export function BrandBasesClient({ brandId, brandName, initialBases }: Props) {
               Base de Conocimiento
             </h2>
             <p className="text-xs text-limbi-muted">
-              Lectura ejecutiva para equipos: cómo Limbi entiende la marca hoy, en lenguaje claro.
+              Por sección: lo que consolidamos del cuestionario y la lectura estratégica de Limbi.
             </p>
           </div>
-          <BrandBasesInterpretiveReading
-            brandId={brandId}
-            offerPreview={bases.offer_preview}
-            knowledgeUi={knowledgeUi}
-          />
+          <BrandBasesInterpretiveReading knowledgeUi={knowledgeUi} />
           {hasLimbic ? (
             <div className="space-y-4 border-t border-limbi-border/80 pt-10">
               <p className="max-w-prose text-xs leading-relaxed text-limbi-muted">

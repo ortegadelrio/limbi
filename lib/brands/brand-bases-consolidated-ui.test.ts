@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BRAND_BASES_EXECUTIVE_DISCLAIMER_ES,
   brandKnowledgeUiHasCredibilityBlock,
+  buildBrandBaseSectionViews,
   buildBrandKnowledgeUiModel,
 } from "@/lib/brands/brand-bases-consolidated-ui";
 import { brandBaseConsolidationRawOutputSchema } from "@/lib/schemas/brand-base-consolidation";
@@ -36,6 +37,7 @@ describe("buildBrandKnowledgeUiModel", () => {
         {
           section_key: "identity",
           headline: "Identidad",
+          brand_information: "La marca se presenta como consultora con foco regional.",
           interpretation: "Interpretación identidad.",
         },
       ],
@@ -76,6 +78,10 @@ describe("buildBrandKnowledgeUiModel", () => {
     });
     expect(ui.executiveReading).toBe("Ejecutiva explícita.");
     expect(ui.sectionInterpretations).toHaveLength(1);
+    expect(ui.sectionInterpretations[0]?.brandInformation).toContain("consultora");
+    expect(ui.sectionInterpretations[0]?.limbiReading).toContain("Interpretación");
+    const views = buildBrandBaseSectionViews(ui);
+    expect(views.some((v) => v.id === "identity" && v.brandInformation)).toBe(true);
     expect(ui.finalHighlights?.key_strengths).toHaveLength(2);
     expect(ui.internalBaseNotice).toBe("Interno.");
     expect(ui.offerArchitecture?.service_catalog).toHaveLength(1);
@@ -92,6 +98,8 @@ describe("buildBrandKnowledgeUiModel", () => {
     const section = (section_key: string) => ({
       section_key,
       headline: `Lectura ${section_key}`,
+      brand_information:
+        "Resumen fiel de lo diligenciado en el cuestionario para esta sección, con datos concretos y redacción clara.",
       interpretation:
         "Párrafo interpretativo con densidad suficiente para la sección. Desarrollamos qué implica para la marca, qué ofrece y qué tensiones aparecen sin inventar hechos.",
     });

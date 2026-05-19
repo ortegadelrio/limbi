@@ -1,3 +1,4 @@
+import { BRAND_BASE_UI_SECTIONS } from "@/lib/brands/brand-base-display-sections";
 import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-section-labels";
 
 /**
@@ -6,7 +7,10 @@ import { brandQuestionnaireSectionLabelEs } from "@/lib/brands/questionnaire-sec
  * en `brand_knowledge_bases` para consumo de IA (ver `loadActiveBrandContextForProject`).
  */
 export const BRAND_BASES_EXECUTIVE_DISCLAIMER_ES =
-  "Esta es una lectura ejecutiva de la Base de Marca. La base completa queda guardada internamente y será utilizada por Limbi para desarrollar proyectos, sistemas límbicos de proyecto y contenidos futuros con coherencia estratégica.";
+  "Por sección verás lo que consolidamos del cuestionario (información de marca) y la lectura estratégica de Limbi. La base completa sigue guardada y es la fuente operativa para proyectos y Brainstormer.";
+
+export const BRAND_BASES_LEGACY_SECTION_INFO_NOTE_ES =
+  "Esta consolidación no separó aún la información del cuestionario. Regenerá la Base de Marca para ver ambas capas con el formato actual.";
 
 /** Orden sugerido de secciones en la vista interpretativa (si el modelo devuelve otras, se muestran al final). */
 export const BRAND_BASE_SECTION_DISPLAY_ORDER = [
@@ -31,7 +35,21 @@ export type BrandFinalHighlightsUi = {
 export type BrandSectionInterpretationUi = {
   section_key: string;
   headline: string;
-  interpretation: string;
+  brandInformation: string;
+  limbiReading: string;
+  /** True si `brandInformation` proviene de un fallback estructurado (bases v1.0–v1.2). */
+  brandInformationDerived: boolean;
+};
+
+export type BrandBaseSectionView = {
+  id: string;
+  label: string;
+  headline: string | null;
+  brandInformation: string | null;
+  limbiReading: string | null;
+  brandInformationDerived: boolean;
+  offerCatalog: BrandOfferServiceCatalogEntryUi[] | null;
+  credibilityFactGroups: { title: string; items: string[] }[] | null;
 };
 
 export type BrandCredibilityArchitectureUi = {
@@ -121,15 +139,173 @@ function parseSectionInterpretations(raw: unknown): BrandSectionInterpretationUi
     const r = row as Record<string, unknown>;
     const section_key = asString(r.section_key).trim();
     const headline = asString(r.headline).trim();
-    const interpretation = asString(r.interpretation).trim();
-    if (!section_key || !interpretation) continue;
+    const brandInformation = asString(r.brand_information).trim();
+    const limbiReading = asString(r.interpretation).trim();
+    if (!section_key || !limbiReading) continue;
     out.push({
       section_key,
       headline: headline || brandQuestionnaireSectionLabelEs(section_key),
-      interpretation,
+      brandInformation,
+      limbiReading,
+      brandInformationDerived: false,
     });
   }
   return out;
+}
+
+function formatOfferCatalogAsBrandInformation(
+  summary: string,
+  catalog: BrandOfferServiceCatalogEntryUi[],
+): string {
+  const parts: string[] = [];
+  if (summary.trim()) parts.push(summary.trim());
+  if (catalog.length > 0) {
+    const lines = catalog.map((row) => {
+      const desc = row.description.trim();
+      return desc.length > 0 ? `• ${row.name}: ${desc}` : `• ${row.name}`;
+    });
+    parts.push(lines.join("\n"));
+  }
+  return parts.join("\n\n").trim();
+}
+
+function formatCredibilityAsBrandInformation(
+  c: BrandCredibilityArchitectureUi,
+): string {
+  const groups: { title: string; items: string[] }[] = [
+    { title: "Señales de autoridad", items: c.authority_signals },
+    { title: "Roles institucionales", items: c.institutional_roles },
+    { title: "Liderazgo en el sector", items: c.industry_leadership_assets },
+    { title: "Credenciales del fundador/a", items: c.founder_credentials },
+    { title: "Ecosistema de negocios", items: c.business_ecosystem },
+    { title: "Prueba reputacional", items: c.reputation_proof_points },
+  ];
+  const parts: string[] = [];
+  for (const g of groups) {
+    if (g.items.length === 0) continue;
+    parts.push(`${g.title}:\n${g.items.map((x) => `• ${x}`).join("\n")}`);
+  }
+  return parts.join("\n\n").trim();
+}
+
+function credibilityFactGroups(
+  c: BrandCredibilityArchitectureUi | null,
+): { title: string; items: string[] }[] | null {
+  if (!c) return null;
+  const groups = [
+    { title: "Señales de autoridad", items: c.authority_signals },
+    { title: "Roles institucionales", items: c.institutional_roles },
+    { title: "Liderazgo en el sector", items: c.industry_leadership_assets },
+    { title: "Credenciales del fundador/a", items: c.founder_credentials },
+    { title: "Ecosistema de negocios", items: c.business_ecosystem },
+    { title: "Prueba reputacional", items: c.reputation_proof_points },
+  ].filter((g) => g.items.length > 0);
+  return groups.length > 0 ? groups : null;
+}
+
+function deriveBrandInformationFallback(
+  sectionId: string,
+  payload: Record<string, unknown>,
+  offerArchitecture: BrandOfferArchitectureUi | null,
+  credibilityArchitecture: BrandCredibilityArchitectureUi | null,
+): string {
+  if (sectionId === "offer" && offerArchitecture) {
+    return formatOfferCatalogAsBrandInformation(
+      offerArchitecture.offer_summary,
+      offerArchitecture.service_catalog,
+    );
+  }
+  if (sectionId === "evidence" && credibilityArchitecture) {
+    return formatCredibilityAsBrandInformation(credibilityArchitecture);
+  }
+  if (sectionId === "restrictions") {
+    const r = asString(payload.restrictions_and_alerts).trim();
+    if (r) return r;
+  }
+  return "";
+}
+
+function findInterpretationForKeys(
+  rows: BrandSectionInterpretationUi[],
+  keys: string[],
+): BrandSectionInterpretationUi | null {
+  for (const key of keys) {
+    const row = rows.find((r) => r.section_key === key);
+    if (row) return row;
+  }
+  return null;
+}
+
+/**
+ * Vistas por sección de producto para `/bases` (dos capas: información + lectura Limbi).
+ */
+export function buildBrandBaseSectionViews(
+  knowledgeUi: BrandKnowledgeUiModel,
+): BrandBaseSectionView[] {
+  const rows = knowledgeUi.sectionInterpretations;
+  const payloadLike = {
+    restrictions_and_alerts: knowledgeUi.restrictionsAndAlerts,
+  };
+
+  return BRAND_BASE_UI_SECTIONS.map((def) => {
+    const match = findInterpretationForKeys(rows, def.interpretationKeys);
+    let brandInformation = match?.brandInformation?.trim() ?? "";
+    let limbiReading = match?.limbiReading?.trim() ?? "";
+    let derived = match?.brandInformationDerived ?? false;
+
+    if (!brandInformation) {
+      const fallback = deriveBrandInformationFallback(
+        def.id,
+        payloadLike,
+        def.id === "offer" ? knowledgeUi.offerArchitecture : null,
+        def.id === "evidence" ? knowledgeUi.credibilityArchitecture : null,
+      );
+      if (fallback) {
+        brandInformation = fallback;
+        derived = true;
+      }
+    }
+
+    const offerCatalog =
+      def.id === "offer" && knowledgeUi.offerArchitecture?.service_catalog.length
+        ? knowledgeUi.offerArchitecture.service_catalog
+        : null;
+
+    const credGroups =
+      def.id === "evidence"
+        ? credibilityFactGroups(knowledgeUi.credibilityArchitecture)
+        : null;
+
+    if (def.id === "offer" && knowledgeUi.offerArchitecture?.commercial_use_guidance) {
+      const guidance = knowledgeUi.offerArchitecture.commercial_use_guidance.trim();
+      limbiReading = limbiReading
+        ? `${limbiReading}\n\n${guidance}`
+        : guidance;
+    }
+
+    if (def.id === "evidence" && knowledgeUi.credibilityArchitecture) {
+      const guidance = knowledgeUi.credibilityArchitecture.communication_use_guidance.trim();
+      if (guidance && !limbiReading.includes(guidance)) {
+        limbiReading = limbiReading ? `${limbiReading}\n\n${guidance}` : guidance;
+      }
+    }
+
+    return {
+      id: def.id,
+      label: def.label,
+      headline: match?.headline ?? null,
+      brandInformation: brandInformation || null,
+      limbiReading: limbiReading || null,
+      brandInformationDerived: derived,
+      offerCatalog,
+      credibilityFactGroups: credGroups,
+    };
+  }).filter(
+    (s) =>
+      Boolean(s.brandInformation?.trim()) ||
+      Boolean(s.limbiReading?.trim()) ||
+      (s.offerCatalog?.length ?? 0) > 0,
+  );
 }
 
 function parseOfferArchitecture(raw: unknown): BrandOfferArchitectureUi | null {

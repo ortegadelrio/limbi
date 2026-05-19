@@ -54,18 +54,24 @@ describe("Journey marca — contrato UI consolidación (sin RTL)", () => {
   });
 
   it("copy estable de disclaimer ejecutivo", () => {
-    expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("lectura ejecutiva");
-    expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("internamente");
+    expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("información de marca");
+    expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("lectura estratégica");
+    expect(BRAND_BASES_EXECUTIVE_DISCLAIMER_ES).toContain("Brainstormer");
   });
 
-  it("/bases: sección explícita de oferta y servicios", () => {
+  it("/bases: secciones con dos capas (oferta en catálogo)", () => {
     const p = path.join(
       __dirname,
       "../../components/brands/bases/brand-bases-interpretive-reading.tsx",
     );
     const src = readFileSync(p, "utf8");
-    expect(src).toContain("BrandBasesOfferSection");
-    expect(src).toContain("offerPreview");
+    expect(src).toContain("BrandBasesSectionDualLayer");
+    expect(src).toContain("buildBrandBaseSectionViews");
+    const dual = readFileSync(
+      path.join(__dirname, "../../components/brands/bases/brand-bases-section-dual-layer.tsx"),
+      "utf8",
+    );
+    expect(dual).toContain("offerCatalog");
   });
 
   it("schema OpenAI de consolidación incluye offer_architecture y credibility_architecture", () => {
@@ -76,21 +82,17 @@ describe("Journey marca — contrato UI consolidación (sin RTL)", () => {
     expect(src).toContain("credibility_architecture");
   });
 
-  it("/bases: sección visible de credenciales y liderazgo", () => {
-    const interpretive = path.join(
-      __dirname,
-      "../../components/brands/bases/brand-bases-interpretive-reading.tsx",
-    );
-    const interpretiveSrc = readFileSync(interpretive, "utf8");
-    expect(interpretiveSrc).toContain("BrandBasesCredibilitySection");
-    expect(interpretiveSrc).toContain("brandKnowledgeUiHasCredibilityBlock");
+  it("/bases: credenciales integradas en sección evidence", () => {
+    const ui = path.join(__dirname, "../../lib/brands/brand-bases-consolidated-ui.ts");
+    const uiSrc = readFileSync(ui, "utf8");
+    expect(uiSrc).toContain("credibilityFactGroups");
+    expect(uiSrc).toContain('id === "evidence"');
 
-    const credibility = path.join(
-      __dirname,
-      "../../components/brands/bases/brand-bases-credibility-section.tsx",
+    const dual = readFileSync(
+      path.join(__dirname, "../../components/brands/bases/brand-bases-section-dual-layer.tsx"),
+      "utf8",
     );
-    const credibilitySrc = readFileSync(credibility, "utf8");
-    expect(credibilitySrc).toContain("Credenciales, liderazgo y respaldo reputacional");
+    expect(dual).toContain("credibilityFactGroups");
   });
 
   it("dashboard interno: Ver Base de Marca cuando hay bases", () => {

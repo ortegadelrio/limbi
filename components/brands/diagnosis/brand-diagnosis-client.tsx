@@ -19,6 +19,11 @@ import { BrandDiagnosisSectionCard } from "@/components/brands/diagnosis/brand-d
 import type { BrandDashboardBasesState } from "@/lib/brands/fetch-brand-dashboard-bases-state";
 import { resolveBrandPostDiagnosisNextStep } from "@/lib/brands/brand-post-diagnosis-next-step";
 import { BrandPostDiagnosisNextStepCard } from "@/components/brands/diagnosis/brand-post-diagnosis-next-step-card";
+import {
+  BRAND_DIAGNOSIS_QUESTIONNAIRE_GUIDANCE_ES,
+  brandQuestionnaireHref,
+  brandQuestionnaireSectionHref,
+} from "@/lib/brands/brand-diagnosis-questionnaire-link";
 
 type Props = {
   brandId: string;
@@ -265,6 +270,11 @@ export function BrandDiagnosisClient({
             Evaluación estratégica de la calidad de la información disponible (cuestionario y
             hallazgos aprobados). No genera la Base de Marca ni contenidos.
           </p>
+          {evaluation ? (
+            <p className="rounded-xl border border-limbi-border/80 bg-limbi-surface-soft/50 px-3 py-2.5 text-sm leading-relaxed text-limbi-muted">
+              {BRAND_DIAGNOSIS_QUESTIONNAIRE_GUIDANCE_ES}
+            </p>
+          ) : null}
           {diagnosisGeneratedAtBogota ? (
             <div className="flex flex-col gap-2 pt-1">
               <p className="text-xs text-limbi-muted">
@@ -443,13 +453,19 @@ export function BrandDiagnosisClient({
                 <h2 className="font-heading text-base font-semibold text-limbi-text">
                   Plan de mejora priorizado
                 </h2>
-                <ol className="list-decimal space-y-2 pl-5 text-sm text-limbi-muted">
+                <ol className="list-decimal space-y-3 pl-5 text-sm text-limbi-muted">
                   {improvementPlan.map((p, i) => (
                     <li key={`${p.section_key}-${i}`}>
                       <span className="font-medium text-limbi-text">
                         {brandQuestionnaireSectionLabelEs(p.section_key)}
                       </span>{" "}
-                      (prioridad {priorityLabelEs(p.priority)}) — {p.recommended_focus}
+                      (prioridad {priorityLabelEs(p.priority)}) — {p.recommended_focus}{" "}
+                      <Link
+                        href={brandQuestionnaireSectionHref(brandId, p.section_key)}
+                        className="font-medium text-limbi-green underline underline-offset-2"
+                      >
+                        Editar en el cuestionario
+                      </Link>
                     </li>
                   ))}
                 </ol>
@@ -466,17 +482,19 @@ export function BrandDiagnosisClient({
               />
             ) : null}
 
-            <div className="flex flex-col gap-3 border-t border-limbi-border pt-6 sm:flex-row sm:flex-wrap">
+            <div className="flex flex-col gap-3 border-t border-limbi-border pt-6 sm:flex-row sm:flex-wrap sm:items-center">
               <Button variant="outline" className={limbiOutlineButtonClass} asChild>
                 <Link href={`/brands/${brandId}`}>Volver a la marca</Link>
               </Button>
-              <p className="self-center text-xs text-limbi-muted sm:max-w-md">
-                Para trabajar una sección con Limbi, usá{" "}
-                <span className="font-medium text-limbi-text">
-                  Mejorar esta sección con la IA de Limbi
-                </span>{" "}
-                en cada tarjeta de arriba. Podés consolidar la Base de Marca desde el bloque superior
-                o desde el cierre al final de esta pantalla.
+              <Button variant="outline" className={limbiOutlineButtonClass} asChild>
+                <Link href={brandQuestionnaireHref(brandId)}>
+                  Mejorar respuestas en el cuestionario
+                </Link>
+              </Button>
+              <p className="text-xs text-limbi-muted sm:max-w-md">
+                En cada sección podés ir al cuestionario para editar y usar «Mejorar con Limbi» en
+                campos de texto. Consolidá la Base de Marca desde el bloque superior o al final de
+                esta pantalla.
               </p>
             </div>
           </div>
