@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   brainstormerSessionProgressSchema,
+  brainstormerWorkingBriefSchema,
   BRAINSTORMER_SESSION_PROMPT_VERSION,
   coerceBrainstormerSessionProgress,
   patchBrainstormerSessionBodySchema,
@@ -39,7 +40,7 @@ describe("brainstormer-session schemas", () => {
   });
 
   it("versión de prompt fija", () => {
-    expect(BRAINSTORMER_SESSION_PROMPT_VERSION).toBe("brainstormer-session-v2.0");
+    expect(BRAINSTORMER_SESSION_PROMPT_VERSION).toBe("brainstormer-session-v3.0");
   });
 
   it("session_progress incluye señales de proyecto", () => {
@@ -61,6 +62,35 @@ describe("brainstormer-session schemas", () => {
       missing_project_inputs: ["Presupuesto"],
     });
     expect(p.success).toBe(true);
+  });
+
+  it("session_progress.working_brief acepta memoria v3", () => {
+    const p = brainstormerSessionProgressSchema.safeParse({
+      session_summary: "S",
+      current_challenge: "C",
+      preliminary_objective: "O",
+      audience_notes: "A",
+      tension_or_pain: "T",
+      opportunities: "Op",
+      ideas_explored: "I",
+      recommended_routes: "R",
+      open_questions: "Q",
+      next_step: "N",
+      project_readiness: "low",
+      suggested_project_type: "other",
+      should_suggest_project_conversion: false,
+      project_seed_summary: "",
+      missing_project_inputs: [],
+      working_brief: {
+        contract_version: "v3",
+        confirmed_decisions: ["Paraguas: No sabías que lo querías"],
+        confirmed_conceptual_umbrella: "No sabías que lo querías",
+        campaign_stage: "expectativa",
+        conversion_bridge: "concepto → sketch → producto real → landing → CTA",
+      },
+    });
+    expect(p.success).toBe(true);
+    expect(brainstormerWorkingBriefSchema.safeParse(p.data?.working_brief).success).toBe(true);
   });
 
   it("coerceBrainstormerSessionProgress completa snapshots legacy sin campos de proyecto", () => {

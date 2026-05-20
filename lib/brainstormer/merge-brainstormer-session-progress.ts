@@ -1,3 +1,9 @@
+import {
+  BRAINSTORMER_CONVERSATION_CONTRACT_VERSION,
+  coerceBrainstormerWorkingBrief,
+  type BrainstormerWorkingBrief,
+} from "@/lib/brainstormer/conversation-contract";
+import type { BrainstormerCampaignStage } from "@/lib/brainstormer/working-brief-memory";
 import type {
   BrainstormerProjectReadiness,
   BrainstormerSessionProgressPayload,
@@ -29,6 +35,43 @@ const STRING_FIELDS = [
   "next_step",
   "project_seed_summary",
 ] as const satisfies readonly StringProgressField[];
+
+/** Fusiona dos briefs; campos vacíos en `next` no borran valores confirmados en `prev`. */
+export function mergeWorkingBrief(prev: BrainstormerWorkingBrief, next: BrainstormerWorkingBrief): BrainstormerWorkingBrief {
+  const mergeLists = (a: string[], b: string[], max: number) => {
+    const out = [...a];
+    for (const item of b) {
+      const norm = item.trim().toLowerCase();
+      if (!norm) continue;
+      if (!out.some((x) => x.toLowerCase() === norm || x.toLowerCase().includes(norm))) {
+        out.push(item.trim());
+      }
+    }
+    return out.slice(-max);
+  };
+
+  const pickStage = (a: BrainstormerCampaignStage, b: BrainstormerCampaignStage): BrainstormerCampaignStage => {
+    if (b !== "unknown") return b;
+    return a;
+  };
+
+  return {
+    contract_version: BRAINSTORMER_CONVERSATION_CONTRACT_VERSION,
+    strategic_moment: next.strategic_moment !== "unknown" ? next.strategic_moment : prev.strategic_moment,
+    current_request_type: next.current_request_type,
+    active_constraints: mergeLists(prev.active_constraints, next.active_constraints, 32),
+    user_corrections: mergeLists(prev.user_corrections, next.user_corrections, 24),
+    rejected_paths: mergeLists(prev.rejected_paths, next.rejected_paths, 20),
+    approved_signals: mergeLists(prev.approved_signals, next.approved_signals, 20),
+    open_decisions: mergeLists(prev.open_decisions, next.open_decisions, 16),
+    next_best_step: next.next_best_step.trim() || prev.next_best_step,
+    confirmed_decisions: mergeLists(prev.confirmed_decisions, next.confirmed_decisions, 16),
+    confirmed_conceptual_umbrella:
+      next.confirmed_conceptual_umbrella.trim() || prev.confirmed_conceptual_umbrella,
+    campaign_stage: pickStage(prev.campaign_stage, next.campaign_stage),
+    conversion_bridge: next.conversion_bridge.trim() || prev.conversion_bridge,
+  };
+}
 
 function mergeSuggestedType(
   prev: BrainstormerSuggestedProjectType,
@@ -65,5 +108,29 @@ export function mergeBrainstormerSessionProgress(
   out.missing_project_inputs =
     next.missing_project_inputs.length > 0 ? next.missing_project_inputs : prev.missing_project_inputs;
 
+  const prevBrief = coerceBrainstormerWorkingBrief(prev.working_brief);
+  const nextBrief = coerceBrainstormerWorkingBrief(next.working_brief);
+  out.working_brief = mergeWorkingBrief(prevBrief, nextBrief);
+
   return out;
+}
+
+/**
+ * Brief persistido tras un turno: servidor (updateBrainstormerWorkingBrief) es fuente de verdad;
+ * si el modelo envía working_brief, se fusiona antes sin poder borrar confirmaciones con strings vacíos.
+ */
+export function resolveWorkingBriefForSessionMerge(args: {
+  priorProgress: BrainstormerSessionProgressPayload;
+  serverBrief: BrainstormerWorkingBrief;
+  modelWorkingBrief?: unknown;
+}): BrainstormerWorkingBrief {
+  const prevBrief = coerceBrainstormerWorkingBrief(args.priorProgress.working_brief);
+  const serverBrief = args.serverBrief;
+
+  if (args.modelWorkingBrief === undefined) {
+    return mergeWorkingBrief(prevBrief, serverBrief);
+  }
+
+  const modelBrief = coerceBrainstormerWorkingBrief(args.modelWorkingBrief);
+  return mergeWorkingBrief(mergeWorkingBrief(prevBrief, modelBrief), serverBrief);
 }

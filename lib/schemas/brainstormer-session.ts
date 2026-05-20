@@ -1,12 +1,19 @@
 import { z } from "zod";
+import { THINKING_MODEL_SELECTOR_OPTIONS } from "@/lib/ai/thinking-models";
+import { brainstormerWorkingBriefSchema } from "@/lib/brainstormer/conversation-contract";
 
 /** Versión del prompt de sesión Brainstormer (persistido en mensajes / trazabilidad). */
-export const BRAINSTORMER_SESSION_PROMPT_VERSION = "brainstormer-session-v2.0" as const;
+export const BRAINSTORMER_SESSION_PROMPT_VERSION = "brainstormer-session-v3.0" as const;
+
+export { brainstormerWorkingBriefSchema };
+
+export const thinkingModelKeySchema = z.enum(THINKING_MODEL_SELECTOR_OPTIONS);
 
 export const postBrainstormerSessionBodySchema = z.object({
   brand_id: z.string().uuid(),
   title: z.string().min(1).max(500).optional().nullable(),
   initial_user_message: z.string().min(1).max(20_000).optional(),
+  thinking_model_key: thinkingModelKeySchema.optional(),
 });
 
 export const patchBrainstormerSessionBodySchema = z.object({
@@ -46,6 +53,8 @@ export const brainstormerSessionProgressSchema = z.object({
   should_suggest_project_conversion: z.boolean(),
   project_seed_summary: z.string().max(4000),
   missing_project_inputs: z.array(z.string().max(500)).max(24),
+  /** Brief vivo: restricciones, correcciones, rutas rechazadas (Conversation Contract). */
+  working_brief: brainstormerWorkingBriefSchema.optional(),
 });
 
 export const brainstormerTurnOutputSchema = z.object({

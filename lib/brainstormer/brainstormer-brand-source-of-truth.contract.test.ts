@@ -91,12 +91,17 @@ describe("Brainstormer — contrato fuente de verdad de marca", () => {
     expect(src).toContain("loadActiveBrandContextForProject");
   });
 
-  it("turnos y debug usan loadFrozenBrandPayloadsForBrainstormSession", () => {
+  it("turnos resuelven contexto de marca vía resolveBrainstormBrandContextForTurn", () => {
     const turn = readFileSync(path.join(__dirname, "run-brainstormer-assistant-turn.ts"), "utf8");
+    const resolveSrc = readFileSync(
+      path.join(__dirname, "resolve-brainstorm-brand-context-for-turn.ts"),
+      "utf8",
+    );
     const audit = readFileSync(path.join(__dirname, "audit-brainstormer-context.ts"), "utf8");
-    expect(turn).toContain("loadFrozenBrandPayloadsForBrainstormSession");
+    expect(turn).toContain("resolveBrainstormBrandContextForTurn");
+    expect(resolveSrc).toContain("loadFrozenBrandPayloadsForBrainstormSession");
+    expect(resolveSrc).toContain("loadActiveBrandContextForProject");
     expect(audit).toContain("loadFrozenBrandPayloadsForBrainstormSession");
-    expect(turn).not.toContain("loadActiveBrandContextForProject");
   });
 
   it("debug-context expone frozen_base_alignment vía audit", () => {
@@ -161,6 +166,10 @@ describe("Brainstormer — contrato fuente de verdad de marca", () => {
       conversation_director,
       knowledge_payload: knowledge,
       limbic_payload: { symbolic_reading: "Atmósfera estable." },
+      working_brief_block: "BRAINSTORMER WORKING BRIEF",
+      conversation_contract_block: "BRAINSTORMER_CONVERSATION_CONTRACT",
+      thinking_model_block: "LIMBI THINKING CANON",
+      last_user_message: "hola",
     });
     expect(built.full_input).not.toContain(orphanUpdateText);
     expect(built.full_input).toContain("Solo contenido ya consolidado");

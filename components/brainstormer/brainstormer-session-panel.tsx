@@ -16,6 +16,8 @@ import {
   coerceBrainstormerSessionProgress,
   type BrainstormerSuggestedProjectType,
 } from "@/lib/schemas/brainstormer-session";
+import { formatThinkingModelChipLabel } from "@/lib/ai/thinking-models";
+import { coerceSessionThinkingModelKey } from "@/lib/brainstormer/session-thinking-model";
 import type {
   BrainstormBrandContextStatus,
   BrainstormMessageRow,
@@ -98,6 +100,24 @@ export function BrainstormerSessionPanel(props: {
   const sessionProgress = useMemo(
     () => coerceBrainstormerSessionProgress(snapshot?.snapshot_payload ?? null),
     [snapshot],
+  );
+
+  const thinkingChipLabel = useMemo(
+    () =>
+      formatThinkingModelChipLabel({
+        thinking_model_key: coerceSessionThinkingModelKey(session.thinking_model_key),
+        resolved_primary_model_key: session.resolved_primary_model_key
+          ? coerceSessionThinkingModelKey(session.resolved_primary_model_key)
+          : null,
+        resolved_secondary_model_key: session.resolved_secondary_model_key
+          ? coerceSessionThinkingModelKey(session.resolved_secondary_model_key)
+          : null,
+      }),
+    [
+      session.resolved_primary_model_key,
+      session.resolved_secondary_model_key,
+      session.thinking_model_key,
+    ],
   );
 
   const showProjectMaturityCard = sessionProgress.should_suggest_project_conversion === true;
@@ -243,6 +263,15 @@ export function BrainstormerSessionPanel(props: {
           {session.title}
         </h1>
         <div className="flex flex-wrap gap-2 text-xs text-limbi-muted">
+          <span
+            className="rounded-lg border border-limbi-green/30 bg-limbi-green/[0.08] px-2 py-1 font-medium text-limbi-text"
+            title={
+              session.creative_orientation_summary?.trim() ||
+              "Modelo de pensamiento activo en esta sesión"
+            }
+          >
+            Pensando como: {thinkingChipLabel}
+          </span>
           <span className="rounded-lg border border-limbi-border bg-limbi-bg-soft/50 px-2 py-1">
             Sesión: {statusLabel(session.status)}
           </span>

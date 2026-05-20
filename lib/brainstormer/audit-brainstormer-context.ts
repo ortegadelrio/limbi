@@ -7,6 +7,14 @@ import {
 import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
 import { loadFrozenBrandPayloadsForBrainstormSession } from "@/lib/brainstormer/load-frozen-brand-payloads-for-session";
 import {
+  buildConversationContractForTurn,
+  buildConversationContractPromptBlock,
+  buildWorkingBriefPromptBlock,
+  extractWorkingBriefFromProgress,
+  updateBrainstormerWorkingBrief,
+} from "@/lib/brainstormer/conversation-contract";
+import { buildThinkingModelBlockForSessionTurn } from "@/lib/brainstormer/session-thinking-model";
+import {
   assessKnowledgePayloadForProjectContract,
   assessLimbicPayloadForProjectContract,
 } from "@/lib/brands/load-active-brand-context-for-project";
@@ -204,6 +212,25 @@ export async function auditBrainstormerContextForSession(
     user_message_count: userMessages.length,
   });
 
+  const { block: thinking_model_block } = buildThinkingModelBlockForSessionTurn({
+    session,
+    lastUserMessage: lastUserContent,
+    currentChallenge: progress.current_challenge,
+  });
+
+  const priorBrief = extractWorkingBriefFromProgress(progress);
+  const updatedBrief = updateBrainstormerWorkingBrief({
+    prior: priorBrief,
+    userMessage: lastUserContent,
+    conversationExcerpt: excerptFull,
+  });
+  const contract = buildConversationContractForTurn({
+    brief: updatedBrief,
+    userMessage: lastUserContent,
+    conversationExcerpt: excerptFull,
+    director: conversationDirector,
+  });
+
   const prompt = buildBrainstormerOpenAIInput({
     brand_name: brandName,
     session_title: session.title,
@@ -215,12 +242,20 @@ export async function auditBrainstormerContextForSession(
     session_summary_progress: progress,
     conversation_excerpt: excerptFull,
     conversation_director: conversationDirector,
+    conversation_contract_turn: contract,
     knowledge_payload: knowledge,
     limbic_payload: limbic,
+    working_brief: updatedBrief,
+    working_brief_block: buildWorkingBriefPromptBlock(updatedBrief),
+    conversation_contract_block: buildConversationContractPromptBlock(contract),
+    thinking_model_block,
+    last_user_message: lastUserContent,
   });
 
   const possible_truncation =
-    prompt.knowledge_truncated_in_prompt || prompt.limbic_truncated_in_prompt;
+    prompt.knowledge_truncated_in_prompt ||
+    prompt.limbic_truncated_in_prompt ||
+    prompt.brand_dna_character_count >= 1_500;
 
   if (!knowledge) warnings.push("knowledge_payload ausente o inválido en la fila congelada.");
   if (!limbic) warnings.push("limbic_payload ausente o inválido en la fila congelada.");

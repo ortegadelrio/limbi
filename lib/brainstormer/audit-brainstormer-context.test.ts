@@ -5,6 +5,12 @@ import {
   formatBrandSignalsFromActiveBaseBlock,
 } from "@/lib/brainstormer/brand-signals-from-active-base";
 import { buildBrainstormerOpenAIInput } from "@/lib/brainstormer/build-brainstormer-openai-input";
+import { buildCompactThinkingModelPromptBlock, resolveThinkingModelForBrainstormer } from "@/lib/ai/thinking-models";
+import {
+  buildConversationContractForTurn,
+  buildConversationContractPromptBlock,
+  emptyBrainstormerWorkingBrief,
+} from "@/lib/brainstormer/conversation-contract";
 import { BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS } from "@/lib/brainstormer/brainstormer-prompt-limits";
 import { truncateForBrainstormerPrompt } from "@/lib/brainstormer/brainstormer-prompt-limits";
 import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
@@ -103,17 +109,21 @@ describe("formatBrandSignalsFromActiveBaseBlock", () => {
   });
 });
 
-describe("buildBrainstormerOpenAIInput / truncado", () => {
-  it("marca truncado cuando el knowledge JSON supera el límite del prompt", () => {
-    const huge = { blob: "x".repeat(BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS + 500) };
+describe("buildBrainstormerOpenAIInput / ADN y suplemento", () => {
+  it("marca truncado en contexto suplementario cuando el JSON supera el límite", () => {
+    const huge = {
+      credibility_architecture: {
+        authority_signals: ["x".repeat(BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS + 500)],
+      },
+    };
     const t = truncateForBrainstormerPrompt(huge, BRAINSTORMER_KNOWLEDGE_PROMPT_MAX_CHARS);
     expect(t.truncated).toBe(true);
     expect(t.text).toContain("truncado");
 
     const progress = emptyBrainstormerSessionProgress();
     const conversation_director = resolveConversationDirector({
-      user_message: "hola",
-      conversation_excerpt: "user: hola",
+      user_message: "¿Qué evidencia tenemos?",
+      conversation_excerpt: "user: evidencia",
       session_progress: {
         session_summary: progress.session_summary,
         current_challenge: progress.current_challenge,
@@ -133,6 +143,20 @@ describe("buildBrainstormerOpenAIInput / truncado", () => {
       user_message_count: 1,
     });
 
+    const thinking_model_block = buildCompactThinkingModelPromptBlock({
+      resolved: resolveThinkingModelForBrainstormer({
+        selectedKey: "limbi",
+        challengeText: "evidencia",
+      }),
+    });
+
+    const contractBlock = buildConversationContractPromptBlock(
+      buildConversationContractForTurn({
+        brief: emptyBrainstormerWorkingBrief(),
+        userMessage: "¿Qué evidencia tenemos?",
+      }),
+    );
+
     const built = buildBrainstormerOpenAIInput({
       brand_name: "Ortegadelrio",
       session_title: "Test",
@@ -140,28 +164,25 @@ describe("buildBrainstormerOpenAIInput / truncado", () => {
       brand_context_has_pending_updates: false,
       brand_context_blocking_reasons: [],
       session_summary_progress: progress,
-      conversation_excerpt: "user: hola",
+      conversation_excerpt: "user: evidencia",
       conversation_director,
       knowledge_payload: huge,
       limbic_payload: { symbolic_reading: "ok" },
+      working_brief_block: "BRAINSTORMER WORKING BRIEF",
+      conversation_contract_block: contractBlock,
+      thinking_model_block,
+      last_user_message: "¿Qué evidencia y credenciales tenemos en la base?",
+      force_supplemental_brand_context: true,
     });
     expect(built.knowledge_truncated_in_prompt).toBe(true);
-    expect(built.full_input).toContain("BRAND_SIGNALS_FROM_ACTIVE_BASE");
-    expect(built.full_input).toContain("FROZEN_ACTIVE_KNOWLEDGE_BASE_JSON");
-    const signalsIdx = built.full_input.indexOf("BRAND_SIGNALS_FROM_ACTIVE_BASE");
-    const knowledgeIdx = built.full_input.indexOf(
-      "FROZEN_ACTIVE_KNOWLEDGE_BASE_JSON (deep consolidated_payload",
-      signalsIdx,
-    );
-    const limbicIdx = built.full_input.indexOf(
-      "FROZEN_ACTIVE_LIMBIC_BASE_JSON (deep consolidated_payload",
-      knowledgeIdx,
-    );
-    const userIdx = built.full_input.indexOf("SESSION METADATA", limbicIdx);
-    expect(signalsIdx).toBeGreaterThan(-1);
-    expect(knowledgeIdx).toBeGreaterThan(signalsIdx);
-    expect(limbicIdx).toBeGreaterThan(knowledgeIdx);
-    expect(userIdx).toBeGreaterThan(limbicIdx);
-    expect(built.full_input).toContain("CONVERSATION_DIRECTION");
+    expect(built.supplemental_brand_context_included).toBe(true);
+    expect(built.full_input).toContain("BRAND_DNA_FOR_BRAINSTORMER");
+    expect(built.full_input).not.toContain("FROZEN_ACTIVE_KNOWLEDGE_BASE_JSON");
+    expect(built.full_input).not.toContain("BRAND_SIGNALS_FROM_ACTIVE_BASE");
+    const dnaIdx = built.full_input.indexOf("BRAND_DNA_FOR_BRAINSTORMER");
+    const userIdx = built.full_input.indexOf("SESSION METADATA");
+    expect(dnaIdx).toBeGreaterThan(-1);
+    expect(userIdx).toBeGreaterThan(dnaIdx);
+    expect(built.full_input.match(/DIRECTOR \(compact\)/g)?.length ?? 0).toBe(1);
   });
 });

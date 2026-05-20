@@ -7,6 +7,8 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { limbiDocumentCardClass, limbiPrimaryButtonClass } from "@/components/projects/limbi-ui";
 import { cn } from "@/lib/utils";
+import { DEFAULT_THINKING_MODEL_KEY, type ThinkingModelKey } from "@/lib/ai/thinking-models";
+import { ThinkingModelSelector } from "@/components/brainstormer/thinking-model-selector";
 
 type BrandOption = { id: string; name: string };
 
@@ -28,6 +30,9 @@ export function BrainstormerNewSessionForm() {
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [initialMessage, setInitialMessage] = useState("");
+  const [thinkingModelKey, setThinkingModelKey] = useState<ThinkingModelKey>(
+    DEFAULT_THINKING_MODEL_KEY,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +103,7 @@ export function BrainstormerNewSessionForm() {
           brand_id: brandId,
           title: title.trim() || undefined,
           initial_user_message: initialMessage.trim() || undefined,
+          thinking_model_key: thinkingModelKey,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
@@ -235,6 +241,8 @@ export function BrainstormerNewSessionForm() {
               placeholder="Se usará un título provisional si lo dejás vacío"
             />
           </div>
+
+          <ThinkingModelSelector value={thinkingModelKey} onChange={setThinkingModelKey} />
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-limbi-text" htmlFor="initial">

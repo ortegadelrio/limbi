@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mergeBrainstormerSessionProgress } from "@/lib/brainstormer/merge-brainstormer-session-progress";
+import { brainstormerWorkingBriefSchema } from "@/lib/brainstormer/conversation-contract";
+import {
+  mergeBrainstormerSessionProgress,
+  mergeWorkingBrief,
+} from "@/lib/brainstormer/merge-brainstormer-session-progress";
 import { emptyBrainstormerSessionProgress } from "@/lib/schemas/brainstormer-session";
 
 describe("mergeBrainstormerSessionProgress", () => {
@@ -49,5 +53,34 @@ describe("mergeBrainstormerSessionProgress", () => {
     const next = emptyBrainstormerSessionProgress();
     const m = mergeBrainstormerSessionProgress(prev, next);
     expect(m.missing_project_inputs).toEqual(["Presupuesto"]);
+  });
+
+  it("fusiona working_brief con campos confirmados sin perderlos si next omite working_brief", () => {
+    const prev = emptyBrainstormerSessionProgress();
+    prev.working_brief = brainstormerWorkingBriefSchema.parse({
+      confirmed_conceptual_umbrella: "No sabías que lo querías",
+      confirmed_decisions: ["Paraguas: No sabías que lo querías"],
+      campaign_stage: "expectativa",
+      conversion_bridge: "concepto → sketch → landing",
+    });
+    const next = emptyBrainstormerSessionProgress();
+    next.session_summary = "Actualizado";
+    const m = mergeBrainstormerSessionProgress(prev, next);
+    expect(m.working_brief?.confirmed_conceptual_umbrella).toBe("No sabías que lo querías");
+    expect(m.working_brief?.campaign_stage).toBe("expectativa");
+  });
+
+  it("mergeWorkingBrief: paraguas vacío en next no borra prev", () => {
+    const prev = brainstormerWorkingBriefSchema.parse({
+      confirmed_conceptual_umbrella: "No sabías que lo querías",
+      conversion_bridge: "puente",
+    });
+    const next = brainstormerWorkingBriefSchema.parse({
+      confirmed_conceptual_umbrella: "",
+      conversion_bridge: "",
+    });
+    const m = mergeWorkingBrief(prev, next);
+    expect(m.confirmed_conceptual_umbrella).toBe("No sabías que lo querías");
+    expect(m.conversion_bridge).toBe("puente");
   });
 });

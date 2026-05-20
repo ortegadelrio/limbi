@@ -8,6 +8,7 @@ import {
   detectStrongUserIdea,
   detectTypoAvoidTerms,
 } from "@/lib/brainstormer/consulting-style";
+import { BRAINSTORMER_CORE_BEHAVIOR_ES } from "@/lib/brainstormer/brainstormer-core-behavior";
 import { buildConversationalRendererSystemInstructions } from "@/lib/brainstormer/conversational-renderer";
 import { formatConversationDirectionForPrompt } from "@/lib/brainstormer/conversational-renderer/format-conversation-direction-for-prompt";
 const emptySignals = {
@@ -93,14 +94,15 @@ describe("BRAIN-10 — Typos: no repetir papalelo", () => {
 });
 
 describe("BRAIN-10 — Evitar lenguaje débil", () => {
-  it("el contrato lista frases débiles y el renderer las prohíbe", () => {
+  it("el contrato lista frases débiles y el core behavior las prohíbe", () => {
     expect(CONSULTING_WEAK_PHRASES_ES).toContain("podrías");
     expect(CONSULTING_WEAK_PHRASES_ES).toContain("sería útil");
 
+    expect(BRAINSTORMER_CORE_BEHAVIOR_ES).toMatch(/qué opinas/i);
+    expect(BRAINSTORMER_CORE_BEHAVIOR_ES).toMatch(/Toma postura/i);
+
     const renderer = buildConversationalRendererSystemInstructions();
-    expect(renderer).toMatch(/EVITA por defecto/i);
-    expect(renderer).toMatch(/podrías/);
-    expect(renderer).toMatch(/yo lo enfocaría|mi lectura es/i);
+    expect(renderer).toContain("BRAINSTORMER CORE BEHAVIOR");
   });
 });
 

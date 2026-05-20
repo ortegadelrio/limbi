@@ -519,6 +519,14 @@ export type BrainstormSessionRow = {
   maturity_level: BrainstormSessionMaturityLevel | null;
   suggested_project_type: Record<string, unknown>;
   source_brand_context: Record<string, unknown>;
+  /** Modelo de pensamiento elegido al crear la sesión (`limbi` = orquestador). */
+  thinking_model_key: string;
+  thinking_model_label: string | null;
+  thinking_model_version: string | null;
+  thinking_model_intensity: string | null;
+  resolved_primary_model_key: string | null;
+  resolved_secondary_model_key: string | null;
+  creative_orientation_summary: string | null;
   created_at: string;
   updated_at: string;
   closed_at: string | null;

@@ -1,15 +1,42 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildBrainstormerOpenAIInput } from "@/lib/brainstormer/build-brainstormer-openai-input";
 import {
+  applyConversationContractToDirector,
+  buildConversationContractForTurn,
+  buildConversationContractPromptBlock,
+  buildWorkingBriefPromptBlock,
+  extractWorkingBriefFromProgress,
+  updateBrainstormerWorkingBrief,
+} from "@/lib/brainstormer/conversation-contract";
+import { buildCompactThinkingModelPromptBlock } from "@/lib/ai/thinking-models";
+import {
+  resolveThinkingForSessionTurn,
+  thinkingModelFieldsForSessionUpdate,
+} from "@/lib/brainstormer/session-thinking-model";
+import {
   extractDetectedBrandSignalsFromPayloads,
 } from "@/lib/brainstormer/brand-signals-from-active-base";
 import { resolveConversationDirector } from "@/lib/brainstormer/conversation-director";
 import { coerceConversationDirectorDecision } from "@/lib/brainstormer/conversation-director/coerce-conversation-director-decision";
 import type { ResolveConversationDirectorInput } from "@/lib/brainstormer/conversation-director/types";
-import { loadFrozenBrandPayloadsForBrainstormSession } from "@/lib/brainstormer/load-frozen-brand-payloads-for-session";
+import {
+  assistantMessageAlreadyIncludesBrandBaseUpdateNotice,
+  BRAND_BASE_UPDATED_SESSION_NOTICE_ES,
+} from "@/lib/brainstormer/brainstormer-brand-base-updated-notice";
+import {
+  isResolveBrainstormBrandContextError,
+  resolveBrainstormBrandContextForTurn,
+} from "@/lib/brainstormer/resolve-brainstorm-brand-context-for-turn";
 import { enrichSessionProgressFromDirector } from "@/lib/brainstormer/enrich-session-progress-from-director";
-import { mergeBrainstormerSessionProgress } from "@/lib/brainstormer/merge-brainstormer-session-progress";
-import { generateBrainstormerTurnJson } from "@/lib/openai/brainstormer-session";
+import {
+  mergeBrainstormerSessionProgress,
+  resolveWorkingBriefForSessionMerge,
+} from "@/lib/brainstormer/merge-brainstormer-session-progress";
+import {
+  generateBrainstormerOutputRepair,
+  generateBrainstormerTurnJson,
+} from "@/lib/openai/brainstormer-session";
+import { applyBrainstormerOutputQualityGate } from "@/lib/brainstormer/validate-brainstormer-output-quality";
 import {
   brainstormerTurnOutputSchema,
   coerceBrainstormerSessionProgress,
@@ -43,10 +70,10 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
 }): Promise<RunBrainstormerAssistantTurnResult> {
   const { supabase, userId, session, sessionId, userMessageId } = args;
 
-  const frozen = await loadFrozenBrandPayloadsForBrainstormSession(supabase, session, userId);
-  if (!frozen.ok) {
+  const brandCtx = await resolveBrainstormBrandContextForTurn(supabase, session, userId);
+  if (isResolveBrainstormBrandContextError(brandCtx)) {
     await supabase.from("brainstorm_messages").delete().eq("id", userMessageId);
-    return { ok: false, error: frozen.message, code: frozen.code };
+    return { ok: false, error: brandCtx.message, code: brandCtx.code };
   }
 
   const { data: history } = await supabase
@@ -86,9 +113,13 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       : "";
 
   const brandSignals = extractDetectedBrandSignalsFromPayloads(
-    frozen.knowledge_payload,
-    frozen.limbic_payload,
+    brandCtx.knowledge_payload,
+    brandCtx.limbic_payload,
   );
+
+  const shouldPrependBrandUpdateNotice =
+    brandCtx.brand_base_updated_since_session_freeze &&
+    !assistantMessageAlreadyIncludesBrandBaseUpdateNotice(history ?? []);
 
   const directorInput: ResolveConversationDirectorInput = {
     user_message: lastUserContent,
@@ -104,12 +135,39 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
     user_message_count: userMessages.length,
   };
 
-  const conversationDirector = coerceConversationDirectorDecision(
+  const directorBase = coerceConversationDirectorDecision(
     resolveConversationDirector(directorInput),
     directorInput,
   );
 
-  const { full_input } = buildBrainstormerOpenAIInput({
+  const thinkingResolved = resolveThinkingForSessionTurn({
+    session,
+    lastUserMessage: lastUserContent,
+    currentChallenge: progress.current_challenge,
+  });
+  const thinking_model_block = buildCompactThinkingModelPromptBlock({ resolved: thinkingResolved });
+
+  const priorBrief = extractWorkingBriefFromProgress(progress);
+  const updatedBrief = updateBrainstormerWorkingBrief({
+    prior: priorBrief,
+    userMessage: lastUserContent,
+    conversationExcerpt: excerpt,
+  });
+  const contract = buildConversationContractForTurn({
+    brief: updatedBrief,
+    userMessage: lastUserContent,
+    conversationExcerpt: excerpt,
+    director: directorBase,
+    thinkingPrimaryKey: thinkingResolved.primaryKey,
+    brandCredibilityAssets: brandSignals.credibility_assets,
+  });
+  const conversationDirector = applyConversationContractToDirector(directorBase, contract);
+
+  const brandContextInternalNote = brandCtx.brand_base_updated_since_session_freeze
+    ? "Contexto de marca: la Base de Marca activa fue actualizada respecto al inicio de sesión; priorizar ADN y memoria de sesión (paraguas/decisiones confirmadas) sin reabrir rutas ya cerradas."
+    : null;
+
+  const { full_input, brand_dna_block } = buildBrainstormerOpenAIInput({
     brand_name: brandName,
     session_title: session.title,
     brand_context_status: session.brand_context_status,
@@ -120,8 +178,15 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
     session_summary_progress: progress,
     conversation_excerpt: excerpt,
     conversation_director: conversationDirector,
-    knowledge_payload: frozen.knowledge_payload,
-    limbic_payload: frozen.limbic_payload,
+    conversation_contract_turn: contract,
+    knowledge_payload: brandCtx.knowledge_payload,
+    limbic_payload: brandCtx.limbic_payload,
+    working_brief: updatedBrief,
+    working_brief_block: buildWorkingBriefPromptBlock(updatedBrief),
+    conversation_contract_block: buildConversationContractPromptBlock(contract),
+    thinking_model_block,
+    last_user_message: lastUserContent,
+    brand_context_internal_note: brandContextInternalNote,
   });
 
   try {
@@ -140,25 +205,78 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       };
     }
 
-    const merged = enrichSessionProgressFromDirector(
-      mergeBrainstormerSessionProgress(progress, z.data.session_progress),
-      conversationDirector,
-      {
-        conversation_excerpt: excerpt,
-        user_message: lastUserContent,
-        brand_signals: brandSignals,
-      },
-    );
+    const persistedBrief = resolveWorkingBriefForSessionMerge({
+      priorProgress: progress,
+      serverBrief: updatedBrief,
+      modelWorkingBrief: z.data.session_progress.working_brief,
+    });
+    const mergedBase = mergeBrainstormerSessionProgress(progress, {
+      ...z.data.session_progress,
+      working_brief: persistedBrief,
+    });
+    const merged = enrichSessionProgressFromDirector(mergedBase, conversationDirector, {
+      conversation_excerpt: excerpt,
+      user_message: lastUserContent,
+      brand_signals: brandSignals,
+    });
+
+    const qualityGate = await applyBrainstormerOutputQualityGate({
+      assistant_message: z.data.assistant_message,
+      turn_intent: contract.turn_intent,
+      thinking_model_key: thinkingResolved.selectedKey,
+      resolved_primary_model_key: thinkingResolved.primaryKey,
+      working_brief: updatedBrief,
+      last_user_message: lastUserContent,
+      working_brief_block: buildWorkingBriefPromptBlock(updatedBrief),
+      thinking_model_block,
+      brand_dna: brand_dna_block,
+      generateRepair: generateBrainstormerOutputRepair,
+    });
+
+    if (qualityGate.fallback_used) {
+      // eslint-disable-next-line no-console
+      console.warn("[brainstormer] output fallback used", {
+        issues: qualityGate.pre_repair_issues,
+        remaining: qualityGate.quality.issues,
+      });
+    } else if (qualityGate.repair_still_failed) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[brainstormer] output repair still failed:",
+        qualityGate.quality.issues,
+      );
+    } else if (!qualityGate.quality.ok && process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn("[brainstormer] output quality issues:", qualityGate.quality.issues);
+    }
+
+    let assistantContent = qualityGate.assistant_message;
+    if (shouldPrependBrandUpdateNotice) {
+      assistantContent = `${BRAND_BASE_UPDATED_SESSION_NOTICE_ES}\n\n${assistantContent}`;
+    }
 
     const { error: asstErr } = await supabase.from("brainstorm_messages").insert({
       session_id: sessionId,
       user_id: userId,
       role: "assistant",
-      content: z.data.assistant_message,
+      content: assistantContent,
       structured_extraction: {
         model_used,
         session_progress: z.data.session_progress,
         conversation_director: conversationDirector,
+        conversation_contract: {
+          turn_intent: contract.turn_intent,
+          effective_closing_question: contract.effective_closing_question,
+        },
+        output_quality: {
+          ok: qualityGate.quality.ok,
+          issues: qualityGate.quality.issues,
+          repair_attempted: qualityGate.repair_attempted,
+          repair_used: qualityGate.repair_used,
+          repair_still_failed: qualityGate.repair_still_failed,
+          fallback_used: qualityGate.fallback_used,
+          pre_repair_issues: qualityGate.pre_repair_issues,
+        },
       },
     });
     if (asstErr) {
@@ -181,6 +299,7 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
       .from("brainstorm_sessions")
       .update({
         summary: summaryLine.length > 0 ? summaryLine : session.summary,
+        ...thinkingModelFieldsForSessionUpdate(thinkingResolved),
       })
       .eq("id", sessionId)
       .eq("user_id", userId);

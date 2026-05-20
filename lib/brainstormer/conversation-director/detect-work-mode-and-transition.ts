@@ -296,12 +296,33 @@ export function detectWorkModeAndTransition(
     /\bayud(a|ame)\s+a\b/,
   ]);
 
+  const ideation_phase = hasAny(t, [
+    /\blanzar\b/,
+    /\blanzamiento\b/,
+    /\bcampana\b/,
+    /\bexpectativa\b/,
+    /\bprelanzamiento\b/,
+    /\bconcepto\b/,
+    /\bestrategia\b/,
+    /\balgo diferente\b/,
+    /\bparaguas\b/,
+    /\bruta(s)? creativ/,
+  ]) &&
+    !hasAny(t, [
+      /\bguion final\b/,
+      /\bcopy final\b/,
+      /\bdocumento completo\b/,
+      /\bredactar la pieza final\b/,
+      /\bversion final\b/,
+      /\btexto definitivo\b/,
+    ]);
+
   const needs_material_for_build =
     (work_mode === "deliverable_building" || work_mode === "project_seed") &&
     building_copy_request &&
     !material.material_already_in_message;
 
-  const should_request_user_material = needs_material_for_build;
+  const should_request_user_material = needs_material_for_build && !ideation_phase;
 
   let requested_material_reason: string | null = null;
   if (should_request_user_material && material.mentions_material) {

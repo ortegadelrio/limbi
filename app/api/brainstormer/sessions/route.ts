@@ -7,10 +7,19 @@ import {
 import { prepareBrainstormSessionContext } from "@/lib/brainstormer/create-brainstorm-session-context";
 import { runBrainstormerAssistantTurnAfterUserMessage } from "@/lib/brainstormer/run-brainstormer-assistant-turn";
 import {
+  DEFAULT_THINKING_MODEL_KEY,
+  THINKING_MODEL_VERSION,
+  buildChallengeTextForThinkingModelResolution,
+  getThinkingModelByKey,
+  resolveThinkingModelForBrainstormer,
+  type ThinkingModelKey,
+} from "@/lib/ai/thinking-models";
+import {
   postBrainstormerSessionBodySchema,
   emptyBrainstormerSessionProgress,
   BRAINSTORMER_SESSION_PROMPT_VERSION,
 } from "@/lib/schemas/brainstormer-session";
+import { thinkingModelFieldsForSessionUpdate } from "@/lib/brainstormer/session-thinking-model";
 import type { BrainstormSessionRow } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -73,7 +82,8 @@ export async function POST(request: Request) {
     return jsonBadRequest(parsed.error.message, { code: "validation_error", stage: "brainstormer" });
   }
 
-  const { brand_id, title, initial_user_message } = parsed.data;
+  const { brand_id, title, initial_user_message, thinking_model_key } = parsed.data;
+  const selectedThinkingKey: ThinkingModelKey = thinking_model_key ?? DEFAULT_THINKING_MODEL_KEY;
 
   const prep = await prepareBrainstormSessionContext(supabase, {
     userId: user.id,
@@ -92,11 +102,31 @@ export async function POST(request: Request) {
     );
   }
 
+  const challengeForResolution = buildChallengeTextForThinkingModelResolution({
+    sessionTitle: prep.title,
+    currentChallenge: "",
+    lastUserMessage: initial_user_message?.trim() ?? "",
+  });
+  const initialThinking = resolveThinkingModelForBrainstormer({
+    selectedKey: selectedThinkingKey,
+    challengeText: challengeForResolution,
+  });
+  const thinkingFields = thinkingModelFieldsForSessionUpdate(initialThinking);
+
   const insertRow = {
     user_id: user.id,
     brand_id,
     title: prep.title,
     status: "open" as const,
+    thinking_model_key: selectedThinkingKey,
+    thinking_model_version: THINKING_MODEL_VERSION,
+    thinking_model_label:
+      getThinkingModelByKey(selectedThinkingKey)?.publicName ??
+      thinkingFields.thinking_model_label,
+    thinking_model_intensity: null,
+    resolved_primary_model_key: thinkingFields.resolved_primary_model_key,
+    resolved_secondary_model_key: thinkingFields.resolved_secondary_model_key,
+    creative_orientation_summary: thinkingFields.creative_orientation_summary,
     source_brand_knowledge_base_id: prep.source_brand_knowledge_base_id,
     source_brand_limbic_base_id: prep.source_brand_limbic_base_id,
     brand_knowledge_base_id_used: prep.brand_knowledge_base_id_used,
