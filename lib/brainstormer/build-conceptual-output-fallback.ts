@@ -2,20 +2,25 @@
  * Fallback de conceptual_strategy_request — propuesta concreta desde Brand DNA.
  */
 
-import type { BrainstormerWorkingBrief } from "@/lib/brainstormer/conversation-contract";
+import {
+  emptyBrainstormerWorkingBrief,
+  type BrainstormerWorkingBrief,
+} from "@/lib/brainstormer/conversation-contract";
+import {
+  buildThinkingModelConceptJourneyHint,
+  isBeforeConceptConfirmed,
+  isChallengeContextPhrase,
+  isConceptualLevelCorrection,
+} from "@/lib/brainstormer/strategy-journey";
+import type { ThinkingModelKey } from "@/lib/ai/thinking-models";
 import {
   extractQuotedConceptCandidate,
+  isProjectStatusOrLaunchBriefMessage,
+  isUserConfusionPhrase,
   isValidConceptualUmbrellaCandidate,
   normalizeStoredConceptualUmbrella,
+  resolveDisplayUmbrella,
 } from "@/lib/brainstormer/working-brief-memory";
-
-function resolveDisplayUmbrella(
-  brief: BrainstormerWorkingBrief,
-  lastUserMessage?: string,
-): string {
-  const raw = brief.confirmed_conceptual_umbrella.trim();
-  return normalizeStoredConceptualUmbrella(raw, lastUserMessage) || raw;
-}
 
 /** Conceptos genéricos que el fallback no debe proponer como idea rectora. */
 export const CONCEPTUAL_FALLBACK_FORBIDDEN_CONCEPT_LABELS: readonly RegExp[] = [
@@ -175,10 +180,29 @@ function buildProposeUmbrellaResponse(
   );
 }
 
+function buildJourneyCorrectionFallback(args: {
+  userMessage: string;
+  phrase: string;
+  parsed: ParsedBrandDnaForConceptualFallback;
+  thinkingKey?: ThinkingModelKey | null;
+}): string {
+  const contextLine = isChallengeContextPhrase(args.userMessage)
+    ? ""
+    : " «Lanzar la marca porque es nueva» (u otro contexto del hilo) es contexto de reto, no paraguas.";
+  return (
+    `Tienes razón. Me fui a acciones antes de cerrar el concepto.${contextLine} ` +
+    `Yo partiría de una tensión más fuerte: productos que parecen innecesarios hasta que los ves. ` +
+    `Mi paraguas sería «${args.phrase}»: una sola idea rectora con postura.` +
+    buildThinkingModelConceptJourneyHint(args.thinkingKey) +
+    ` Funciona porque nombra el deseo inesperado — no buscabas el producto y de pronto lo quieres.`
+  );
+}
+
 export function buildConceptualStrategyFallback(args: {
   working_brief: BrainstormerWorkingBrief;
   last_user_message?: string;
   brand_dna?: string | null;
+  thinking_model_key?: ThinkingModelKey;
 }): string {
   const userMsg = args.last_user_message ?? "";
   const confirmed = resolveDisplayUmbrella(args.working_brief, userMsg);
@@ -198,9 +222,116 @@ export function buildConceptualStrategyFallback(args: {
     working_brief: args.working_brief,
   });
 
+  if (
+    isConceptualLevelCorrection(userMsg) ||
+    args.working_brief.current_request_type === "conceptual_level_correction"
+  ) {
+    return buildJourneyCorrectionFallback({
+      userMessage: userMsg,
+      phrase,
+      parsed,
+      thinkingKey: args.thinking_model_key,
+    });
+  }
+
+  const needsConceptFirst =
+    isBeforeConceptConfirmed(args.working_brief.strategy_stage) ||
+    args.working_brief.strategy_stage === "concept_needed";
+
+  if (needsConceptFirst) {
+    const opener =
+      "Antes de pensar en piezas, cerraría el paraguas conceptual. Lanzar una marca porque es nueva es contexto, no concepto. ";
+    return opener + buildProposeUmbrellaResponse(phrase, parsed);
+  }
+
   return buildProposeUmbrellaResponse(phrase, parsed);
 }
 
 export function conceptualFallbackUsesForbiddenGenericLabels(message: string): boolean {
   return CONCEPTUAL_FALLBACK_FORBIDDEN_CONCEPT_LABELS.some((p) => p.test(message));
+}
+
+/** Fallback cuando el usuario rechaza o pide alternativas de concepto. */
+export function buildConceptRejectionAlternativesFallback(args: {
+  brand_dna?: string | null;
+  brand_name?: string;
+}): string {
+  const brand = args.brand_name?.trim() || "la marca";
+  const p1 = proposeConceptualUmbrellaPhrase({
+    brand_dna: args.brand_dna,
+    working_brief: emptyBrainstormerWorkingBrief(),
+  });
+  const p2 = "Esto no era necesario… hasta que lo viste";
+  const p3 = "Cosas que no buscabas, pero ahora quieres";
+  return (
+    "Tienes razón. No debía tomar tu frase como concepto; estabas pidiendo alternativas. " +
+    `Vuelvo al nivel correcto: opciones de paraguas. Para ${brand} probaría tres caminos: ` +
+    `1. «${p1}» — directo al deseo inesperado. ` +
+    `2. «${p2}» — más irónico. ` +
+    `3. «${p3}» — más claro para conversión digital.`
+  );
+}
+
+/** Fallback visible para audience_strategy_request — audiencia sin bloquear por paraguas. */
+export function buildAudienceStrategyFallback(args: {
+  brand_dna?: string | null;
+  brand_name?: string;
+}): string {
+  const brand = args.brand_name?.trim() || "la marca";
+  const parsed = parseBrandDnaFieldsForConceptualFallback(args.brand_dna);
+  const audienceBody = brandDnaSignalsUnexpectedDesireIronyCommerce(parsed)
+    ? "Yo enfocaría a adultos urbanos que compran por impulso irónico en digital: gente que disfruta lo mundano con humor seco, sin buscar épica ni aventura. La tensión: productos que parecen innecesarios hasta que los ves. La motivación no es necesidad, es deseo inesperado en el momento."
+    : `Definiría primero quién tiene el problema o el deseo que ${brand} resuelve, con motivación y barrera concretas — no «todos».`;
+  return `${audienceBody} Con esa audiencia clara, ahora sí podemos afinar el paraguas.`;
+}
+
+/** Fallback visible para launch_strategy sin paraguas confirmado. */
+export function buildLaunchStrategyFallback(args: {
+  working_brief: BrainstormerWorkingBrief;
+  last_user_message?: string;
+  brand_dna?: string | null;
+  brand_name?: string;
+}): string {
+  const brand = args.brand_name?.trim() || "la marca";
+  const parsed = parseBrandDnaFieldsForConceptualFallback(args.brand_dna);
+  const phrase = proposeConceptualUmbrellaPhrase({
+    brand_dna: args.brand_dna,
+    working_brief: args.working_brief,
+  });
+  const ideaTail = brandDnaSignalsUnexpectedDesireIronyCommerce(parsed)
+    ? ` Para esta marca, partiría de una tensión simple: productos que parecen innecesarios hasta que los ves. Desde ahí podría salir un paraguas como «${phrase}».`
+    : ` Una idea rectora posible: «${phrase}».`;
+  const siteReadyOpener = isProjectStatusOrLaunchBriefMessage(args.last_user_message ?? "")
+    ? "Perfecto. Entonces ya no estamos en etapa de sitio; estamos en lanzamiento. Antes de pensar en piezas, cerraría el paraguas de campaña. El sitio está listo, pero la campaña debe darle a la gente una razón para entrar. "
+    : "Antes de pensar en acciones, cerraría el paraguas conceptual. Que la marca sea nueva es contexto, no concepto. ";
+  return (
+    siteReadyOpener +
+    `El concepto debe explicar por qué alguien debería prestarle atención a ${brand}.` +
+    ideaTail
+  );
+}
+
+/** Fallback visible cuando el usuario no entiende la respuesta anterior. */
+export function buildUserConfusionFallback(args: {
+  working_brief: BrainstormerWorkingBrief;
+  brand_dna?: string | null;
+  brand_name?: string;
+}): string {
+  const brand = args.brand_name?.trim() || "la marca";
+  const parsed = parseBrandDnaFieldsForConceptualFallback(args.brand_dna);
+  const phrase = proposeConceptualUmbrellaPhrase({
+    brand_dna: args.brand_dna,
+    working_brief: args.working_brief,
+  });
+  const route =
+    brandDnaSignalsUnexpectedDesireIronyCommerce(parsed)
+      ? ` En ${brand}, una ruta clara sería: productos que parecen innecesarios hasta que los ves. De ahí puede salir un paraguas como: «${phrase}».`
+      : ` Una dirección posible sería «${phrase}».`;
+  return (
+    "Tienes razón. Voy más simple. Antes de pensar en campaña, piezas o nombres, " +
+    `necesitamos responder una pregunta: ¿por qué alguien debería prestarle atención a ${brand} si acaba de nacer? ` +
+    "Decir 'somos nuevos' no alcanza; eso es contexto, no concepto. " +
+    "El concepto debe darle una razón para mirar." +
+    route
+  );
 }

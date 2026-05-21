@@ -12,6 +12,14 @@ import {
   VISIBLE_FRAMEWORK_HEADERS_FORBIDDEN,
   WEAK_CREATIVE_TERRITORY_FAMILIES_FORBIDDEN,
 } from "@/lib/brainstormer/brainstormer-natural-voice";
+import { applyTurnInterpretationToWorkingBrief } from "@/lib/brainstormer/apply-turn-interpretation";
+import {
+  isExternalResearchRequest,
+  isProjectHandoffRequest,
+} from "@/lib/brainstormer/special-turn-detectors";
+import { buildContractPayloadFromInterpretation } from "@/lib/brainstormer/build-contract-from-interpretation";
+import type { BrainstormerTurnInterpretation } from "@/lib/brainstormer/turn-interpreter";
+import { interpretBrainstormerTurnDeterministic } from "@/lib/brainstormer/turn-interpreter";
 import {
   buildCampaignStageInquiryObligation,
   buildConfirmedUmbrellaAnchor,
@@ -20,14 +28,30 @@ import {
   extractConfirmedConceptualUmbrella,
   extractConfirmedDecisions,
   inferCampaignStageFromContext,
+  isAudienceStrategyRequest,
+  isConceptRejectionOrAlternativeRequest,
+  extractRejectedConceptSignal,
   isConversionBridgeRequest,
+  isProjectStatusOrLaunchBriefMessage,
   isValidConceptualUmbrellaCandidate,
   normalizeStoredConceptualUmbrella,
   shouldPersistConceptualUmbrellaUpdate,
   isSketchOrFakeProductContext,
+  isUserConfusionPhrase,
   userExplicitlyRequestsNewOptions,
   type BrainstormerCampaignStage,
 } from "@/lib/brainstormer/working-brief-memory";
+import {
+  brainstormerStrategyStageSchema,
+  buildConceptNeededObligation,
+  buildConceptualLevelCorrectionObligation,
+  coerceStrategyStage,
+  isBeforeConceptConfirmed,
+  isConceptualLevelCorrection,
+  maxStrategyStage,
+  resolveStrategyStage,
+  type BrainstormerStrategyStage,
+} from "@/lib/brainstormer/strategy-journey";
 
 export const BRAINSTORMER_CONVERSATION_CONTRACT_VERSION = "v3" as const;
 
@@ -41,12 +65,15 @@ export const brainstormerCampaignStageSchema = z.enum([
 ]);
 
 export type { BrainstormerCampaignStage };
+export type { BrainstormerStrategyStage };
 
 export const brainstormerTurnIntentSchema = z.enum([
   "explore_idea",
   /** @deprecated Preferir conceptual_strategy_request; se mantiene en datos históricos. */
   "strategic_concept",
   "conceptual_strategy_request",
+  "conceptual_level_correction",
+  "user_confusion",
   "launch_strategy",
   "campaign_expectation",
   "next_step",
@@ -59,6 +86,10 @@ export const brainstormerTurnIntentSchema = z.enum([
   "delegate_to_limbi",
   "campaign_stage_inquiry",
   "conversion_bridge",
+  "audience_strategy_request",
+  "concept_rejection_or_alternative_request",
+  "external_research_request",
+  "project_handoff_request",
   "general",
 ]);
 
@@ -92,6 +123,7 @@ export const brainstormerWorkingBriefSchema = z.object({
   confirmed_conceptual_umbrella: z.string().max(600).default(""),
   campaign_stage: brainstormerCampaignStageSchema.default("unknown"),
   conversion_bridge: z.string().max(800).default(""),
+  strategy_stage: brainstormerStrategyStageSchema.default("challenge_open"),
 });
 
 export type BrainstormerWorkingBrief = z.infer<typeof brainstormerWorkingBriefSchema>;
@@ -100,6 +132,8 @@ export type BrainstormerConversationContractTurn = {
   turn_intent: BrainstormerTurnIntent;
   brief: BrainstormerWorkingBrief;
   response_obligation: string;
+  /** Hint corto para DELIVER en prompt creativo cuando el turno viene del intérprete. */
+  prompt_deliver_hint?: string;
   forbidden_response_patterns: string[];
   /** Pregunta de cierre solo cuando ayuda a decidir entre opciones ya nombradas. */
   effective_closing_question: string | null;
@@ -183,6 +217,7 @@ export function coerceBrainstormerWorkingBrief(raw: unknown): BrainstormerWorkin
         confirmed_conceptual_umbrella: legacy.confirmed_conceptual_umbrella ?? "",
         campaign_stage: legacy.campaign_stage ?? "unknown",
         conversion_bridge: legacy.conversion_bridge ?? "",
+        strategy_stage: legacy.strategy_stage ?? "challenge_open",
       });
       if (migrated.success) return migrated.data;
     }
@@ -296,6 +331,22 @@ export function classifyBrainstormerTurnIntent(
 ): BrainstormerTurnIntent {
   const t = normalize(userMessage);
 
+  if (isProjectHandoffRequest(userMessage)) {
+    return "project_handoff_request";
+  }
+
+  if (isExternalResearchRequest(userMessage)) {
+    return "external_research_request";
+  }
+
+  if (isUserConfusionPhrase(userMessage)) {
+    return "user_confusion";
+  }
+
+  if (isConceptRejectionOrAlternativeRequest(userMessage)) {
+    return "concept_rejection_or_alternative_request";
+  }
+
   if (
     hasAny(t, [
       /\bdime tu\b/,
@@ -339,20 +390,29 @@ export function classifyBrainstormerTurnIntent(
     return "campaign_expectation";
   }
 
+  if (isConceptualLevelCorrection(userMessage, conversationExcerpt)) {
+    return "conceptual_level_correction";
+  }
+
+  if (isAudienceStrategyRequest(userMessage)) {
+    return "audience_strategy_request";
+  }
+
+  if (isConceptualStrategyRequest(userMessage, conversationExcerpt)) {
+    return "conceptual_strategy_request";
+  }
+
   if (
     hasAny(t, [
       /\blanzar la marca\b/,
       /\blanzar marca\b/,
       /\blanzamiento de marca\b/,
       /\bquiero lanzar\b/,
-      /\blanzar la marca\b/,
+      /\bmarca\s+nueva\b/,
+      /\bporque\s+es\s+nueva\b/,
     ])
   ) {
     return "launch_strategy";
-  }
-
-  if (isConceptualStrategyRequest(userMessage, conversationExcerpt)) {
-    return "conceptual_strategy_request";
   }
 
   if (
@@ -527,6 +587,9 @@ function extractConstraintsFromMessage(userMessage: string): string[] {
 }
 
 function extractRejectedPath(userMessage: string, intent: BrainstormerTurnIntent): string | null {
+  if (intent === "concept_rejection_or_alternative_request") {
+    return extractRejectedConceptSignal(userMessage, "");
+  }
   if (intent !== "reject_route") return null;
   const trimmed = userMessage.trim();
   if (trimmed.length < 8) return "Ruta rechazada por el usuario (sin detalle)";
@@ -558,6 +621,9 @@ export function isIdeationRequestType(intent: BrainstormerTurnIntent): boolean {
     intent === "explore_idea" ||
     intent === "strategic_concept" ||
     intent === "conceptual_strategy_request" ||
+    intent === "conceptual_level_correction" ||
+    intent === "audience_strategy_request" ||
+    intent === "concept_rejection_or_alternative_request" ||
     intent === "launch_strategy" ||
     intent === "campaign_expectation" ||
     intent === "options" ||
@@ -579,6 +645,8 @@ function intentLabel(intent: BrainstormerTurnIntent): string {
     explore_idea: "explorar idea",
     strategic_concept: "pedir concepto estratégico / paraguas conceptual",
     conceptual_strategy_request: "pedir idea rectora / paraguas / mensaje conector de campaña",
+    conceptual_level_correction: "corregir nivel: volver a concepto antes de tácticas",
+    user_confusion: "usuario no entiende — aclarar en lenguaje simple",
     launch_strategy: "estrategia de lanzamiento de marca",
     campaign_expectation: "campaña de expectativa / prelanzamiento",
     next_step: "pedir siguiente paso",
@@ -591,6 +659,10 @@ function intentLabel(intent: BrainstormerTurnIntent): string {
     delegate_to_limbi: "delegar decisión a Limbi",
     campaign_stage_inquiry: "ubicar etapa de campaña (expectativa/lanzamiento/conversión/sostenimiento)",
     conversion_bridge: "puente concepto → compra en página/tienda",
+    audience_strategy_request:
+      "pedir audiencia/segmento estratégico (motivación, tensión, barrera — sin tácticas)",
+    concept_rejection_or_alternative_request:
+      "rechazar propuesta o pedir alternativas de concepto/paraguas",
     general: "continuar conversación estratégica",
   };
   return map[intent];
@@ -633,6 +705,161 @@ function baseVisibleForbidden(): string[] {
   ];
 }
 
+function buildAudienceStrategyObligation(args: {
+  brief: BrainstormerWorkingBrief;
+  thinkingPrimaryKey: ThinkingModelKey | null;
+  constraints: string;
+  rejected: string;
+  anchor: string;
+}): { obligation: string; forbidden: string[] } {
+  const empathic =
+    args.thinkingPrimaryKey === "empathic"
+      ? " Enfoque: barrera, motivación y tensión humana desde la Base de Marca."
+      : "";
+  const umbrellaBridge = args.brief.confirmed_conceptual_umbrella.trim()
+    ? ` Conectar audiencia con el paraguas confirmado.`
+    : " Cierre opcional: «Con esa audiencia clara, ahora sí podemos afinar el paraguas» — sin bloquear la respuesta.";
+  return {
+    obligation:
+      "Responder audiencia/segmento con criterio estratégico (quién, motivación, tensión, barrera, insight o percepción). " +
+      "Permitido sin paraguas confirmado: audiencia no es táctica prematura. " +
+      "NO decir «antes de pensar en acciones, cerraría el paraguas» ni rechazar la pregunta." +
+      empathic +
+      umbrellaBridge +
+      args.constraints +
+      args.rejected +
+      args.anchor,
+    forbidden: [
+      ...TACTIC_LEAK_PATTERNS.map((p) => p.source),
+      ...GENERIC_TACTIC_PATTERNS.map((p) => p.source),
+      ...baseVisibleForbidden(),
+      "Antes de pensar en acciones, cerraría el paraguas",
+      "cerrar el paraguas conceptual antes de",
+      "evento",
+      "influencers",
+      "calendario",
+      "pauta",
+      "landing",
+      "hashtag",
+      "piezas finales",
+    ],
+  };
+}
+
+function buildObligationForResponseJob(
+  interpretation: BrainstormerTurnInterpretation,
+  brief: BrainstormerWorkingBrief,
+  ctx: {
+    thinkingPrimaryKey: ThinkingModelKey | null;
+    brandCredibilityAssets: readonly string[];
+    userMessage: string;
+    intent: BrainstormerTurnIntent;
+  },
+): { obligation: string; forbidden: string[] } | null {
+  const constraints =
+    brief.active_constraints.length > 0
+      ? ` Respeta SIEMPRE: ${brief.active_constraints.join("; ")}.`
+      : "";
+  const rejected =
+    brief.rejected_paths.length > 0
+      ? ` NO retomes: ${brief.rejected_paths.slice(-3).join(" | ")}.`
+      : "";
+  const siteReadyNote = isProjectStatusOrLaunchBriefMessage(ctx.userMessage)
+    ? " Reconocer que el sitio/producto ya está listo y que falta el paraguas de campaña de lanzamiento; no usar el mensaje del usuario como eje ni paraguas."
+    : "";
+  const { anchor } = buildConfirmedUmbrellaAnchor(brief, userExplicitlyRequestsNewOptions(ctx.userMessage));
+  const conceptualThinkingSuffix =
+    ctx.intent === "conceptual_strategy_request" ||
+    ctx.intent === "strategic_concept" ||
+    ctx.intent === "conceptual_level_correction"
+      ? buildThinkingModelConceptualSuffix(ctx.thinkingPrimaryKey)
+      : "";
+  const tacticForbidden = [
+    ...TACTIC_LEAK_PATTERNS.map((p) => p.source),
+    ...GENERIC_TACTIC_PATTERNS.map((p) => p.source),
+    ...baseVisibleForbidden(),
+    "Preguntas genéricas de opinión al cierre",
+  ];
+
+  switch (interpretation.response_job) {
+    case "answer_audience_strategy":
+      return buildAudienceStrategyObligation({
+        brief,
+        thinkingPrimaryKey: ctx.thinkingPrimaryKey,
+        constraints,
+        rejected,
+        anchor,
+      });
+    case "propose_alternative_concepts":
+      return {
+        obligation:
+          "Reconocer rechazo o pedido de alternativas; no defender la propuesta anterior ni tratar el mensaje del usuario como paraguas. " +
+          "Proponer 2–3 rutas de concepto/paraguas con criterio breve cada una (menú permitido porque lo pidieron). " +
+          "Mantener nivel estratégico, sin tácticas ni piezas." +
+          buildThinkingModelConceptualSuffix(ctx.thinkingPrimaryKey) +
+          constraints +
+          rejected,
+        forbidden: [
+          ...tacticForbidden,
+          "Ese es el paraguas. No lo cambiaría",
+          "usar el mensaje del usuario como eje o paraguas",
+          "defender la propuesta rechazada",
+        ],
+      };
+    case "guide_to_campaign_concept":
+      return {
+        obligation:
+          `${buildConceptNeededObligation({
+            userMessage: ctx.userMessage,
+            thinkingKey: ctx.thinkingPrimaryKey,
+          })}${siteReadyNote} Explicar por qué hace falta el paraguas antes de piezas o tácticas; proponer UNA dirección estratégica con criterio.${constraints}${rejected}${conceptualThinkingSuffix}`,
+        forbidden: [
+          ...tacticForbidden,
+          "evento",
+          "influencers",
+          "calendario",
+          "pauta",
+          "landing",
+          "hashtag",
+          "piezas",
+          "usar el mensaje completo del usuario como eje o paraguas",
+        ],
+      };
+    case "explain_more_simply":
+      return {
+        obligation:
+          "Reconocer que no fue claro. Explicar de nuevo en lenguaje simple el paso del journey: antes de acciones/piezas, cerrar paraguas conceptual. No defender la respuesta anterior ni tratar el mensaje del usuario como paraguas." +
+          constraints +
+          rejected,
+        forbidden: [
+          ...tacticForbidden,
+          "defender la respuesta táctica anterior",
+          "usar el mensaje del usuario como eje",
+        ],
+      };
+    case "answer_tactical_only_if_strategy_ready": {
+      if (!brief.confirmed_conceptual_umbrella.trim()) {
+        return {
+          obligation:
+            `${buildConceptNeededObligation({
+              userMessage: ctx.userMessage,
+              thinkingKey: ctx.thinkingPrimaryKey,
+            })} Redirigir al paraguas antes de tácticas.${constraints}${rejected}`,
+          forbidden: [...tacticForbidden, "evento", "influencers", "calendario", "pauta"],
+        };
+      }
+      return null;
+    }
+    case "validate_or_improve_concept":
+    case "answer_conversion_bridge":
+    case "answer_expectation_mechanism":
+    case "answer_next_step":
+      return null;
+    default:
+      return null;
+  }
+}
+
 function buildResponseObligation(
   intent: BrainstormerTurnIntent,
   brief: BrainstormerWorkingBrief,
@@ -640,8 +867,18 @@ function buildResponseObligation(
     thinkingPrimaryKey: ThinkingModelKey | null;
     brandCredibilityAssets: readonly string[];
     userMessage: string;
+    interpretation?: BrainstormerTurnInterpretation;
   },
 ): { obligation: string; forbidden: string[] } {
+  if (ctx.interpretation) {
+    const fromJob = buildObligationForResponseJob(ctx.interpretation, brief, {
+      thinkingPrimaryKey: ctx.thinkingPrimaryKey,
+      brandCredibilityAssets: ctx.brandCredibilityAssets,
+      userMessage: ctx.userMessage,
+      intent,
+    });
+    if (fromJob) return fromJob;
+  }
   const constraints =
     brief.active_constraints.length > 0
       ? ` Respeta SIEMPRE: ${brief.active_constraints.join("; ")}.`
@@ -677,7 +914,9 @@ function buildResponseObligation(
       : "";
 
   const conceptualThinkingSuffix =
-    intent === "conceptual_strategy_request" || intent === "strategic_concept"
+    intent === "conceptual_strategy_request" ||
+    intent === "strategic_concept" ||
+    intent === "conceptual_level_correction"
       ? buildThinkingModelConceptualSuffix(ctx.thinkingPrimaryKey)
       : "";
 
@@ -700,23 +939,83 @@ function buildResponseObligation(
 
   switch (intent) {
     case "campaign_expectation": {
+      const needsConcept = !brief.confirmed_conceptual_umbrella.trim();
+      const obligation = needsConcept
+        ? `${buildConceptNeededObligation({
+            userMessage: ctx.userMessage,
+            thinkingKey: ctx.thinkingPrimaryKey,
+          })} Después, en una frase, si conviene expectativa previa al lanzamiento.${constraints}${rejected}${launchNoProof}${conceptualThinkingSuffix}`
+        : `Responder sí/no con criterio en prosa; mecanismo de expectativa conectado al paraguas. Etapas: expectativa → lanzamiento → sostenimiento.${anchor}${constraints}${rejected}${launchNoProof}${disruptorSuffix}`;
       return {
-        obligation:
-          `Responder sí/no con criterio en prosa conversacional; por qué conviene o no la expectativa previa. Si falta paraguas, una sola recomendación (no menú). Etapas en lenguaje natural: expectativa → lanzamiento → sostenimiento.${constraints}${rejected}${launchNoProof}${disruptorSuffix}`,
+        obligation,
         forbidden: [
           ...base.forbidden,
           "teasers visuales",
           "influencers",
           "contenidos interactivos",
-          "como lista inicial sin paraguas",
+          ...(needsConcept ? ["evento", "calendario", "pauta", "piezas"] : []),
+        ],
+      };
+    }
+    case "user_confusion": {
+      return {
+        obligation:
+          "Reconocer que no fue claro («Tienes razón», «Lo dije mal», «Te lo bajo a tierra»). Explicar de nuevo en lenguaje simple el paso correcto del journey: antes de acciones/piezas, cerrar paraguas conceptual; contexto de lanzamiento/marca nueva NO es concepto. No defender la respuesta anterior ni tratar el mensaje del usuario como paraguas. Puede proponer UNA idea rectora o una microdecisión." +
+          constraints +
+          rejected,
+        forbidden: [
+          ...base.forbidden,
+          "anclada en",
+          "Mi recomendación es una dirección clara",
+          "alineada al pedido",
+          "tratar la frase del usuario como concepto",
+        ],
+      };
+    }
+    case "conceptual_level_correction": {
+      return {
+        obligation: `${buildConceptualLevelCorrectionObligation({
+          userMessage: ctx.userMessage,
+          thinkingKey: ctx.thinkingPrimaryKey,
+        })}${constraints}${rejected}${launchNoProof}${conceptualThinkingSuffix}`,
+        forbidden: [
+          ...base.forbidden,
+          "evento",
+          "influencers",
+          "calendario",
+          "pauta",
+          "landing como eje",
+          "hashtag",
+          "lista de tácticas",
+          "defender la respuesta táctica anterior",
         ],
       };
     }
     case "launch_strategy": {
+      const needsConcept = !brief.confirmed_conceptual_umbrella.trim();
+      const obligation = needsConcept
+        ? `${buildConceptNeededObligation({
+            userMessage: ctx.userMessage,
+            thinkingKey: ctx.thinkingPrimaryKey,
+          })} Luego, en prosa breve, cómo ese paraguas vive en expectativa → lanzamiento → sostenimiento (sin piezas ni canales aún).${constraints}${rejected}${launchNoProof}${conceptualThinkingSuffix}${disruptorSuffix}`
+        : `Hablar del lanzamiento en prosa desde el paraguas confirmado: cómo se vive en expectativa → lanzamiento → sostenimiento.${anchor}${constraints}${rejected}${launchNoProof}${disruptorSuffix}`;
       return {
-        obligation:
-          `Hablar del lanzamiento en prosa: una lectura con postura y cómo se vive en expectativa → lanzamiento → sostenimiento. Si falta paraguas, una recomendación clara (no lista de opciones).${constraints}${rejected}${launchNoProof}${disruptorSuffix}`,
-        forbidden: base.forbidden,
+        obligation,
+        forbidden: needsConcept
+          ? [
+              ...base.forbidden,
+              "evento",
+              "influencers",
+              "calendario de publicaciones",
+              "pauta",
+              "landing",
+              "UGC",
+              "hashtag",
+              "piezas",
+              "teasers visuales",
+              "contenidos interactivos",
+            ]
+          : base.forbidden,
       };
     }
     case "strategic_concept":
@@ -763,10 +1062,19 @@ function buildResponseObligation(
     case "next_step": {
       const routeObligation = brief.confirmed_conceptual_umbrella.trim()
         ? `Explicar la ruta en prosa fluida desde el paraguas confirmado (ej. "Yo lo dividiría en cuatro momentos: expectativa, revelación, conversión y sostenimiento") y qué harías primero. Sin lista genérica de tácticas.${anchor}`
-        : `Un solo siguiente paso concreto en prosa, no menú de tácticas.`;
+        : `${buildConceptNeededObligation({
+            userMessage: ctx.userMessage,
+            thinkingKey: ctx.thinkingPrimaryKey,
+          })} Un solo siguiente paso estratégico (cerrar concepto), no tácticas.`;
       return {
         obligation: `${routeObligation}${constraints}${rejected}`,
-        forbidden: [...base.forbidden, "listas de 5+ tácticas sin paso único"],
+        forbidden: [
+          ...base.forbidden,
+          "listas de 5+ tácticas sin paso único",
+          ...(!brief.confirmed_conceptual_umbrella.trim()
+            ? ["evento", "influencers", "calendario", "pauta"]
+            : []),
+        ],
       };
     }
     case "campaign_stage_inquiry":
@@ -797,6 +1105,36 @@ function buildResponseObligation(
             : []),
         ],
       };
+    case "audience_strategy_request":
+      return buildAudienceStrategyObligation({
+        brief,
+        thinkingPrimaryKey: ctx.thinkingPrimaryKey,
+        constraints,
+        rejected,
+        anchor,
+      });
+    case "concept_rejection_or_alternative_request": {
+      const obligation =
+        "Reconocer que rechazaron la ruta anterior o piden otras opciones de concepto; no citar su mensaje como paraguas. " +
+        "No defender la propuesta previa. Ofrecer 2–3 paraguas alternativos con criterio (menú permitido en este caso). " +
+        "Sin tácticas." +
+        buildThinkingModelConceptualSuffix(ctx.thinkingPrimaryKey) +
+        constraints +
+        rejected;
+      return {
+        obligation,
+        forbidden: [
+          ...base.forbidden,
+          "Ese es el paraguas. No lo cambiaría",
+          "usar el mensaje completo del usuario como eje",
+          "evento",
+          "influencers",
+          "calendario",
+          "pauta",
+          "hashtag",
+        ],
+      };
+    }
     case "options": {
       if (brief.confirmed_conceptual_umbrella.trim() && !allowAlternatives) {
         return {
@@ -853,11 +1191,22 @@ function buildResponseObligation(
         obligation: `Crítica experta en prosa: qué funciona, qué no y mejora concreta — sin encabezados ni menú de opciones.${constraints}${rejected}`,
         forbidden: base.forbidden,
       };
-    case "explore_idea":
+    case "explore_idea": {
+      const needsConcept =
+        !brief.confirmed_conceptual_umbrella.trim() &&
+        isBeforeConceptConfirmed(brief.strategy_stage);
       return {
-        obligation: `Explorar con una hipótesis y una dirección en prosa; no cerrar solo preguntando ni listar 3 rutas.${constraints}${rejected}${launchNoProof}${disruptorSuffix}`,
-        forbidden: base.forbidden,
+        obligation: needsConcept
+          ? `${buildConceptNeededObligation({
+              userMessage: ctx.userMessage,
+              thinkingKey: ctx.thinkingPrimaryKey,
+            })}${constraints}${rejected}${launchNoProof}${conceptualThinkingSuffix}`
+          : `Explorar con una hipótesis y una dirección en prosa; no cerrar solo preguntando ni listar 3 rutas.${constraints}${rejected}${launchNoProof}${disruptorSuffix}`,
+        forbidden: needsConcept
+          ? [...base.forbidden, "evento", "influencers", "calendario", "pauta"]
+          : base.forbidden,
       };
+    }
     default: {
       if (isConceptualStrategyRequest(ctx.userMessage)) {
         const conceptualBase =
@@ -865,6 +1214,18 @@ function buildResponseObligation(
         return {
           obligation: `${conceptualBase}${anchor}${constraints}${rejected}${launchNoProof}${conceptualThinkingSuffix}`,
           forbidden: base.forbidden,
+        };
+      }
+      if (
+        !brief.confirmed_conceptual_umbrella.trim() &&
+        isBeforeConceptConfirmed(brief.strategy_stage)
+      ) {
+        return {
+          obligation: `${buildConceptNeededObligation({
+            userMessage: ctx.userMessage,
+            thinkingKey: ctx.thinkingPrimaryKey,
+          })}${constraints}${rejected}${launchNoProof}`,
+          forbidden: [...base.forbidden, "evento", "influencers", "calendario", "pauta", "piezas"],
         };
       }
       return {
@@ -897,7 +1258,9 @@ export function shouldIncludeClosingQuestion(
     }
   }
   if (
-    (intent === "strategic_concept" || intent === "conceptual_strategy_request") &&
+    (intent === "strategic_concept" ||
+      intent === "conceptual_strategy_request" ||
+      intent === "conceptual_level_correction") &&
     hasAny(t, [
       /paraguas/,
       /cu[aá]l ser[ií]a el paraguas/,
@@ -949,6 +1312,8 @@ function buildDecisionClosingQuestion(
       return "¿Quieres que bajemos el concepto ganador a etapas de expectativa, lanzamiento y sostenimiento, o prefieres elegir primero el paraguas?";
     case "strategic_concept":
     case "conceptual_strategy_request":
+    case "conceptual_level_correction":
+    case "user_confusion":
       return "";
     case "next_step":
       return "¿Ejecutamos ese paso ahora en detalle o prefieres validar antes el paraguas conceptual que lo sostiene?";
@@ -975,21 +1340,29 @@ function isGenericClosingQuestion(question: string): boolean {
   return GENERIC_CLOSING_PATTERNS.some((p) => p.test(q));
 }
 
-/** Actualiza el brief vivo con señales del turno actual. */
+/** Actualiza el brief vivo. Paraguas y strategy_stage solo vía interpretación del turno. */
 export function updateBrainstormerWorkingBrief(args: {
   prior: BrainstormerWorkingBrief;
   userMessage: string;
   conversationExcerpt?: string;
   turnIntent?: BrainstormerTurnIntent;
+  interpretation?: BrainstormerTurnInterpretation;
 }): BrainstormerWorkingBrief {
-  const intent =
-    args.turnIntent ?? classifyBrainstormerTurnIntent(args.userMessage, args.conversationExcerpt ?? "");
-  const corpus = `${args.conversationExcerpt ?? ""}\n${args.userMessage}`;
+  const interpretation =
+    args.interpretation ??
+    interpretBrainstormerTurnDeterministic({
+      last_user_message: args.userMessage,
+      conversation_excerpt: args.conversationExcerpt,
+      working_brief: args.prior,
+    });
 
-  const brief: BrainstormerWorkingBrief = {
-    ...args.prior,
-    current_request_type: intent,
-  };
+  let brief = applyTurnInterpretationToWorkingBrief({
+    prior: args.prior,
+    interpretation,
+    userMessage: args.userMessage,
+  });
+
+  const corpus = `${args.conversationExcerpt ?? ""}\n${args.userMessage}`;
 
   const moment = detectStrategicMoment(corpus);
   if (moment !== "unknown" || brief.strategic_moment === "unknown") {
@@ -1001,50 +1374,9 @@ export function updateBrainstormerWorkingBrief(args: {
     brief.user_corrections = uniquePush(brief.user_corrections, c, 24);
   }
 
-  const rejected = extractRejectedPath(args.userMessage, intent);
-  if (rejected) {
-    brief.rejected_paths = uniquePush(brief.rejected_paths, rejected, 20);
-  }
-
   const approved = extractApprovedSignal(args.userMessage);
   if (approved) {
     brief.approved_signals = uniquePush(brief.approved_signals, approved, 20);
-  }
-
-  const priorRaw = brief.confirmed_conceptual_umbrella.trim();
-  const priorNormalized = normalizeStoredConceptualUmbrella(priorRaw, args.userMessage);
-  if (priorNormalized) {
-    brief.confirmed_conceptual_umbrella = priorNormalized;
-  } else if (priorRaw && !isValidConceptualUmbrellaCandidate(priorRaw)) {
-    brief.confirmed_conceptual_umbrella = "";
-  }
-
-  const umbrella = extractConfirmedConceptualUmbrella({
-    userMessage: args.userMessage,
-    conversationExcerpt: args.conversationExcerpt ?? "",
-    priorUmbrella: brief.confirmed_conceptual_umbrella,
-  });
-  if (
-    umbrella &&
-    shouldPersistConceptualUmbrellaUpdate({
-      priorUmbrella: brief.confirmed_conceptual_umbrella,
-      candidate: umbrella,
-      userMessage: args.userMessage,
-    })
-  ) {
-    brief.confirmed_conceptual_umbrella = umbrella;
-    brief.confirmed_decisions = uniquePush(
-      brief.confirmed_decisions,
-      `Paraguas: ${umbrella}`,
-      16,
-    );
-    brief.open_decisions = brief.open_decisions.filter(
-      (d) => !/elegir paraguas|paraguas conceptual ganador/i.test(d),
-    );
-  }
-
-  for (const d of extractConfirmedDecisions({ userMessage: args.userMessage, umbrella })) {
-    brief.confirmed_decisions = uniquePush(brief.confirmed_decisions, d, 16);
   }
 
   const stageCorpus = `${args.conversationExcerpt ?? ""}\n${args.userMessage}`;
@@ -1054,46 +1386,13 @@ export function updateBrainstormerWorkingBrief(args: {
   }
   if (
     isSketchOrFakeProductContext(stageCorpus) &&
-    (intent === "campaign_stage_inquiry" ||
-      hasAny(normalize(args.userMessage), [/expectativa/, /sketch/, /producto falso/]))
+    hasAny(normalize(args.userMessage), [/expectativa/, /sketch/, /producto falso/])
   ) {
     brief.campaign_stage = "expectativa";
   }
 
   if (!brief.conversion_bridge.trim()) {
     brief.conversion_bridge = CONVERSION_BRIDGE_TEMPLATE_ES;
-  }
-
-  if (
-    !brief.confirmed_conceptual_umbrella.trim() &&
-    (intent === "strategic_concept" ||
-      intent === "conceptual_strategy_request" ||
-      intent === "launch_strategy" ||
-      intent === "campaign_expectation")
-  ) {
-    brief.next_best_step = "Definir paraguas conceptual antes de tácticas o piezas.";
-    brief.open_decisions = uniquePush(
-      brief.open_decisions,
-      "Elegir paraguas conceptual ganador",
-      16,
-    );
-    if (intent === "campaign_expectation" || intent === "launch_strategy") {
-      brief.open_decisions = uniquePush(
-        brief.open_decisions,
-        "Validar expectativa previa vs lanzamiento directo",
-        16,
-      );
-    }
-  } else if (intent === "next_step") {
-    brief.next_best_step = brief.confirmed_conceptual_umbrella.trim()
-      ? "Secuencia expectativa → lanzamiento → conversión → sostenimiento."
-      : "Ejecutar un solo siguiente paso concreto.";
-  } else if (intent === "campaign_stage_inquiry") {
-    brief.next_best_step = "Ubicar pieza en marco de campaña (no producción interna).";
-  } else if (intent === "conversion_bridge") {
-    brief.next_best_step = "Puente creativo hacia compra en página/tienda.";
-  } else if (intent === "delegate_to_limbi") {
-    brief.next_best_step = "Limbi propone ruta con criterio; usuario elige entre opciones.";
   }
 
   return brainstormerWorkingBriefSchema.parse(brief);
@@ -1106,17 +1405,26 @@ export function buildConversationContractForTurn(args: {
   director?: ConversationDirectorDecision;
   thinkingPrimaryKey?: ThinkingModelKey | null;
   brandCredibilityAssets?: readonly string[];
+  interpretation?: BrainstormerTurnInterpretation;
 }): BrainstormerConversationContractTurn {
-  const turn_intent = classifyBrainstormerTurnIntent(
-    args.userMessage,
-    args.conversationExcerpt ?? "",
-  );
-  const brief = { ...args.brief, current_request_type: turn_intent };
-  const { obligation, forbidden } = buildResponseObligation(turn_intent, brief, {
-    thinkingPrimaryKey: args.thinkingPrimaryKey ?? null,
-    brandCredibilityAssets: args.brandCredibilityAssets ?? [],
+  const interpretation =
+    args.interpretation ??
+    interpretBrainstormerTurnDeterministic({
+      last_user_message: args.userMessage,
+      conversation_excerpt: args.conversationExcerpt,
+      working_brief: args.brief,
+    });
+
+  const payload = buildContractPayloadFromInterpretation({
+    brief: args.brief,
+    interpretation,
+    thinkingPrimaryKey: args.thinkingPrimaryKey,
     userMessage: args.userMessage,
   });
+  const turn_intent = payload.turn_intent;
+  const brief = payload.brief;
+  const obligation = payload.response_obligation;
+  const forbidden = payload.forbidden_response_patterns;
   const user_delegated_decision = turn_intent === "delegate_to_limbi";
 
   const include_closing_question = shouldIncludeClosingQuestion(
@@ -1147,6 +1455,7 @@ export function buildConversationContractForTurn(args: {
     turn_intent,
     brief,
     response_obligation: obligation,
+    prompt_deliver_hint: payload.prompt_deliver_hint,
     forbidden_response_patterns: forbidden,
     effective_closing_question,
     include_closing_question,
@@ -1156,7 +1465,7 @@ export function buildConversationContractForTurn(args: {
 
 export function buildWorkingBriefPromptBlock(brief: BrainstormerWorkingBrief): string {
   const parts: string[] = [
-    `WORKING BRIEF (memory) moment=${brief.strategic_moment} request=${brief.current_request_type} stage=${brief.campaign_stage}`,
+    `WORKING BRIEF (memory) moment=${brief.strategic_moment} request=${brief.current_request_type} strategy_stage=${brief.strategy_stage} stage=${brief.campaign_stage}`,
   ];
   if (brief.confirmed_conceptual_umbrella.trim()) {
     parts.push(`confirmed_umbrella: ${brief.confirmed_conceptual_umbrella}`);
@@ -1196,11 +1505,17 @@ export function buildConversationContractPromptBlock(
     ? `(interno: paraguas confirmado «${contract.brief.confirmed_conceptual_umbrella.trim()}» — no reabrir alternativas)`
     : "";
 
+  const deliver =
+    contract.turn_intent === "conversion_bridge" ||
+    contract.turn_intent === "campaign_stage_inquiry"
+      ? contract.response_obligation
+      : contract.prompt_deliver_hint?.trim() || contract.response_obligation;
+
   return [
     `THIS TURN — user asked: ${intentLabel(contract.turn_intent)}`,
     NATURAL_PROSE_TONE_HINT,
     umbrellaLock,
-    `DELIVER: ${contract.response_obligation}`,
+    `DELIVER: ${deliver}`,
     `AVOID: ${forbidden.join("; ")}`,
     closing,
   ]

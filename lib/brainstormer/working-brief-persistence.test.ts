@@ -133,7 +133,7 @@ describe("Boringstore — persistencia turno a turno en session_progress", () =>
     let progress = emptyBrainstormerSessionProgress();
 
     progress = simulatePersistedTurn(progress, TURN_MESSAGES[0]!, excerptThrough(0));
-    expect(progress.working_brief?.confirmed_conceptual_umbrella ?? "").toMatch(/no sab[ií]as/i);
+    expect(progress.working_brief?.confirmed_conceptual_umbrella ?? "").toBe("");
 
     progress = simulatePersistedTurn(progress, TURN_MESSAGES[1]!, excerptThrough(1));
     expect(progress.working_brief?.confirmed_conceptual_umbrella).toMatch(/no sab[ií]as que lo quer[ií]as/i);

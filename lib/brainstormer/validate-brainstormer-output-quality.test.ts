@@ -1,18 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { conceptualFallbackUsesForbiddenGenericLabels } from "@/lib/brainstormer/build-conceptual-output-fallback";
 import { buildBrandDnaForBrainstormer } from "@/lib/brainstormer/build-brand-dna-for-brainstormer";
 import {
   BORINGSTORE_KNOWLEDGE_FIXTURE,
   BORINGSTORE_LIMBIC_FIXTURE,
 } from "@/lib/brainstormer/boringstore-thinking-model-audit.fixture";
 import { buildBrainstormerOutputFallback } from "@/lib/brainstormer/build-brainstormer-output-fallback";
+import { interpretBrainstormerTurnDeterministic } from "@/lib/brainstormer/interpret-brainstormer-turn";
 import {
   assistantMessageHasVisibleLeaks,
   findVisibleLeakIssues,
 } from "@/lib/brainstormer/sanitize-visible-assistant-message";
 import {
   applyBrainstormerOutputQualityGate,
-  hasDisruptorBridgePhrase,
   validateBrainstormerOutputQuality,
 } from "@/lib/brainstormer/validate-brainstormer-output-quality";
 import type { BrainstormerWorkingBrief } from "@/lib/brainstormer/conversation-contract";
@@ -39,216 +38,57 @@ producto del día, descubrimientos recomendados y joyas ocultas. La curiosidad y
 serían el eje: teasers visuales, gamificación y productos únicos en la página.
 `.trim();
 
-const DISRUPTOR_GOOD_RESPONSE = `
-Yo lo llevaría con un producto falso que abre la risa bajo «No sabías que lo querías»: un objeto
-que no existe, pero esto sí — el producto real en la página. El producto falso abre la conversación; el producto real captura la compra.
-Gancho creativo → deseo inesperado → producto real → compra como consecuencia del deseo provocado.
-`.trim();
-
 const WEAK_REPAIR_STILL_BAD = `
-Haría una landing con CTA, testimonios y descubrimientos recomendados. La curiosidad sería el eje
-con teasers visuales para generar expectativa genérica.
+Yo trabajaría «¿Cómo convertimos ese concepto en compras dentro de la página?» como eje de la campaña.
 `.trim();
 
-const COMMERCIAL_TESTIMONIALS_RESPONSE = `
-Landing con producto real, CTA y carrito. Mostraríamos testimonios y reseñas verificadas de clientes
-satisfechos, más un descuento del 20% para cerrar la compra.
+const RAW_MESSAGE_AS_EJE = `
+Yo trabajaría «No entiendo» como eje de la campaña. Una sola dirección.
 `.trim();
 
-const COMMERCIAL_GOOD_RESPONSE = `
-Conecto «No sabías que lo querías» a venta: sketch → landing con producto real, CTA y carrito.
-La objeción («¿es broma?») se responde con el producto real; cuando existan reseñas verificadas,
-las usamos — hoy, reacciones reales de usuarios en la pieza de expectativa.
-`.trim();
-
-const GENERIC_CONCEPT_RESPONSE = `
-El paraguas sería «Lo inesperado en lo cotidiano»: Descubre lo inesperado en productos mundanos.
-Curiosidad creativa para toda la campaña.
-`.trim();
-
-const TEASER_ONLY_EXPECTATION = `
-Para expectativa usaría teasers visuales y curiosidad en redes. Calendario de teasers y descubrimiento
-de productos cada semana.
-`.trim();
-
-const TACTICAL_WITHOUT_CONCEPT = `
-Arrancaría con calendario editorial, teasers visuales, influencers y hashtags. Publicaciones en
-redes tres veces por semana y un plan de contenidos para la campaña.
-`.trim();
-
-describe("buildBrainstormerOutputFallback", () => {
-  it("Disruptor conversion_bridge: contiene puente, producto falso/real y compra", () => {
+describe("buildBrainstormerOutputFallback — consultivo mínimo", () => {
+  it("con paraguas confirmado: valida sin inventar eje desde pregunta", () => {
+    const interp = interpretBrainstormerTurnDeterministic({
+      last_user_message: "¿Cómo convertimos ese concepto en compras dentro de la página?",
+      working_brief: briefWithUmbrella(),
+    });
     const fb = buildBrainstormerOutputFallback({
       turn_intent: "conversion_bridge",
       thinking_model_key: "explorer",
       working_brief: briefWithUmbrella(),
+      last_user_message: "¿Cómo convertimos ese concepto en compras dentro de la página?",
+      interpretation: interp,
     });
-    expect(hasDisruptorBridgePhrase(fb)).toBe(true);
-    expect(fb).toMatch(/producto falso|producto real|compra/i);
-    expect(fb).toMatch(/abre la conversaci[oó]n.*captura la compra/i);
-    const v = validateBrainstormerOutputQuality({
-      assistant_message: fb,
-      turn_intent: "conversion_bridge",
-      thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(v.ok).toBe(true);
+    expect(fb).toMatch(/No sab[ií]as|postura|validar/i);
+    expect(fb).not.toMatch(/Yo trabajaría «¿Cómo convertimos/i);
+    expect(fb).not.toMatch(/producto falso abre la conversaci[oó]n/i);
   });
 
-  it("Comercial conversion_bridge: no inventa testimonios como hechos", () => {
+  it("user_confusion: explica simple sin eje creativo", () => {
+    const msg = "No entiendo";
+    const interp = interpretBrainstormerTurnDeterministic({
+      last_user_message: msg,
+      working_brief: emptyBrainstormerWorkingBrief(),
+    });
     const fb = buildBrainstormerOutputFallback({
-      turn_intent: "conversion_bridge",
-      thinking_model_key: "commercial",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(fb).toMatch(/cuando existan reseñas|reacciones reales/i);
-    expect(fb).not.toMatch(/testimonios de clientes satisfechos/i);
-    const v = validateBrainstormerOutputQuality({
-      assistant_message: fb,
-      turn_intent: "conversion_bridge",
-      thinking_model_key: "commercial",
-      working_brief: briefWithUmbrella(),
-      brand_dna: DNA_NO_EVIDENCE,
-    });
-    expect(v.ok).toBe(true);
-  });
-
-  it("conceptual_strategy_request con paraguas: Ese es el paraguas. No lo cambiaría.", () => {
-    const fb = buildBrainstormerOutputFallback({
-      turn_intent: "conceptual_strategy_request",
+      turn_intent: "user_confusion",
       thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-      last_user_message: "¿Cuál es el mensaje conector? Pensaba en No sabías que lo querías",
+      working_brief: emptyBrainstormerWorkingBrief(),
+      last_user_message: msg,
+      interpretation: interp,
     });
-    expect(fb).toMatch(/Ese es el paraguas.*No lo cambiar[ií]a/i);
-    expect(fb).toMatch(/No sab[ií]as/);
-  });
-
-  it("campaign_expectation: ocultar, revelar, tensión y paraguas", () => {
-    const fb = buildBrainstormerOutputFallback({
-      turn_intent: "campaign_expectation",
-      thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(fb).toMatch(/ocultamos|revelamos|tensi[oó]n/i);
-    expect(fb).toMatch(/seguir|No sab[ií]as/i);
-    const v = validateBrainstormerOutputQuality({
-      assistant_message: fb,
-      turn_intent: "campaign_expectation",
-      thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(v.ok).toBe(true);
-  });
-
-  it("campaign_expectation con paraguas contaminado en brief usa cita limpia", () => {
-    const brief = briefWithUmbrella();
-    brief.confirmed_conceptual_umbrella =
-      'Estaba pensando en "No sabías que lo querías". ¿Qué piensas?';
-    const fb = buildBrainstormerOutputFallback({
-      turn_intent: "campaign_expectation",
-      thinking_model_key: "explorer",
-      working_brief: brief,
-      last_user_message: "¿Esto qué etapa de campaña es?",
-    });
-    expect(fb).toMatch(/«No sab[ií]as que lo quer[ií]as»/);
-    expect(fb).not.toMatch(/estaba pensando/i);
-    expect(fb).not.toMatch(/qu[eé] piensas/i);
+    expect(fb).toMatch(/Lo explico más simple|Tienes razón/i);
+    expect(fb).not.toMatch(/Mi paraguas ser[ií]a/i);
   });
 
   it("fallbacks no contienen etiquetas de modelo ni lenguaje meta", () => {
-    const intents = [
-      ["conceptual_strategy_request", "explorer"] as const,
-      ["campaign_expectation", "explorer"] as const,
-      ["conversion_bridge", "explorer"] as const,
-      ["conversion_bridge", "commercial"] as const,
-    ];
-    for (const [intent, model] of intents) {
-      const fb = buildBrainstormerOutputFallback({
-        turn_intent: intent,
-        thinking_model_key: model,
-        working_brief: briefWithUmbrella(),
-      });
-      expect(assistantMessageHasVisibleLeaks(fb)).toBe(false);
-      expect(fb).not.toMatch(/desde\s+(comercial|disruptor|planner)/i);
-    }
-  });
-
-  it("conceptual_strategy_request fallback pasa validación completa", () => {
     const fb = buildBrainstormerOutputFallback({
       turn_intent: "conceptual_strategy_request",
       thinking_model_key: "explorer",
       working_brief: briefWithUmbrella(),
     });
-    const v = validateBrainstormerOutputQuality({
-      assistant_message: fb,
-      turn_intent: "conceptual_strategy_request",
-      thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(v.ok).toBe(true);
-    expect(v.issues).toHaveLength(0);
-  });
-
-  it("conceptual_strategy_request sin paraguas: no propone conceptos genéricos prohibidos", () => {
-    const fb = buildBrainstormerOutputFallback(
-      {
-        turn_intent: "conceptual_strategy_request",
-        thinking_model_key: "explorer",
-        working_brief: emptyBrainstormerWorkingBrief(),
-        last_user_message:
-          "Necesito definir un mensaje que sirva como conector de toda la campaña",
-      },
-      { brand_dna: BORINGSTORE_DNA_BLOCK },
-    );
-    expect(conceptualFallbackUsesForbiddenGenericLabels(fb)).toBe(false);
-    expect(fb).not.toMatch(
-      /Descubrimientos Sorprendentes|Conexi[oó]n Aut[eé]ntica|La rutina tambi[eé]n puede ser extraordinaria/i,
-    );
-    expect(fb).toMatch(/Mi paraguas ser[ií]a «/);
-    expect(fb).not.toMatch(/\bmen[uú]\s+de\b|varias\s+opciones|tres\s+opciones/i);
-  });
-
-  it("Boringstore DNA: fallback conceptual propone deseo inesperado concreto", () => {
-    const fb = buildBrainstormerOutputFallback(
-      {
-        turn_intent: "conceptual_strategy_request",
-        thinking_model_key: "explorer",
-        working_brief: emptyBrainstormerWorkingBrief(),
-        last_user_message:
-          "Necesito definir un mensaje que sirva como conector de toda la campaña",
-      },
-      { brand_dna: BORINGSTORE_DNA_BLOCK },
-    );
-    expect(fb).toMatch(
-      /deseo inesperado|no lo buscabas|ahora lo quieres|no lo necesitabas|hasta que lo viste/i,
-    );
-    const v = validateBrainstormerOutputQuality({
-      assistant_message: fb,
-      turn_intent: "conceptual_strategy_request",
-      thinking_model_key: "explorer",
-      working_brief: emptyBrainstormerWorkingBrief(),
-      brand_dna: BORINGSTORE_DNA_BLOCK,
-      last_user_message:
-        "Necesito definir un mensaje que sirva como conector de toda la campaña",
-    });
-    expect(v.ok).toBe(true);
-  });
-
-  it("usuario propone «No sabías que lo querías»: valida sin reemplazar", () => {
-    const fb = buildBrainstormerOutputFallback(
-      {
-        turn_intent: "conceptual_strategy_request",
-        thinking_model_key: "explorer",
-        working_brief: emptyBrainstormerWorkingBrief(),
-        last_user_message:
-          'Estaba pensando en "No sabías que lo querías". ¿Qué piensas?',
-      },
-      { brand_dna: BORINGSTORE_DNA_BLOCK },
-    );
-    expect(fb).toMatch(/Ese es el paraguas.*No lo cambiar[ií]a/i);
-    expect(fb).toMatch(/No sab[ií]as que lo quer[ií]as/);
-    expect(fb).not.toMatch(/Mi paraguas ser[ií]a «No lo buscabas/i);
+    expect(assistantMessageHasVisibleLeaks(fb)).toBe(false);
+    expect(fb).not.toMatch(/desde\s+(comercial|disruptor|planner)/i);
   });
 });
 
@@ -261,93 +101,71 @@ describe("applyBrainstormerOutputQualityGate — fallback tras reparación falli
     working_brief_block: `confirmed_umbrella: ${UMBRELLA}`,
     thinking_model_block: "THINKING MODEL (internal — Disruptor)",
     brand_dna: DNA_NO_EVIDENCE,
+    turn_interpretation: interpretBrainstormerTurnDeterministic({
+      last_user_message: "¿Cómo convertimos ese concepto en compras dentro de la página?",
+      working_brief: briefWithUmbrella(),
+    }),
   };
 
-  it("si reparación sigue fallando, usa fallback y NO guarda la versión floja", async () => {
+  it("si reparación sigue fallando, usa fallback mínimo y no guarda versión con mensaje como eje", async () => {
     const repair = vi.fn().mockResolvedValue(WEAK_REPAIR_STILL_BAD);
     const result = await applyBrainstormerOutputQualityGate({
       ...gateArgs,
-      assistant_message: GENERIC_LANDING_RESPONSE,
+      assistant_message: WEAK_REPAIR_STILL_BAD,
       generateRepair: repair,
     });
     expect(repair).toHaveBeenCalledTimes(1);
-    expect(result.repair_attempted).toBe(true);
-    expect(result.repair_used).toBe(true);
-    expect(result.repair_still_failed).toBe(true);
     expect(result.fallback_used).toBe(true);
-    expect(result.assistant_message).not.toBe(GENERIC_LANDING_RESPONSE);
     expect(result.assistant_message).not.toBe(WEAK_REPAIR_STILL_BAD);
-    expect(hasDisruptorBridgePhrase(result.assistant_message)).toBe(true);
-    expect(result.assistant_message).toMatch(/producto falso|producto real|compra/i);
+    expect(result.assistant_message).not.toMatch(/Yo trabajaría «¿Cómo convertimos/i);
     expect(result.pre_repair_issues.length).toBeGreaterThan(0);
   });
 
   it("reparación exitosa no usa fallback", async () => {
-    const repair = vi.fn().mockResolvedValue(DISRUPTOR_GOOD_RESPONSE);
+    const good =
+      "Bajo «No sabías que lo querías», el sketch abre expectativa y la landing con producto real cierra compra.";
+    const repair = vi.fn().mockResolvedValue(good);
     const result = await applyBrainstormerOutputQualityGate({
       ...gateArgs,
-      assistant_message: GENERIC_LANDING_RESPONSE,
+      assistant_message: WEAK_REPAIR_STILL_BAD,
       generateRepair: repair,
     });
     expect(result.fallback_used).toBe(false);
-    expect(result.assistant_message).toBe(DISRUPTOR_GOOD_RESPONSE);
+    expect(result.assistant_message).toBe(good);
     expect(result.quality.ok).toBe(true);
-  });
-
-  it("respuesta válida inicial no dispara reparación ni fallback", async () => {
-    const repair = vi.fn();
-    const result = await applyBrainstormerOutputQualityGate({
-      ...gateArgs,
-      assistant_message: DISRUPTOR_GOOD_RESPONSE,
-      generateRepair: repair,
-    });
-    expect(repair).not.toHaveBeenCalled();
-    expect(result.fallback_used).toBe(false);
   });
 });
 
-describe("validateBrainstormerOutputQuality — rechazos", () => {
-  it("rechaza respuesta genérica Disruptor conversion", () => {
-    const r = validateBrainstormerOutputQuality({
-      assistant_message: GENERIC_LANDING_RESPONSE,
-      turn_intent: "conversion_bridge",
-      thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
-    });
-    expect(r.ok).toBe(false);
-    expect(r.repair_instruction).toMatch(/REEMPLAZA|esto no existe/i);
-  });
-
-  it("rechaza testimonios Comercial sin evidencia", () => {
-    const r = validateBrainstormerOutputQuality({
-      assistant_message: COMMERCIAL_TESTIMONIALS_RESPONSE,
-      turn_intent: "conversion_bridge",
-      thinking_model_key: "commercial",
-      working_brief: briefWithUmbrella(),
-      brand_dna: DNA_NO_EVIDENCE,
-    });
-    expect(r.ok).toBe(false);
-    expect(r.issues.join(" ")).toMatch(/testimonios|reseñas/i);
-  });
-
-  it("rechaza concepto genérico", () => {
-    const r = validateBrainstormerOutputQuality({
-      assistant_message: GENERIC_CONCEPT_RESPONSE,
-      turn_intent: "conceptual_strategy_request",
-      thinking_model_key: "explorer",
+describe("validateBrainstormerOutputQuality — bloqueos esenciales", () => {
+  it("rechaza mensaje del usuario como eje", () => {
+    const interp = interpretBrainstormerTurnDeterministic({
+      last_user_message: "No entiendo",
       working_brief: emptyBrainstormerWorkingBrief(),
     });
-    expect(r.ok).toBe(false);
-  });
-
-  it("rechaza expectativa solo teasers", () => {
     const r = validateBrainstormerOutputQuality({
-      assistant_message: TEASER_ONLY_EXPECTATION,
-      turn_intent: "campaign_expectation",
+      assistant_message: RAW_MESSAGE_AS_EJE,
+      turn_intent: "user_confusion",
       thinking_model_key: "explorer",
-      working_brief: briefWithUmbrella(),
+      working_brief: emptyBrainstormerWorkingBrief(),
+      last_user_message: "No entiendo",
+      turn_interpretation: interp,
     });
     expect(r.ok).toBe(false);
+    expect(r.issues.join(" ")).toMatch(/eje|paraguas|confusi[oó]n/i);
+  });
+
+  it("rechaza naming inventado de marca", () => {
+    const invented = "Imagina lanzar una marca llamada Reverso con productos absurdos.";
+    const r = validateBrainstormerOutputQuality({
+      assistant_message: invented,
+      turn_intent: "launch_strategy",
+      thinking_model_key: "explorer",
+      working_brief: emptyBrainstormerWorkingBrief(),
+      brand_name: "Boringstore",
+      last_user_message: "Quiero lanzar la marca",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.issues.join(" ")).toMatch(/marca|Inventa/i);
   });
 
   it("rechaza lenguaje interno visible al usuario", () => {
@@ -362,11 +180,22 @@ describe("validateBrainstormerOutputQuality — rechazos", () => {
       expect(issues.length).toBeGreaterThan(0);
       const r = validateBrainstormerOutputQuality({
         assistant_message: msg,
-        turn_intent: "conceptual_strategy_request",
+        turn_intent: "general",
         thinking_model_key: "explorer",
-        working_brief: briefWithUmbrella(),
+        working_brief: emptyBrainstormerWorkingBrief(),
       });
       expect(r.ok).toBe(false);
     }
+  });
+
+  it("no rechaza respuesta genérica de landing si no usa mensaje crudo como eje", () => {
+    const r = validateBrainstormerOutputQuality({
+      assistant_message: GENERIC_LANDING_RESPONSE,
+      turn_intent: "conversion_bridge",
+      thinking_model_key: "explorer",
+      working_brief: briefWithUmbrella(),
+      last_user_message: "¿Cómo convertimos ese concepto en compras dentro de la página?",
+    });
+    expect(r.ok).toBe(true);
   });
 });

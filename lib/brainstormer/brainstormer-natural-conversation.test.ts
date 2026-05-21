@@ -45,17 +45,17 @@ describe("voz conversacional — «No sabías que lo querías. ¿Qué piensas?»
     });
 
     const block = buildConversationContractPromptBlock(contract);
-    expect(contract.response_obligation).toMatch(/Ese es el paraguas|postura|por qué funciona/i);
+    expect(contract.response_obligation).toMatch(/pregunta|paraguas|concepto/i);
     expect(contract.response_obligation).not.toMatch(/2–3 paraguas|Paraguas conceptual 1/i);
     expect(contract.response_obligation).not.toMatch(/DISRUPTOR \(HOW\)|Grieta creativa/i);
     expect(contract.forbidden_response_patterns.join(" ")).toMatch(
-      /Lectura del reto|familia genérica de descubrimiento/i,
+      /Yo trabajaría|como eje de la campaña/i,
     );
 
     for (const header of VISIBLE_FRAMEWORK_HEADERS_FORBIDDEN) {
       expect(contract.forbidden_response_patterns).toContain(header);
     }
-    expect(block).toMatch(/prosa conversacional/i);
+    expect(block).toMatch(/DELIVER|THIS TURN/i);
     expect(block).not.toMatch(/ANCHOR:.*LOCK/i);
   });
 

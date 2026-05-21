@@ -8,6 +8,7 @@ import {
   extractWorkingBriefFromProgress,
   updateBrainstormerWorkingBrief,
 } from "@/lib/brainstormer/conversation-contract";
+import { interpretBrainstormerTurn } from "@/lib/brainstormer/interpret-brainstormer-turn";
 import { buildCompactThinkingModelPromptBlock } from "@/lib/ai/thinking-models";
 import {
   resolveThinkingForSessionTurn,
@@ -36,6 +37,9 @@ import {
   generateBrainstormerOutputRepair,
   generateBrainstormerTurnJson,
 } from "@/lib/openai/brainstormer-session";
+import { buildBrainstormerOutputFallback } from "@/lib/brainstormer/build-brainstormer-output-fallback";
+import { ensureUserFacingAssistantMessage } from "@/lib/brainstormer/sanitize-visible-assistant-message";
+import { handleSpecialBrainstormerTurn } from "@/lib/brainstormer/handle-special-brainstormer-turn";
 import { applyBrainstormerOutputQualityGate } from "@/lib/brainstormer/validate-brainstormer-output-quality";
 import {
   brainstormerTurnOutputSchema,
@@ -148,10 +152,18 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
   const thinking_model_block = buildCompactThinkingModelPromptBlock({ resolved: thinkingResolved });
 
   const priorBrief = extractWorkingBriefFromProgress(progress);
+  const { interpretation: turnInterpretation } = await interpretBrainstormerTurn({
+    last_user_message: lastUserContent,
+    conversation_excerpt: excerpt,
+    working_brief: priorBrief,
+    thinking_model_key: thinkingResolved.primaryKey,
+    brand_name: brandName,
+  });
   const updatedBrief = updateBrainstormerWorkingBrief({
     prior: priorBrief,
     userMessage: lastUserContent,
     conversationExcerpt: excerpt,
+    interpretation: turnInterpretation,
   });
   const contract = buildConversationContractForTurn({
     brief: updatedBrief,
@@ -160,8 +172,17 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
     director: directorBase,
     thinkingPrimaryKey: thinkingResolved.primaryKey,
     brandCredibilityAssets: brandSignals.credibility_assets,
+    interpretation: turnInterpretation,
   });
   const conversationDirector = applyConversationContractToDirector(directorBase, contract);
+
+  const specialTurn = await handleSpecialBrainstormerTurn({
+    interpretation: turnInterpretation,
+    last_user_message: lastUserContent,
+    progress,
+    working_brief: updatedBrief,
+    brand_name: brandName,
+  });
 
   const brandContextInternalNote = brandCtx.brand_base_updated_since_session_freeze
     ? "Contexto de marca: la Base de Marca activa fue actualizada respecto al inicio de sesión; priorizar ADN y memoria de sesión (paraguas/decisiones confirmadas) sin reabrir rutas ya cerradas."
@@ -190,77 +211,132 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
   });
 
   try {
-    const { model_used, raw_json_text } = await generateBrainstormerTurnJson({
-      input: full_input,
-    });
+    let assistantContent: string;
+    let merged: BrainstormerSessionProgressPayload;
+    let model_used = "brainstormer-session";
+    let structuredExtraction: Record<string, unknown>;
 
-    const json = JSON.parse(raw_json_text) as unknown;
-    const z = brainstormerTurnOutputSchema.safeParse(json);
-    if (!z.success) {
-      await supabase.from("brainstorm_messages").delete().eq("id", userMessageId);
-      return {
-        ok: false,
-        error: `Salida IA inválida: ${z.error.message}`,
-        code: "ia_schema_error",
-      };
-    }
-
-    const persistedBrief = resolveWorkingBriefForSessionMerge({
-      priorProgress: progress,
-      serverBrief: updatedBrief,
-      modelWorkingBrief: z.data.session_progress.working_brief,
-    });
-    const mergedBase = mergeBrainstormerSessionProgress(progress, {
-      ...z.data.session_progress,
-      working_brief: persistedBrief,
-    });
-    const merged = enrichSessionProgressFromDirector(mergedBase, conversationDirector, {
-      conversation_excerpt: excerpt,
-      user_message: lastUserContent,
-      brand_signals: brandSignals,
-    });
-
-    const qualityGate = await applyBrainstormerOutputQualityGate({
-      assistant_message: z.data.assistant_message,
-      turn_intent: contract.turn_intent,
-      thinking_model_key: thinkingResolved.selectedKey,
-      resolved_primary_model_key: thinkingResolved.primaryKey,
-      working_brief: updatedBrief,
-      last_user_message: lastUserContent,
-      working_brief_block: buildWorkingBriefPromptBlock(updatedBrief),
-      thinking_model_block,
-      brand_dna: brand_dna_block,
-      generateRepair: generateBrainstormerOutputRepair,
-    });
-
-    if (qualityGate.fallback_used) {
-      // eslint-disable-next-line no-console
-      console.warn("[brainstormer] output fallback used", {
-        issues: qualityGate.pre_repair_issues,
-        remaining: qualityGate.quality.issues,
+    if (specialTurn.handled) {
+      const persistedBrief = resolveWorkingBriefForSessionMerge({
+        priorProgress: progress,
+        serverBrief: updatedBrief,
       });
-    } else if (qualityGate.repair_still_failed) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[brainstormer] output repair still failed:",
-        qualityGate.quality.issues,
-      );
-    } else if (!qualityGate.quality.ok && process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.warn("[brainstormer] output quality issues:", qualityGate.quality.issues);
-    }
+      merged = mergeBrainstormerSessionProgress(progress, {
+        ...progress,
+        ...specialTurn.progress_patch,
+        working_brief: persistedBrief,
+      });
+      merged = enrichSessionProgressFromDirector(merged, conversationDirector, {
+        conversation_excerpt: excerpt,
+        user_message: lastUserContent,
+        brand_signals: brandSignals,
+      });
 
-    let assistantContent = qualityGate.assistant_message;
-    if (shouldPrependBrandUpdateNotice) {
-      assistantContent = `${BRAND_BASE_UPDATED_SESSION_NOTICE_ES}\n\n${assistantContent}`;
-    }
+      const userFacing = ensureUserFacingAssistantMessage({
+        message: specialTurn.assistant_message,
+        buildSafeFallback: () => specialTurn.assistant_message,
+      });
+      assistantContent = userFacing.message;
+      model_used = "brainstormer-special-turn";
+      structuredExtraction = {
+        model_used,
+        turn_interpretation: turnInterpretation,
+        conversation_director: conversationDirector,
+        conversation_contract: {
+          turn_intent: contract.turn_intent,
+          effective_closing_question: contract.effective_closing_question,
+        },
+        ...specialTurn.structured_extra,
+      };
+    } else {
+      const { model_used: openaiModel, raw_json_text } = await generateBrainstormerTurnJson({
+        input: full_input,
+      });
+      model_used = openaiModel;
 
-    const { error: asstErr } = await supabase.from("brainstorm_messages").insert({
-      session_id: sessionId,
-      user_id: userId,
-      role: "assistant",
-      content: assistantContent,
-      structured_extraction: {
+      const json = JSON.parse(raw_json_text) as unknown;
+      const z = brainstormerTurnOutputSchema.safeParse(json);
+      if (!z.success) {
+        await supabase.from("brainstorm_messages").delete().eq("id", userMessageId);
+        return {
+          ok: false,
+          error: `Salida IA inválida: ${z.error.message}`,
+          code: "ia_schema_error",
+        };
+      }
+
+      const persistedBrief = resolveWorkingBriefForSessionMerge({
+        priorProgress: progress,
+        serverBrief: updatedBrief,
+        modelWorkingBrief: z.data.session_progress.working_brief,
+      });
+      const mergedBase = mergeBrainstormerSessionProgress(progress, {
+        ...z.data.session_progress,
+        working_brief: persistedBrief,
+      });
+      merged = enrichSessionProgressFromDirector(mergedBase, conversationDirector, {
+        conversation_excerpt: excerpt,
+        user_message: lastUserContent,
+        brand_signals: brandSignals,
+      });
+
+      const qualityGate = await applyBrainstormerOutputQualityGate({
+        assistant_message: z.data.assistant_message,
+        turn_intent: contract.turn_intent,
+        thinking_model_key: thinkingResolved.selectedKey,
+        resolved_primary_model_key: thinkingResolved.primaryKey,
+        working_brief: updatedBrief,
+        last_user_message: lastUserContent,
+        working_brief_block: buildWorkingBriefPromptBlock(updatedBrief),
+        thinking_model_block,
+        brand_dna: brand_dna_block,
+        brand_name: brandName,
+        turn_interpretation: turnInterpretation,
+        generateRepair: generateBrainstormerOutputRepair,
+      });
+
+      if (qualityGate.fallback_used) {
+        // eslint-disable-next-line no-console
+        console.warn("[brainstormer] output fallback used", {
+          issues: qualityGate.pre_repair_issues,
+          remaining: qualityGate.quality.issues,
+        });
+      } else if (qualityGate.repair_still_failed) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[brainstormer] output repair still failed:",
+          qualityGate.quality.issues,
+        );
+      } else if (!qualityGate.quality.ok && process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn("[brainstormer] output quality issues:", qualityGate.quality.issues);
+      }
+
+      const userFacing = ensureUserFacingAssistantMessage({
+        message: qualityGate.assistant_message,
+        buildSafeFallback: () =>
+          buildBrainstormerOutputFallback(
+            {
+              turn_intent: contract.turn_intent,
+              thinking_model_key: thinkingResolved.selectedKey,
+              resolved_primary_model_key: thinkingResolved.primaryKey,
+              working_brief: updatedBrief,
+              last_user_message: lastUserContent,
+              interpretation: turnInterpretation,
+            },
+            { brand_dna: brand_dna_block, brand_name: brandName },
+          ),
+      });
+      if (userFacing.replaced) {
+        // eslint-disable-next-line no-console
+        console.warn("[brainstormer] user-facing sanitize before persist", {
+          issues: userFacing.issues,
+          used_absolute_safe: userFacing.usedAbsoluteSafe,
+        });
+      }
+
+      assistantContent = userFacing.message;
+      structuredExtraction = {
         model_used,
         session_progress: z.data.session_progress,
         conversation_director: conversationDirector,
@@ -277,7 +353,19 @@ export async function runBrainstormerAssistantTurnAfterUserMessage(args: {
           fallback_used: qualityGate.fallback_used,
           pre_repair_issues: qualityGate.pre_repair_issues,
         },
-      },
+      };
+    }
+
+    if (shouldPrependBrandUpdateNotice) {
+      assistantContent = `${BRAND_BASE_UPDATED_SESSION_NOTICE_ES}\n\n${assistantContent}`;
+    }
+
+    const { error: asstErr } = await supabase.from("brainstorm_messages").insert({
+      session_id: sessionId,
+      user_id: userId,
+      role: "assistant",
+      content: assistantContent,
+      structured_extraction: structuredExtraction,
     });
     if (asstErr) {
       await supabase.from("brainstorm_messages").delete().eq("id", userMessageId);

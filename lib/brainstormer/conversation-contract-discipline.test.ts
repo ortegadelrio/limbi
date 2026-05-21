@@ -111,8 +111,8 @@ describe("conversation contract — lanzamiento Disruptor", () => {
       thinkingPrimaryKey: "explorer",
       brandCredibilityAssets: [],
     });
-    expect(contract.response_obligation).toMatch(/testimonios|clientes satisfechos/i);
-    expect(contract.forbidden_response_patterns.join(" ")).toMatch(/testimonio|clientes satisfechos/i);
+    expect(contract.response_obligation).toMatch(/pregunta|paraguas|eje/i);
+    expect(contract.forbidden_response_patterns.join(" ")).toMatch(/Yo trabajaría|como eje/i);
   });
 
   it("work mode: no should_request_user_material en ideación de lanzamiento", () => {

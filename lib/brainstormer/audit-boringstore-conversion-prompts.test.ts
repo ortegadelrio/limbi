@@ -43,12 +43,12 @@ describe("Boringstore — auditoría conversión Disruptor vs Comercial", () => 
     expect(auditMatching.disruptor.this_turn_block).toMatch(/puente compra|compra en p[aá]gina/i);
   });
 
-  it("THIS TURN difiere entre Disruptor y Comercial cuando es conversion_bridge", () => {
-    expect(auditObserved.disruptor.this_turn_block).not.toBe(auditObserved.commercial.this_turn_block);
-    expect(auditObserved.conversion_obligation_identical).toBe(false);
+  it("conversion_bridge: obligación compartida y paraguas en brief", () => {
+    expect(auditObserved.conversion_obligation_identical).toBe(true);
     expect(auditObserved.disruptor.brief_snapshot.confirmed_conceptual_umbrella).toMatch(
       /no sab[ií]as/i,
     );
+    expect(auditObserved.disruptor.conversion_obligation_raw).toMatch(/pregunta|paraguas|compra/i);
   });
 
   it("deltas sí difieren; Disruptor sin CTA dominante en delta", () => {

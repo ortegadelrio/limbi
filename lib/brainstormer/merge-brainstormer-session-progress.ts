@@ -4,6 +4,11 @@ import {
   type BrainstormerWorkingBrief,
 } from "@/lib/brainstormer/conversation-contract";
 import type { BrainstormerCampaignStage } from "@/lib/brainstormer/working-brief-memory";
+import {
+  coerceStrategyStage,
+  maxStrategyStage,
+  type BrainstormerStrategyStage,
+} from "@/lib/brainstormer/strategy-journey";
 import type {
   BrainstormerProjectReadiness,
   BrainstormerSessionProgressPayload,
@@ -70,6 +75,10 @@ export function mergeWorkingBrief(prev: BrainstormerWorkingBrief, next: Brainsto
       next.confirmed_conceptual_umbrella.trim() || prev.confirmed_conceptual_umbrella,
     campaign_stage: pickStage(prev.campaign_stage, next.campaign_stage),
     conversion_bridge: next.conversion_bridge.trim() || prev.conversion_bridge,
+    strategy_stage: maxStrategyStage(
+      coerceStrategyStage(prev.strategy_stage),
+      coerceStrategyStage(next.strategy_stage),
+    ),
   };
 }
 
@@ -111,6 +120,24 @@ export function mergeBrainstormerSessionProgress(
   const prevBrief = coerceBrainstormerWorkingBrief(prev.working_brief);
   const nextBrief = coerceBrainstormerWorkingBrief(next.working_brief);
   out.working_brief = mergeWorkingBrief(prevBrief, nextBrief);
+
+  if (next.external_research_findings && next.external_research_findings.length > 0) {
+    const prevFindings = prev.external_research_findings ?? [];
+    const seen = new Set<string>();
+    const merged = [...prevFindings, ...next.external_research_findings].filter((f) => {
+      const key = `${f.source_url}|${f.finding.slice(0, 80)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    out.external_research_findings = merged.slice(-40);
+  } else if (prev.external_research_findings?.length) {
+    out.external_research_findings = prev.external_research_findings;
+  }
+
+  if (next.project_handoff_preview !== undefined) {
+    out.project_handoff_preview = next.project_handoff_preview;
+  }
 
   return out;
 }

@@ -18,11 +18,15 @@ const CONCEPTUAL_PHRASES = [
   "cuál sería el mensaje general",
   "necesito la idea madre",
   "qué frase ordena la campaña",
-  "eso son tácticas, necesito el concepto",
-  "primero definamos el mensaje",
   "cómo articulamos toda la campaña",
   "cuál es la gran idea",
   "Necesito definir un mensaje que sirva como conector de toda la campaña",
+] as const;
+
+const LEVEL_CORRECTION_PHRASES = [
+  "eso son tácticas, necesito el concepto",
+  "primero definamos el mensaje",
+  "pero sin concepto creativo?",
 ] as const;
 
 describe("conceptual_strategy_request — clasificación semántica", () => {
@@ -32,11 +36,17 @@ describe("conceptual_strategy_request — clasificación semántica", () => {
     });
   }
 
-  it("corrección de nivel: eso son tácticas con excerpt previo", () => {
+  for (const phrase of LEVEL_CORRECTION_PHRASES) {
+    it(`corrección de nivel: «${phrase.slice(0, 40)}…»`, () => {
+      expect(classifyBrainstormerTurnIntent(phrase)).toBe("conceptual_level_correction");
+    });
+  }
+
+  it("corrección de nivel con excerpt previo", () => {
     const excerpt = buildBoringstoreThreadExcerpt();
     expect(
       classifyBrainstormerTurnIntent("eso son tácticas, necesito el concepto", excerpt),
-    ).toBe("conceptual_strategy_request");
+    ).toBe("conceptual_level_correction");
   });
 
   it("mensaje conector Boringstore no cae en general", () => {
@@ -67,30 +77,28 @@ describe("conceptual_strategy_request — obligación", () => {
 
   it("no obliga plantilla Lectura/Criterio/Ruta", () => {
     expect(contract.response_obligation).not.toMatch(/Responder con lectura del reto/i);
-    expect(contract.response_obligation).toMatch(/postura|idea rectora|paraguas|sin bajar a t[aá]ctic/i);
+    expect(contract.response_obligation).toMatch(/pregunta|paraguas|eje/i);
+    expect(contract.response_obligation).not.toMatch(/trabajar.*como eje/i);
   });
 
-  it("ancla paraguas confirmado", () => {
-    expect(contract.response_obligation).toMatch(/paraguas confirmado|Anclar al paraguas/i);
+  it("ancla paraguas confirmado sin reabrir menú", () => {
+    expect(contract.response_obligation).toMatch(/paraguas confirmado|validar/i);
   });
 
   it("THIS TURN no dice continuar conversación genérica", () => {
     const block = buildConversationContractPromptBlock(contract);
-    expect(block).toMatch(/conceptual|paraguas|idea rectora|mensaje conector/i);
+    expect(block).toMatch(/paraguas|pregunta|DELIVER/i);
     expect(block).not.toMatch(/continuar conversación estratégica/i);
   });
 
-  it("incluye enfoque Disruptor en obligación", () => {
-    expect(contract.response_obligation).toMatch(/ruptura|deseo inesperado|ironía/i);
-  });
-
-  it("Comercial enfatiza conversión en obligación", () => {
+  it("obligación mínima igual entre modelos", () => {
     const commercial = buildConversationContractForTurn({
       brief,
       userMessage: BORINGSTORE_LAST_USER_MESSAGE,
       conversationExcerpt: excerpt,
       thinkingPrimaryKey: "commercial",
     });
-    expect(commercial.response_obligation).toMatch(/landing|CTA|compra|conversión/i);
+    expect(commercial.response_obligation).toBe(contract.response_obligation);
+    expect(contract.response_obligation).not.toMatch(/ruptura|deseo inesperado|ironía/i);
   });
 });

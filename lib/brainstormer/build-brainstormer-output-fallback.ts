@@ -1,5 +1,6 @@
 /**
- * Respuestas mínimas controladas cuando la reparación IA sigue fallando validación.
+ * Fallback mínimo consultivo cuando la reparación IA falla.
+ * No inventa conceptos ni usa el mensaje crudo del usuario como paraguas/eje.
  */
 
 import type { ThinkingModelKey } from "@/lib/ai/thinking-models";
@@ -7,9 +8,14 @@ import type {
   BrainstormerTurnIntent,
   BrainstormerWorkingBrief,
 } from "@/lib/brainstormer/conversation-contract";
-import { buildConceptualStrategyFallback } from "@/lib/brainstormer/build-conceptual-output-fallback";
-import { normalizeStoredConceptualUmbrella } from "@/lib/brainstormer/working-brief-memory";
-import { resolveValidationThinkingKey } from "@/lib/brainstormer/validate-brainstormer-output-quality";
+import type { BrainstormerTurnInterpretation, ResponseMode } from "@/lib/brainstormer/turn-interpreter";
+import {
+  isProjectStatusOrLaunchBriefMessage,
+  isValidConceptualUmbrellaCandidate,
+  resolveDisplayUmbrella,
+} from "@/lib/brainstormer/working-brief-memory";
+
+export { resolveDisplayUmbrella } from "@/lib/brainstormer/working-brief-memory";
 
 export type BuildBrainstormerOutputFallbackArgs = {
   turn_intent: BrainstormerTurnIntent;
@@ -17,120 +23,128 @@ export type BuildBrainstormerOutputFallbackArgs = {
   resolved_primary_model_key?: ThinkingModelKey | null;
   working_brief: BrainstormerWorkingBrief;
   last_user_message?: string;
+  interpretation?: BrainstormerTurnInterpretation;
 };
 
-/** Paraguas limpio para copy visible (corrige valores guardados contaminados). */
-export function resolveDisplayUmbrella(
-  brief: BrainstormerWorkingBrief,
-  lastUserMessage?: string,
-): string {
-  const raw = brief.confirmed_conceptual_umbrella.trim();
-  const normalized = normalizeStoredConceptualUmbrella(raw, lastUserMessage);
-  return normalized || raw;
+function brandLabel(brandName?: string): string {
+  return brandName?.trim() || "la marca";
 }
 
-function umbrellaPhrase(brief: BrainstormerWorkingBrief, lastUserMessage?: string): string {
-  const u = resolveDisplayUmbrella(brief, lastUserMessage);
-  return u ? `«${u}»` : "";
+/** Solo paraguas autorizado en brief — nunca desde last_user_message. */
+function safeConfirmedUmbrella(brief: BrainstormerWorkingBrief): string {
+  return resolveDisplayUmbrella(brief);
 }
 
-function buildDisruptorConversionFallback(
-  brief: BrainstormerWorkingBrief,
-  lastUserMessage?: string,
-): string {
-  const paraguas = umbrellaPhrase(brief, lastUserMessage);
-  const anchor = paraguas ? ` bajo ${paraguas}` : "";
+function buildExplainSimpleFallback(brand: string): string {
   return (
-    `Yo no lo llevaría a una landing de productos curiosos. Lo convertiría en un puente${anchor}: ` +
-    `esto no existe, pero esto sí. El producto falso abre la conversación; el producto real captura la compra. ` +
-    `El sketch muestra el gancho de expectativa con un producto falso absurdo; la página recibe al usuario con ` +
-    `productos reales conectados a esa misma tensión y deseo inesperado. Así la campaña no se queda en entretenimiento: ` +
-    `convierte la risa en deseo y el deseo en compra en la página.`
+    `Tienes razón. Lo explico más simple: estamos intentando definir primero la idea que hará que la gente quiera conocer ${brand}. ` +
+    "Antes de hablar de piezas o redes, necesitamos responder: ¿por qué alguien debería entrar a la tienda?"
   );
 }
 
-function buildCommercialConversionFallback(
-  brief: BrainstormerWorkingBrief,
-  brandDnaLacksEvidence: boolean,
-  lastUserMessage?: string,
-): string {
-  const paraguas = umbrellaPhrase(brief, lastUserMessage);
-  const anchor = paraguas ? `${paraguas} ` : "";
-  const proof = brandDnaLacksEvidence
-    ? " Cuando existan reseñas verificadas, las activamos; hoy, reacciones reales de usuarios en la pieza de expectativa."
-    : " Si hay prueba en la base, la mostramos en la landing; si no, reacciones reales tempranas.";
+function buildHowToFallback(brand: string, hasUmbrella: boolean): string {
+  if (hasUmbrella) {
+    return (
+      "Lo haría en este orden: primero afinamos el concepto de campaña, luego la audiencia, " +
+      "después el mecanismo de expectativa y finalmente las piezas. " +
+      `Para ${brand}, el foco sigue siendo convertir productos aparentemente innecesarios en deseo — no tu pregunta como concepto.`
+    );
+  }
   return (
-    `Conecto ${anchor}a venta en página: producto real en una landing específica, CTA claro y carrito simple. ` +
-    `La objeción («¿es broma o es real?») se responde mostrando el producto tangible y el beneficio concreto.` +
-    proof
+    "Lo haría en este orden: primero definimos el concepto de campaña, luego la audiencia, " +
+    "después el mecanismo de expectativa y finalmente las piezas. " +
+    `Para ${brand}, empezaría por una idea que convierta productos aparentemente innecesarios en deseo.`
   );
 }
 
-function buildConceptualFallback(
+function buildAcquisitionFallback(brand: string): string {
+  return (
+    `Perfecto: el producto o sitio ya está listo y ahora falta atraer clientes. ` +
+    `Yo empezaría por la campaña de adquisición para ${brand}: por qué alguien debería prestarle atención, ` +
+    "no tomando tu mensaje anterior como concepto creativo."
+  );
+}
+
+function buildRejectionFallback(): string {
+  return (
+    "Tienes razón; estabas pidiendo otras opciones, no confirmar esa idea. " +
+    "Vuelvo al nivel correcto y en la siguiente respuesta te doy caminos distintos con criterio breve."
+  );
+}
+
+function buildValidatedUmbrellaFallback(umbrella: string): string {
+  return (
+    `Sobre «${umbrella}»: explicaría por qué puede funcionar y qué comprobaría con audiencia real antes de bajar a piezas.`
+  );
+}
+
+function buildMinimalFallback(
+  mode: ResponseMode | undefined,
   args: BuildBrainstormerOutputFallbackArgs,
-  brandDna?: string | null,
+  brand: string,
 ): string {
-  return buildConceptualStrategyFallback({
-    working_brief: args.working_brief,
-    last_user_message: args.last_user_message,
-    brand_dna: brandDna,
-  });
-}
+  const umbrella = safeConfirmedUmbrella(args.working_brief);
+  const hasUmbrella = Boolean(umbrella);
+  const last = args.last_user_message?.trim() ?? "";
 
-function buildCampaignExpectationFallback(
-  brief: BrainstormerWorkingBrief,
-  lastUserMessage?: string,
-): string {
-  const paraguas = umbrellaPhrase(brief, lastUserMessage);
-  const anchor = paraguas ? ` ${paraguas}` : " el concepto confirmado";
+  if (mode === "explain_simple" || args.turn_intent === "user_confusion") {
+    return buildExplainSimpleFallback(brand);
+  }
+
+  if (
+    mode === "advance_next_step" ||
+    (last && /\bcomo\s+(hago|lo\s+hago)\b/i.test(last))
+  ) {
+    return buildHowToFallback(brand, hasUmbrella);
+  }
+
+  if (isProjectStatusOrLaunchBriefMessage(last) || mode === "guide_to_concept") {
+    if (isProjectStatusOrLaunchBriefMessage(last)) {
+      return buildAcquisitionFallback(brand);
+    }
+    return buildHowToFallback(brand, hasUmbrella);
+  }
+
+  if (mode === "propose_alternatives") {
+    return buildRejectionFallback();
+  }
+
+  if (mode === "answer_audience") {
+    return (
+      `Definiría primero quién tiene el deseo o la tensión que ${brand} resuelve, con motivación y barrera concretas. ` +
+      "Con esa audiencia clara, el paraguas puede afinarse — no hace falta tenerlo cerrado para responder esto."
+    );
+  }
+
+  if (
+    hasUmbrella &&
+    (mode === "validate_concept" ||
+      mode === "answer_tactic_if_ready" ||
+      mode === "answer_conversion" ||
+      args.turn_intent === "conversion_bridge")
+  ) {
+    return buildValidatedUmbrellaFallback(umbrella);
+  }
+
   return (
-    `En expectativa ocultamos el producto real detrás de un sketch con producto falso bajo${anchor}: ` +
-    `instalamos tensión con lo que la marca insinúa sin mostrar todo. Revelamos el producto real en lanzamiento ` +
-    `y damos un gancho para que la audiencia quiera seguir. No es un calendario de teasers: es un mecanismo ` +
-    `de tensión que conecta con el paraguas y prepara la conversión después.`
+    `Respondo directo a tu pregunta, sin usar tu frase como concepto de campaña. ` +
+    `Para ${brand}, el siguiente paso estratégico va antes de piezas o redes.`
   );
 }
 
-/** Fallback interno mínimo por intent + modelo (diseñado para pasar validación). */
+/** Fallback interno mínimo — consultor, no generador de conceptos. */
 export function buildBrainstormerOutputFallback(
   args: BuildBrainstormerOutputFallbackArgs,
-  options?: { brand_dna_lacks_evidence?: boolean; brand_dna?: string | null },
+  options?: {
+    brand_dna_lacks_evidence?: boolean;
+    brand_dna?: string | null;
+    brand_name?: string;
+  },
 ): string {
-  const effectiveKey = resolveValidationThinkingKey({
-    thinking_model_key: args.thinking_model_key,
-    resolved_primary_model_key: args.resolved_primary_model_key,
-  });
+  const brand = brandLabel(options?.brand_name);
+  const mode = args.interpretation?.response_mode;
 
-  const last = args.last_user_message;
-
-  if (args.turn_intent === "conversion_bridge" && effectiveKey === "explorer") {
-    return buildDisruptorConversionFallback(args.working_brief, last);
-  }
-  if (args.turn_intent === "conversion_bridge" && effectiveKey === "commercial") {
-    return buildCommercialConversionFallback(
-      args.working_brief,
-      options?.brand_dna_lacks_evidence ?? true,
-      last,
-    );
-  }
-  if (args.turn_intent === "conceptual_strategy_request" || args.turn_intent === "strategic_concept") {
-    return buildConceptualFallback(args, options?.brand_dna);
-  }
-  if (args.turn_intent === "campaign_expectation" || args.turn_intent === "campaign_stage_inquiry") {
-    return buildCampaignExpectationFallback(args.working_brief, last);
-  }
-
-  const paraguas = resolveDisplayUmbrella(args.working_brief, last);
-  if (paraguas) {
-    return (
-      `Mi recomendación sigue anclada en «${paraguas}»: una dirección clara, sin territorios genéricos ` +
-      `ni menú de opciones. El siguiente paso sería bajar esa idea a la pieza concreta que pidieron.`
-    );
-  }
-  return (
-    "Mi recomendación es una dirección clara en prosa, alineada al pedido del usuario " +
-    "y sin clichés de descubrimiento o curiosidad vacía."
-  );
+  return buildMinimalFallback(mode, args, brand);
 }
 
 export function brandDnaLacksCredibilityFromBlock(brand_dna: string | null | undefined): boolean {

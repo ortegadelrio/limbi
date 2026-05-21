@@ -49,10 +49,10 @@ describe("Boringstore — hilo con memoria de paraguas y etapas", () => {
 
     expect(classifyBrainstormerTurnIntent(BORINGSTORE_THREAD[2]!)).toBe("next_step");
     expect(contract.include_closing_question).toBe(false);
-    expect(contract.response_obligation).toMatch(/expectativa|lanzamiento|conversi[oó]n|sostenimiento/i);
-    expect(contract.response_obligation).not.toMatch(/2–3 paraguas/i);
+    expect(contract.response_obligation).toMatch(/pasos|pregunta|paraguas/i);
+    expect(contract.response_obligation).not.toMatch(/2–3 paraguas|trabajar.*como eje/i);
     expect(contract.forbidden_response_patterns.join(" ")).toMatch(
-      /familia genérica de descubrimiento|curiosidad decorativa/i,
+      /Yo trabajaría|como eje de la campaña/i,
     );
 
     const block = buildWorkingBriefPromptBlock(brief);
@@ -71,9 +71,8 @@ describe("Boringstore — hilo con memoria de paraguas y etapas", () => {
     });
 
     expect(classifyBrainstormerTurnIntent(BORINGSTORE_THREAD[3]!)).toBe("campaign_stage_inquiry");
-    expect(contract.response_obligation).toMatch(/expectativa|prelanzamiento|lanzamiento|conversi[oó]n|sostenimiento/i);
-    expect(contract.response_obligation).toMatch(/NO producción|conceptualizaci[oó]n|desarrollo de contenido/i);
-    expect(contract.response_obligation).not.toMatch(/solo desarrollo de contenido como etapa/i);
+    expect(contract.response_obligation).toMatch(/pregunta|paraguas|eje/i);
+    expect(contract.response_obligation).not.toMatch(/trabajar.*como eje/i);
 
     const prompt = buildConversationContractPromptBlock(contract);
     expect(prompt).toMatch(/interno: paraguas confirmado.*no sab[ií]as/i);
@@ -90,11 +89,9 @@ describe("Boringstore — hilo con memoria de paraguas y etapas", () => {
     });
 
     expect(classifyBrainstormerTurnIntent(BORINGSTORE_THREAD[4]!)).toBe("conversion_bridge");
-    expect(contractDisruptor.response_obligation).toMatch(
-      /producto falso|mecanismo creativo|deseo inesperado|no sab[ií]as/i,
-    );
+    expect(contractDisruptor.response_obligation).toMatch(/pregunta|paraguas|compra/i);
     expect(contractDisruptor.forbidden_response_patterns.join(" ")).toMatch(
-      /SEO genérico|checklist e-commerce/i,
+      /Yo trabajaría|como eje de la campaña/i,
     );
 
     const contractCommercial = buildConversationContractForTurn({
@@ -103,7 +100,7 @@ describe("Boringstore — hilo con memoria de paraguas y etapas", () => {
       conversationExcerpt: buildExcerptThrough(4),
       thinkingPrimaryKey: "commercial",
     });
-    expect(contractCommercial.response_obligation).toMatch(/landing|CTA|carrito|objeción|prueba/i);
-    expect(contractDisruptor.response_obligation).not.toBe(contractCommercial.response_obligation);
+    expect(contractCommercial.response_obligation).toMatch(/pregunta|paraguas/i);
+    expect(contractCommercial.response_obligation).toBe(contractDisruptor.response_obligation);
   });
 });

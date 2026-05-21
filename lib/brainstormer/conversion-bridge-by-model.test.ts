@@ -119,23 +119,13 @@ describe("conversion_bridge — HOW por modelo (mismo ADN, brief, mensaje)", () 
     expect(disruptor.brief.confirmed_conceptual_umbrella).toMatch(/no sab[ií]as/i);
   });
 
-  it("THIS TURN difiere entre Disruptor y Comercial", () => {
+  it("THIS TURN: conversion_bridge con obligación mínima compartida", () => {
     expect(disruptor.contract.turn_intent).toBe("conversion_bridge");
-    expect(disruptor.contract.response_obligation).not.toBe(
+    expect(disruptor.contract.response_obligation).toBe(
       commercial.contract.response_obligation,
     );
-  });
-
-  it("Disruptor: mecanismo creativo / producto falso / deseo inesperado", () => {
-    const o = disruptor.contract.response_obligation;
-    expect(o).toMatch(/producto falso|mecanismo creativo|deseo inesperado|esto no existe/i);
-    expect(o).not.toMatch(/objeción.*prueba.*carrito/i);
-  });
-
-  it("Comercial: landing / CTA / compra / objeción / carrito", () => {
-    const o = commercial.contract.response_obligation;
-    expect(o).toMatch(/landing|CTA|carrito|objeción|prueba|arquitectura de venta/i);
-    expect(o).not.toMatch(/esto no existe, pero esto sí/i);
+    expect(disruptor.contract.response_obligation).toMatch(/pregunta|paraguas|compra/i);
+    expect(disruptor.contract.response_obligation).not.toMatch(/producto falso abre la conversaci/i);
   });
 
   it("full_input sin clichés literales; AVOID con familias codificadas", () => {
@@ -144,16 +134,16 @@ describe("conversion_bridge — HOW por modelo (mismo ADN, brief, mensaje)", () 
         expect(built.full_input).not.toContain(cliche);
       }
       const forbidden = contract.forbidden_response_patterns.join(" ");
-      expect(forbidden).toMatch(/familia genérica de descubrimiento|curiosidad decorativa/i);
+      expect(forbidden).toMatch(/Yo trabajaría|como eje de la campaña/i);
       expect(forbidden).not.toMatch(/Descubre lo inesperado/);
       expect(built.full_input).not.toMatch(/Descubre lo inesperado|Explora lo extraordinario|Momentos mágicos/);
     }
   });
 
-  it("bloques thinking + THIS TURN no son iguales entre modelos", () => {
+  it("bloques thinking difieren; THIS TURN comparte obligación mínima", () => {
     const dBlock = buildConversationContractPromptBlock(disruptor.contract);
     const cBlock = buildConversationContractPromptBlock(commercial.contract);
-    expect(dBlock).not.toBe(cBlock);
+    expect(dBlock).toBe(cBlock);
     expect(disruptor.built.full_input).not.toBe(commercial.built.full_input);
   });
 });

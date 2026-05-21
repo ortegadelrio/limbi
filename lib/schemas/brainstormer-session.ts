@@ -36,6 +36,33 @@ export const brainstormerSuggestedProjectTypeSchema = z.enum([
   "other",
 ]);
 
+/** Hallazgo de investigación externa — pendiente de aprobación para el brief de sesión. */
+export const externalResearchFindingSchema = z.object({
+  query: z.string().max(500),
+  source_title: z.string().max(300),
+  source_url: z.string().max(2000),
+  finding: z.string().max(2000),
+  strategic_reading: z.string().max(2000),
+  relevance: z.string().max(1000),
+  approved_for_session: z.boolean().default(false),
+});
+
+export type ExternalResearchFinding = z.infer<typeof externalResearchFindingSchema>;
+
+/** Preview estructurado para handoff Brainstormer → Proyecto (sin crear proyecto en DB). */
+export const projectHandoffPreviewSchema = z.object({
+  project_type: z.string().max(200),
+  objective: z.string().max(2000),
+  confirmed_umbrella: z.string().max(300),
+  audience_initial: z.string().max(2000),
+  campaign_mechanism: z.string().max(2000),
+  conversion_bridge: z.string().max(2000),
+  suggested_deliverables: z.array(z.string().max(300)).max(12),
+  pending_questions: z.array(z.string().max(500)).max(8),
+});
+
+export type ProjectHandoffPreview = z.infer<typeof projectHandoffPreviewSchema>;
+
 /** Salida estructurada del modelo (resumen operativo de sesión + señales hacia proyecto). */
 export const brainstormerSessionProgressSchema = z.object({
   session_summary: z.string().max(8000),
@@ -55,6 +82,10 @@ export const brainstormerSessionProgressSchema = z.object({
   missing_project_inputs: z.array(z.string().max(500)).max(24),
   /** Brief vivo: restricciones, correcciones, rutas rechazadas (Conversation Contract). */
   working_brief: brainstormerWorkingBriefSchema.optional(),
+  /** Investigación externa bajo demanda; no modifica Brand DNA ni paraguas sin aprobación. */
+  external_research_findings: z.array(externalResearchFindingSchema).max(40).optional(),
+  /** Último preview de handoff a Proyecto (cuando el usuario pide pasar a proyecto). */
+  project_handoff_preview: projectHandoffPreviewSchema.nullable().optional(),
 });
 
 export const brainstormerTurnOutputSchema = z.object({
@@ -88,6 +119,8 @@ export function emptyBrainstormerSessionProgress(): BrainstormerSessionProgressP
     should_suggest_project_conversion: false,
     project_seed_summary: "",
     missing_project_inputs: [],
+    external_research_findings: [],
+    project_handoff_preview: null,
   };
 }
 

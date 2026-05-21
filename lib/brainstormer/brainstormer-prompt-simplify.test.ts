@@ -133,12 +133,12 @@ describe("Boringstore — paraguas conceptual cualitativo (contrato)", () => {
 
     expect(contract.include_closing_question).toBe(false);
     expect(contract.effective_closing_question).toBeNull();
-    expect(contract.response_obligation).toMatch(/postura|paraguas conceptual/i);
-    expect(contract.response_obligation).toMatch(/despliega|por qué funciona|Ese es el paraguas/i);
+    expect(contract.response_obligation).toMatch(/pregunta|paraguas|validar/i);
+    expect(contract.response_obligation).toMatch(/validar|paraguas|pregunta/i);
     expect(contract.response_obligation).toMatch(/postura|paraguas|prosa/i);
     expect(contract.response_obligation).not.toMatch(/DISRUPTOR \(HOW\)|2–3 paraguas/i);
     expect(contract.forbidden_response_patterns.join(" ")).toMatch(
-      /familia genérica de descubrimiento/i,
+      /Yo trabajaría|como eje de la campaña/i,
     );
 
     const block = buildConversationContractPromptBlock(contract);

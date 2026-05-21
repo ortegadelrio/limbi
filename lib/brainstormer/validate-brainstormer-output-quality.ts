@@ -7,6 +7,8 @@ import type {
   BrainstormerTurnIntent,
   BrainstormerWorkingBrief,
 } from "@/lib/brainstormer/conversation-contract";
+import type { BrainstormerTurnInterpretation } from "@/lib/brainstormer/turn-interpreter";
+import { priorHasConfirmedConcept } from "@/lib/brainstormer/turn-interpreter";
 import { GENERIC_TACTIC_PATTERNS } from "@/lib/brainstormer/conversation-contract";
 import {
   brandDnaLacksCredibilityFromBlock,
@@ -14,16 +16,26 @@ import {
 } from "@/lib/brainstormer/build-brainstormer-output-fallback";
 import {
   assistantMessageHasVisibleLeaks,
+  ensureUserFacingAssistantMessage,
   findVisibleLeakIssues,
 } from "@/lib/brainstormer/sanitize-visible-assistant-message";
-import { normalizeStoredConceptualUmbrella } from "@/lib/brainstormer/working-brief-memory";
+import { findInventedBrandNamingIssues } from "@/lib/brainstormer/brand-naming-guard";
+import {
+  isUserConfusionPhrase,
+  isValidConceptualUmbrellaCandidate,
+  resolveDisplayUmbrella,
+  storedUmbrellaMatchesUserMessage,
+} from "@/lib/brainstormer/working-brief-memory";
 
 function resolvedUmbrellaForValidation(
   brief: BrainstormerWorkingBrief,
   lastUserMessage?: string,
+  interpretation?: BrainstormerTurnInterpretation,
 ): string {
-  const raw = brief.confirmed_conceptual_umbrella.trim();
-  return normalizeStoredConceptualUmbrella(raw, lastUserMessage) || raw;
+  if (interpretation) {
+    return brief.confirmed_conceptual_umbrella.trim();
+  }
+  return resolveDisplayUmbrella(brief, lastUserMessage);
 }
 
 export type ValidateBrainstormerOutputQualityArgs = {
@@ -35,6 +47,9 @@ export type ValidateBrainstormerOutputQualityArgs = {
   working_brief: BrainstormerWorkingBrief;
   brand_dna?: string | null;
   last_user_message?: string;
+  brand_name?: string;
+  /** Autoridad del turno — valida sin re-interpretar el mensaje del usuario. */
+  turn_interpretation?: BrainstormerTurnInterpretation;
 };
 
 export type BrainstormerOutputQualityResult = {
@@ -234,68 +249,115 @@ export function hasDisruptorBridgePhrase(message: string): boolean {
   return containsAny(message, DISRUPTOR_BRIDGE_PHRASE_PATTERNS);
 }
 
+function validateRawUserMessageAsConceptAnchor(
+  message: string,
+  args: ValidateBrainstormerOutputQualityArgs,
+): string[] {
+  const issues: string[] = [];
+  const last = args.last_user_message?.trim() ?? "";
+  if (!last || last.length < 8) return issues;
+
+  const nLast = normalize(last);
+  const nMsg = normalize(message);
+
+  if (
+    /\byo\s+trabajar[ií]a\s+«/.test(nMsg) ||
+    /\bseguir[ií]a\s+con\s+«/.test(nMsg) ||
+    /\bcomo\s+eje\s+de\s+la\s+campa[nñ]a\b/.test(nMsg)
+  ) {
+    if (nMsg.includes(nLast.slice(0, Math.min(32, nLast.length)))) {
+      issues.push("Usa el mensaje del usuario como eje o paraguas de campaña.");
+    }
+  }
+
+  const briefUmbrella = args.working_brief.confirmed_conceptual_umbrella.trim();
+  const authorizedUmbrella = Boolean(
+    args.turn_interpretation?.memory_update.update_umbrella &&
+      args.turn_interpretation.memory_update.umbrella_candidate?.trim(),
+  );
+
+  if (!authorizedUmbrella) {
+    const quotedUser =
+      nMsg.includes(`«${nLast}»`) ||
+      nMsg.includes(`"${last}"`) ||
+      nMsg.includes(`'${last}'`);
+    if (quotedUser && !isValidConceptualUmbrellaCandidate(last)) {
+      issues.push("Cita el mensaje completo del usuario como paraguas o concepto.");
+    }
+  }
+
+  if (
+    (args.turn_interpretation?.response_mode === "explain_simple" ||
+      args.turn_interpretation?.conversation_act === "user_confusion") &&
+    (/\bmi\s+paraguas\s+ser[ií]a\b/.test(nMsg) || /\bpropondr[ií]a\s+«/.test(nMsg))
+  ) {
+    issues.push("En confusión no debe proponer un eje creativo nuevo.");
+  }
+
+  if (briefUmbrella && storedUmbrellaMatchesUserMessage(briefUmbrella, last)) {
+    issues.push("Paraguas confirmado coincide con el mensaje del usuario (no autorizado).");
+  }
+
+  return issues;
+}
+
+function validateAgainstInterpretation(
+  message: string,
+  args: ValidateBrainstormerOutputQualityArgs,
+): string[] {
+  const interp = args.turn_interpretation;
+  if (!interp) return [];
+
+  const issues: string[] = [];
+  if (
+    (interp.conversation_act === "rejecting_concept" ||
+      interp.conversation_act === "asking_alternatives" ||
+      interp.response_mode === "propose_alternatives") &&
+    /\bese\s+es\s+el\s+paraguas\b/i.test(message) &&
+    /\bno\s+lo\s+cambiar[ií]a\b/i.test(message)
+  ) {
+    issues.push("Defiende paraguas cuando el usuario pidió rechazo o alternativas.");
+  }
+
+  if (interp.response_mode === "explain_simple" && isUserConfusionPhrase(args.last_user_message ?? "")) {
+    const confusion = args.last_user_message?.trim() ?? "";
+    if (confusion.length >= 8 && normalize(message).includes(normalize(confusion).slice(0, 20))) {
+      issues.push("Usa la frase de confusión del usuario como eje.");
+    }
+  }
+
+  return issues;
+}
+
 function validateUniversal(
   message: string,
   args: ValidateBrainstormerOutputQualityArgs,
-  effectiveKey: ThinkingModelKey,
 ): string[] {
   const issues: string[] = [];
-  const t = normalize(message);
-
-  if (message.trim().length < 40) {
-    issues.push("Respuesta demasiado corta o sin avance útil.");
-  }
 
   issues.push(...findVisibleLeakIssues(message));
+  issues.push(
+    ...findInventedBrandNamingIssues(message, args.brand_name, args.last_user_message),
+  );
+  issues.push(...validateRawUserMessageAsConceptAnchor(message, args));
+  issues.push(...validateAgainstInterpretation(message, args));
 
-  if (containsAny(message, GENERIC_CONCEPT_CLICHE_PATTERNS)) {
-    issues.push("Usa frase o concepto genérico de categoría (descubrimiento/inesperado vacío).");
-  }
-
-  if (args.last_user_message?.trim()) {
-    const userNorm = normalize(args.last_user_message);
-    const asksConversion = /\bcompra|venta|carrito|convertir|pagina\b/i.test(userNorm);
-    const answersConversion = /\bcompra|producto real|landing|carrito|cta\b/i.test(t);
-    const asksConcept = /\bconcepto|paraguas|mensaje conector|idea madre\b/i.test(userNorm);
-    const answersConcept = CONCEPTUAL_POSTURE_MARKERS.some((p) => p.test(message));
-    if (asksConversion && !answersConversion && args.turn_intent === "conversion_bridge") {
-      issues.push("No responde al pedido de conversión/compra del usuario.");
-    }
-    if (asksConcept && !answersConcept && args.turn_intent === "conceptual_strategy_request") {
-      issues.push("No responde al pedido conceptual del usuario.");
-    }
-  }
-
-  const umbrella = args.working_brief.confirmed_conceptual_umbrella.trim();
-  if (umbrella && !normalize(message).includes(normalize(umbrella).slice(0, 12))) {
-    const umbrellaTokens = normalize(umbrella).split(/\s+/).filter((w) => w.length > 4);
-    const hasToken = umbrellaTokens.some((tok) => t.includes(tok));
-    if (!hasToken && countMatches(message, GENERIC_TERRITORY_MARKERS) >= 2) {
-      issues.push(`No ancla al paraguas confirmado («${umbrella.slice(0, 80)}»).`);
-    }
-  }
-
-  for (const rejected of args.working_brief.rejected_paths.slice(-3)) {
-    const fragment = normalize(rejected).slice(0, 40);
-    if (fragment.length > 12 && t.includes(fragment)) {
-      issues.push("Retoma una ruta rechazada en sesión.");
-      break;
-    }
-  }
-
+  const umbrella = resolvedUmbrellaForValidation(
+    args.working_brief,
+    args.last_user_message,
+    args.turn_interpretation,
+  );
   if (
-    args.turn_intent !== "conversion_bridge" &&
-    countMatches(message, GENERIC_TERRITORY_MARKERS) >= 2
+    umbrella &&
+    isValidConceptualUmbrellaCandidate(umbrella) &&
+    priorHasConfirmedConcept(args.working_brief) &&
+    /\byo\s+trabajar[ií]a\s+«[^»]{3,120}»\s+como\s+eje/i.test(message) &&
+    !normalize(message).includes(normalize(umbrella).slice(0, 12))
   ) {
-    issues.push("Lenguaje de territorio genérico (descubrimiento/curiosidad/joyas ocultas).");
-  }
-
-  if (
-    (args.turn_intent === "conceptual_strategy_request" || args.turn_intent === "strategic_concept") &&
-    countMatches(message, GENERIC_TACTIC_PATTERNS) >= 2 &&
-    countMatches(message, CONCEPTUAL_POSTURE_MARKERS) === 0
-  ) {
-    issues.push("Baja a tácticas sin resolver el concepto pedido.");
+    const wrongQuote = message.match(/yo\s+trabajar[ií]a\s+«([^»]+)»/i)?.[1]?.trim();
+    if (wrongQuote && storedUmbrellaMatchesUserMessage(wrongQuote, args.last_user_message ?? "")) {
+      issues.push("Contradice el paraguas confirmado usando el mensaje del usuario como eje.");
+    }
   }
 
   return issues;
@@ -468,60 +530,26 @@ function validateByModel(
 function buildRepairInstruction(
   issues: string[],
   args: ValidateBrainstormerOutputQualityArgs,
-  effectiveKey: ThinkingModelKey,
 ): string | undefined {
   if (issues.length === 0) return undefined;
 
-  const umbrella = args.working_brief.confirmed_conceptual_umbrella.trim();
-  const umbrellaNote = umbrella ? ` Paraguas confirmado: «${umbrella}».` : "";
-
-  if (args.turn_intent === "conversion_bridge" && effectiveKey === "explorer") {
+  if (issues.some((i) => /Inventa nombre|Propone marca/i.test(i)) && args.brand_name?.trim()) {
     return (
-      `${REPAIR_REPLACE_PREFIX} Desde Disruptor: escribe UN mecanismo creativo de conversión. ` +
-      "OBLIGATORIO incluir en el texto (puedes parafrasear, pero debe quedar claro): " +
-      "(a) la frase «El producto falso abre la conversación; el producto real captura la compra» o equivalente; " +
-      "(b) el puente «esto no existe, pero esto sí» o formulación equivalente muy explícita; " +
-      "(c) producto falso o gancho de expectativa; (d) producto real o categoría real conectada; (e) acción hacia página/compra y deseo inesperado. " +
-      "PROHIBIDO como eje: producto inusual, curiosidad, sorpresa, descubrimiento, landing genérica, CTA genérico, testimonios, teasers." +
-      umbrellaNote
+      `${REPAIR_REPLACE_PREFIX} No inventes un nombre de marca distinto. La marca de la sesión es «${args.brand_name.trim()}». ` +
+      "Responde sobre esa marca real."
     );
   }
 
-  if (args.turn_intent === "conversion_bridge" && effectiveKey === "commercial") {
-    const proofNote = brandDnaLacksCredibilityEvidence(args.brand_dna)
-      ? " OBLIGATORIO: producto real; landing o página; CTA; carrito o compra; objeción/fricción; prueba futura con «cuando existan reseñas verificadas» o «reacciones reales de usuarios» — NO testimonios ni reseñas como hechos. NO descuento/cupón como solución central."
-      : " OBLIGATORIO: producto real; landing o página; CTA; carrito o compra; objeción/fricción; prueba (real o futura).";
+  if (issues.some((i) => /mensaje del usuario como eje|como paraguas|confusión del usuario/i.test(i))) {
     return (
-      `${REPAIR_REPLACE_PREFIX} Desde Comercial: conecta concepto → deseo → producto real → landing/página → CTA → carrito → compra.` +
-      proofNote +
-      umbrellaNote
-    );
-  }
-
-  if (args.turn_intent === "conceptual_strategy_request" || args.turn_intent === "strategic_concept") {
-    const validateUserPhrase =
-      umbrella && args.last_user_message && /no sab[ií]as|paraguas|concepto|mensaje conector/i.test(args.last_user_message)
-        ? ` Si el usuario trae «${umbrella}» o una frase similar, DEBES decir explícitamente: «Ese es el paraguas. No lo cambiaría.» y explicar por qué funciona.`
-        : "";
-    return (
-      `${REPAIR_REPLACE_PREFIX} Toma postura con UNA idea rectora (no «Descubre lo inesperado», «Lo inesperado en lo cotidiano», curiosidad creativa ni territorios genéricos). ` +
-      "Explica por qué funciona y cómo ordena la campaña. Sin tácticas ni teasers." +
-      validateUserPhrase +
-      umbrellaNote
-    );
-  }
-
-  if (args.turn_intent === "campaign_expectation" || args.turn_intent === "campaign_stage_inquiry") {
-    return (
-      `${REPAIR_REPLACE_PREFIX} Explica el mecanismo de expectativa con estas piezas en prosa: ` +
-      "qué se oculta; qué se revela; qué tensión se instala; por qué la audiencia querría seguir; cómo conecta con el paraguas confirmado. " +
-      "NO teasers visuales, curiosidad ni expectativa genérica como respuesta principal." +
-      umbrellaNote
+      `${REPAIR_REPLACE_PREFIX} No uses el mensaje del usuario como paraguas ni eje de campaña. ` +
+      "Responde en prosa directa a su pregunta; si no entiende, explica más simple sin proponer un concepto nuevo."
     );
   }
 
   return (
-    `${REPAIR_REPLACE_PREFIX} Corrige: ${issues.slice(0, 3).join(" ")}.${umbrellaNote} Prosa conversacional, una recomendación con postura.`
+    `${REPAIR_REPLACE_PREFIX} Corrige: ${issues.slice(0, 2).join(" ")}. ` +
+    "Responde como consultor: claro, directo, sin citar el mensaje del usuario como concepto."
   );
 }
 
@@ -529,36 +557,15 @@ export function validateBrainstormerOutputQuality(
   args: ValidateBrainstormerOutputQualityArgs,
 ): BrainstormerOutputQualityResult {
   const message = args.assistant_message.trim();
-  const effectiveKey = resolveValidationThinkingKey({
-    thinking_model_key: args.thinking_model_key,
-    resolved_primary_model_key: args.resolved_primary_model_key,
-  });
 
-  const issues: string[] = [
-    ...validateUniversal(message, args, effectiveKey),
-    ...validateByModel(message, effectiveKey, args.turn_intent),
-  ];
-
-  if (args.turn_intent === "conceptual_strategy_request" || args.turn_intent === "strategic_concept") {
-    issues.push(...validateConceptualStrategy(message));
-  }
-  if (args.turn_intent === "conversion_bridge") {
-    if (effectiveKey === "explorer") {
-      issues.push(...validateConversionBridgeDisruptor(message));
-    } else if (effectiveKey === "commercial") {
-      issues.push(...validateConversionBridgeCommercial(message, args.brand_dna));
-    }
-  }
-  if (args.turn_intent === "campaign_expectation" || args.turn_intent === "campaign_stage_inquiry") {
-    issues.push(...validateCampaignExpectation(message, args.working_brief));
-  }
+  const issues: string[] = [...validateUniversal(message, args)];
 
   const uniqueIssues = [...new Set(issues)];
   const ok = uniqueIssues.length === 0;
   return {
     ok,
     issues: uniqueIssues,
-    repair_instruction: ok ? undefined : buildRepairInstruction(uniqueIssues, args, effectiveKey),
+    repair_instruction: ok ? undefined : buildRepairInstruction(uniqueIssues, args),
   };
 }
 
@@ -591,10 +598,12 @@ function buildFallbackMessage(args: Parameters<typeof applyBrainstormerOutputQua
       resolved_primary_model_key: args.resolved_primary_model_key,
       working_brief: args.working_brief,
       last_user_message: args.last_user_message,
+      interpretation: args.turn_interpretation,
     },
     {
       brand_dna_lacks_evidence: brandDnaLacksCredibilityFromBlock(args.brand_dna),
       brand_dna: args.brand_dna,
+      brand_name: args.brand_name,
     },
   );
 }
@@ -611,6 +620,8 @@ function validateForGate(
     working_brief: args.working_brief,
     brand_dna: args.brand_dna,
     last_user_message: args.last_user_message,
+    brand_name: args.brand_name,
+    turn_interpretation: args.turn_interpretation,
   });
 }
 
@@ -619,13 +630,19 @@ function applyControlledFallback(
   preRepairIssues: string[],
   repairFlags: { attempted: boolean; used: boolean; stillFailed: boolean },
 ): BrainstormerOutputQualityGateResult {
-  const fallbackMessage = buildFallbackMessage(args);
+  const ensured = ensureUserFacingAssistantMessage({
+    message: buildFallbackMessage(args),
+    buildSafeFallback: () => buildFallbackMessage(args),
+  });
+  const fallbackMessage = ensured.message;
   const fallbackQuality = validateForGate(fallbackMessage, args);
 
-  if (!fallbackQuality.ok) {
+  if (!fallbackQuality.ok || ensured.replaced) {
     // eslint-disable-next-line no-console
     console.warn("[brainstormer] fallback validation failed", {
       issues: fallbackQuality.issues,
+      visible_sanitize: ensured.replaced,
+      used_absolute_safe: ensured.usedAbsoluteSafe,
     });
   }
 
@@ -651,24 +668,27 @@ function finalizeVisibleMessage(
     fallbackUsed: boolean;
   },
 ): BrainstormerOutputQualityGateResult {
-  const trimmed = message.trim();
-  if (!assistantMessageHasVisibleLeaks(trimmed)) {
-    const quality = validateForGate(trimmed, args);
-    return {
-      assistant_message: trimmed,
-      quality,
-      repair_attempted: repairFlags.attempted,
-      repair_used: repairFlags.used,
-      repair_still_failed: repairFlags.stillFailed && !repairFlags.fallbackUsed,
-      fallback_used: repairFlags.fallbackUsed,
-      pre_repair_issues: preRepairIssues,
-    };
-  }
-  return applyControlledFallback(args, preRepairIssues, {
-    attempted: repairFlags.attempted,
-    used: repairFlags.used,
-    stillFailed: true,
+  const ensured = ensureUserFacingAssistantMessage({
+    message,
+    buildSafeFallback: () => buildFallbackMessage(args),
   });
+  if (ensured.replaced) {
+    return applyControlledFallback(args, preRepairIssues, {
+      attempted: repairFlags.attempted,
+      used: repairFlags.used,
+      stillFailed: true,
+    });
+  }
+  const quality = validateForGate(ensured.message, args);
+  return {
+    assistant_message: ensured.message,
+    quality,
+    repair_attempted: repairFlags.attempted,
+    repair_used: repairFlags.used,
+    repair_still_failed: repairFlags.stillFailed && !repairFlags.fallbackUsed,
+    fallback_used: repairFlags.fallbackUsed,
+    pre_repair_issues: preRepairIssues,
+  };
 }
 
 /**
@@ -684,6 +704,8 @@ export async function applyBrainstormerOutputQualityGate(args: {
   working_brief_block: string;
   thinking_model_block: string;
   brand_dna?: string | null;
+  brand_name?: string;
+  turn_interpretation?: BrainstormerTurnInterpretation;
   generateRepair?: (input: BrainstormerOutputRepairInput) => Promise<string>;
 }): Promise<BrainstormerOutputQualityGateResult> {
   const quality = validateBrainstormerOutputQuality({
@@ -694,6 +716,8 @@ export async function applyBrainstormerOutputQualityGate(args: {
     working_brief: args.working_brief,
     brand_dna: args.brand_dna,
     last_user_message: args.last_user_message,
+    brand_name: args.brand_name,
+    turn_interpretation: args.turn_interpretation,
   });
 
   if (quality.ok && !assistantMessageHasVisibleLeaks(args.assistant_message)) {
@@ -742,6 +766,8 @@ export async function applyBrainstormerOutputQualityGate(args: {
       working_brief: args.working_brief,
       brand_dna: args.brand_dna,
       last_user_message: args.last_user_message,
+      brand_name: args.brand_name,
+      turn_interpretation: args.turn_interpretation,
     });
 
     if (repairQuality.ok && !assistantMessageHasVisibleLeaks(repairedMessage)) {
