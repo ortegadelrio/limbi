@@ -1,4 +1,4 @@
-import type { BrainstormerWorkingBrief } from "@/lib/brainstormer/interpret-brainstormer-turn";
+import type { BrainstormerWorkingBrief } from "@/lib/brainstormer/conversation-contract";
 import { brainstormerTurnInterpretationSchema } from "@/lib/brainstormer/interpret-brainstormer-turn";
 import {
   conversationActSchema,

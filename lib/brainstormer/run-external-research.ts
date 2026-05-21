@@ -87,18 +87,8 @@ function parseFindingsJson(raw: string, query: string): ExternalResearchFinding[
     .filter((f) => !isPlaceholderResearchUrl(f.source_url));
 }
 
-function extractResponseText(response: {
-  output_text?: string | null;
-  output?: Array<{ content?: Array<{ text?: string }> }>;
-}): string {
-  const direct = response.output_text?.trim();
-  if (direct) return direct;
-  return (
-    response.output
-      ?.flatMap((o) => o.content ?? [])
-      .map((c) => c.text ?? "")
-      .join("") ?? ""
-  ).trim();
+function extractResponseText(response: { output_text?: string | null }): string {
+  return response.output_text?.trim() ?? "";
 }
 
 export async function runExternalResearch(
